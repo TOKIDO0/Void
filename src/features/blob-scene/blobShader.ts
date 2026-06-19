@@ -16,6 +16,8 @@ export const createBlobUniforms = () => ({
   uFresnelPower: { value: BLOB_SHADER_DEFAULTS.fresnelPower },
   uEdgeBoost: { value: 1 },
   uInternalFlow: { value: 1 },
+  uIrregularity: { value: 1 },
+  uTransitionEnergy: { value: 0 },
   uViewPosition: { value: new Vector3(0, 0, 5) }
 });
 
@@ -93,6 +95,8 @@ export const blobVertexShader = `
 uniform float uTime;
 uniform float uAmplitude;
 uniform float uNoiseSpeed;
+uniform float uIrregularity;
+uniform float uTransitionEnergy;
 
 varying vec3 vNormal;
 varying vec3 vWorldPosition;
@@ -107,10 +111,10 @@ float blobFbm(vec3 point) {
     snoise(point * 0.42 + vec3(time * 0.23, -time * 0.17, time * 0.11)),
     snoise(point * 0.36 + vec3(-time * 0.13, time * 0.21, time * 0.16)),
     snoise(point * 0.31 + vec3(time * 0.15, time * 0.09, -time * 0.19))
-  ) * 0.18;
+  ) * (0.18 * uIrregularity + 0.035 * uTransitionEnergy);
   vec3 warpedPoint = point + domainDrift;
   float firstLayer = snoise(warpedPoint * 0.8 + vec3(time * 0.16, time, time * 0.35));
-  float secondLayer = snoise(warpedPoint * 2.5 + vec3(time * 0.7, -time * 0.29, -time * 0.45));
+  float secondLayer = snoise(warpedPoint * (2.5 + uTransitionEnergy * 0.16) + vec3(time * 0.7, -time * 0.29, -time * 0.45));
   return firstLayer * 0.72 + secondLayer * 0.28;
 }
 
@@ -136,6 +140,7 @@ uniform vec3 uEdgeColor;
 uniform float uFresnelPower;
 uniform float uEdgeBoost;
 uniform float uInternalFlow;
+uniform float uTransitionEnergy;
 uniform vec3 uViewPosition;
 
 varying vec3 vNormal;
@@ -148,13 +153,14 @@ ${simplexNoise3d}
 void main() {
   vec3 normalDirection = normalize(vNormal);
   vec3 viewDirection = normalize(uViewPosition - vWorldPosition);
-  float time = uTime * 0.18;
+  float time = uTime * (0.18 + uTransitionEnergy * 0.035);
   float fresnel = pow(1.0 - max(dot(viewDirection, normalDirection), 0.0), uFresnelPower);
   float innerLarge = snoise(vObjectPosition * 1.15 + vec3(time * 0.9, -time * 0.42, time * 0.31));
-  float innerSmall = snoise(vObjectPosition * 3.4 + vec3(-time * 0.33, time * 0.74, -time * 0.52));
+  float innerSmall = snoise(vObjectPosition * (3.4 + uTransitionEnergy * 0.22) + vec3(-time * 0.33, time * 0.74, -time * 0.52));
   float innerFlow = innerLarge * 0.7 + innerSmall * 0.3;
-  float surfaceShade = 0.44 + vDisplacement * 0.1 + innerFlow * 0.085 * uInternalFlow;
-  float coreGlow = smoothstep(-0.35, 0.72, innerFlow) * 0.16;
+  float flowStrength = uInternalFlow + uTransitionEnergy * 0.16;
+  float surfaceShade = 0.44 + vDisplacement * 0.1 + innerFlow * 0.085 * flowStrength;
+  float coreGlow = smoothstep(-0.35, 0.72, innerFlow) * (0.16 + uTransitionEnergy * 0.025);
 
   vec3 innerColor = uBaseColor * (surfaceShade + coreGlow);
   vec3 rimColor = uEdgeColor * fresnel * (2.05 * uEdgeBoost);
