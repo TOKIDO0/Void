@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
 import gsap from "gsap";
 import { Color } from "three";
-import { BLOB_VISUAL_PROFILES, type VoidVisualState } from "../void-state/voidVisualState";
+import {
+  BLOB_COLOR_SCHEMES,
+  BLOB_VISUAL_PROFILES,
+  type VoidVisualState
+} from "../void-state/voidVisualState";
 
 export type BlobAnimatedValues = {
   scale: number;
@@ -26,10 +30,11 @@ export function useBlobStateAnimation(visualState: VoidVisualState) {
 
   useEffect(() => {
     const profile = BLOB_VISUAL_PROFILES[visualState];
-    const nextBaseColor = new Color(profile.baseColor);
-    const nextEdgeColor = new Color(profile.edgeColor);
+    const colorScheme = BLOB_COLOR_SCHEMES[profile.colorScheme];
+    const nextBaseColor = new Color(colorScheme.baseColor);
+    const nextEdgeColor = new Color(colorScheme.edgeColor);
 
-    const transition = gsap.timeline({ defaults: { duration: 1.15, ease: "sine.inOut" } });
+    const transition = gsap.timeline({ defaults: { duration: 1.65, ease: "sine.inOut" } });
     transition.to(animatedValuesRef.current, {
       scale: profile.scale,
       bloomIntensity: profile.bloomIntensity,
