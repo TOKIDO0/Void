@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.tmp-edge-*/
+server-*.log
+void-*.png
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# 一次性人脸亮度源预处理素材
+.facegen/

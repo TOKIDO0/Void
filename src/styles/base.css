@@ -1,0 +1,126 @@
+:root {
+  color: #f8f8f8;
+  background: #000000;
+  font-family:
+    "SFMono-Regular",
+    "Cascadia Mono",
+    "Consolas",
+    "Liberation Mono",
+    monospace;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: #000000;
+}
+
+.void-stage {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100dvh;
+  min-height: 560px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #000000;
+}
+
+/* 面部存在场：占满舞台的全屏字符画布容器 */
+.binary-face {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.binary-face__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* 呼吸与头部微转的 transform-origin / 透视由 GSAP 内联设置 */
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}
+
+/* 边缘压暗，强化“从黑暗浮现”，中心大范围留给面部 */
+.void-stage::after {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  content: "";
+  background:
+    radial-gradient(circle at 50% 45%, transparent 0 54%, rgba(0, 0, 0, 0.34) 84%, rgba(0, 0, 0, 0.72) 100%);
+}
+
+.voice-capsule {
+  position: absolute;
+  z-index: 3;
+  bottom: clamp(28px, 5.8vh, 58px);
+  left: 50%;
+  width: min(46vw, 376px);
+  min-width: 248px;
+  height: 58px;
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.018)),
+    rgba(0, 0, 0, 0.62);
+  box-shadow:
+    inset 0 0 24px rgba(255, 255, 255, 0.055),
+    0 0 28px rgba(214, 228, 226, 0.08);
+  opacity: 0.68;
+  transform: translateX(-50%);
+  transform-origin: 50% 50%;
+}
+
+.voice-capsule__inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.voice-capsule__chevron {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  border-right: 3px solid rgba(255, 255, 255, 0.36);
+  border-bottom: 3px solid rgba(255, 255, 255, 0.36);
+  transform: translate(-50%, -62%) rotate(45deg);
+}
+
+@media (max-width: 760px) {
+  .void-stage {
+    min-height: 520px;
+  }
+
+  .voice-capsule {
+    width: min(68vw, 320px);
+    min-width: 226px;
+    height: 54px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .binary-face__canvas {
+    transform: none !important;
+  }
+}
