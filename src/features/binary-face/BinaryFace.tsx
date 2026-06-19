@@ -149,13 +149,10 @@ export function BinaryFace() {
         ctx.globalAlpha = 1;
         ctx.shadowBlur = 0;
         ctx.clearRect(0, 0, cssWidth, cssHeight);
-        ctx.drawImage(staticLayer, 0, 0, cssWidth, cssHeight);
-
         configureContext(ctx, field, dpr);
         const state = stateRef.current;
-        const { dynamic, dynamicKind, ix, iy, mask, fog, grain, digit, px, py } = field;
-        for (let k = 0; k < dynamic.length; k += 1) {
-          const i = dynamic[k];
+        const { dynamicKind, ix, iy, mask, fog, grain, digit, px, py } = field;
+        for (let i = 0; i < digit.length; i += 1) {
           const l = editLuma(luma, ix[i], iy[i], dynamicKind[i], state);
           const ink = Math.max(mask[i] * inkCurve(l), fog[i]) * grain[i];
           if (ink < INK_THRESHOLD) {

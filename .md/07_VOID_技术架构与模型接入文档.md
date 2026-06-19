@@ -126,10 +126,9 @@ MVP 可以先做：
 
 Web MVP 第一闭环完成时应达到：
 
-- 可以看到黑底 0/1 VOID 脸。
+- 可以看到黑底 Blob 主体。
 - 可以切换 idle / listening / thinking / speaking。
-- 胶囊和脸部动效流畅。
+- 胶囊和主体动效流畅。
 - 可以配置至少一种 OpenAI-compatible API。
 - 可以完成一轮文本对话。
 - 对话回复使用 VOID system prompt。
-

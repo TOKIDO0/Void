@@ -59,10 +59,14 @@ export type FaceState = {
   gazeY: number;
   /** 嘴部张开：0 闭合，1 张开 */
   mouthOpen: number;
+  /** Head yaw driven by luma and sampling changes, not by rotating the canvas. */
+  headTurn: number;
+  /** Head pitch driven by luma and sampling changes. */
+  headNod: number;
 };
 
 export function createDefaultFaceState(): FaceState {
-  return { blink: 0, gazeX: 0, gazeY: 0, mouthOpen: 0 };
+  return { blink: 0, gazeX: 0, gazeY: 0, mouthOpen: 0, headTurn: 0, headNod: 0 };
 }
 
 /** 预解码的灰度亮度源，提供双线性采样。 */
@@ -192,18 +196,52 @@ const toImage = (px: number, py: number, p: Placement) => {
 
 /** 判断采样源坐标落在哪个动态区域。 */
 const dynamicKindAt = (ix: number, iy: number, size: number): number => {
-  const inBox = (cx: number, cy: number, rx: number, ry: number) =>
-    Math.abs(ix - cx * size) < rx * size && Math.abs(iy - cy * size) < ry * size;
-  if (inBox(LM.mouth.x, LM.mouth.y, LM.mouthRX * 1.5, LM.mouthRY * 2.6)) {
+  const inSoftOval = (cx: number, cy: number, rx: number, ry: number) => {
+    const dx = (ix - cx * size) / (rx * size);
+    const dy = (iy - cy * size) / (ry * size);
+    return dx * dx + dy * dy < 1;
+  };
+  if (inSoftOval(LM.mouth.x, LM.mouth.y, LM.mouthRX * 1.45, LM.mouthRY * 2.25)) {
     return 3;
   }
-  if (inBox(LM.eyeL.x, LM.eyeL.y, LM.eyeRX * 1.7, LM.eyeRY * 2.4)) {
+  if (inSoftOval(LM.eyeL.x, LM.eyeL.y, LM.eyeRX * 1.55, LM.eyeRY * 2.1)) {
     return 1;
   }
-  if (inBox(LM.eyeR.x, LM.eyeR.y, LM.eyeRX * 1.7, LM.eyeRY * 2.4)) {
+  if (inSoftOval(LM.eyeR.x, LM.eyeR.y, LM.eyeRX * 1.55, LM.eyeRY * 2.1)) {
     return 2;
   }
   return 0;
+};
+
+const applyHeadMotion = (
+  src: LumaSource,
+  ix: number,
+  iy: number,
+  state: FaceState
+) => {
+  const size = src.size;
+  const fcx = LM.faceCenter.x * size;
+  const fcy = LM.faceCenter.y * size;
+  const localX = (ix - fcx) / (LM.faceRX * size);
+  const localY = (iy - fcy) / (LM.faceRY * size);
+  const turn = clamp(state.headTurn, -1, 1);
+  const nod = clamp(state.headNod, -1, 1);
+
+  const depth = clamp(1 - Math.abs(localX) * 0.48 - Math.abs(localY) * 0.22, 0, 1);
+  const sampleX = ix - turn * depth * size * 0.018 + localX * Math.abs(turn) * size * 0.006;
+  const sampleY = iy - nod * depth * size * 0.01;
+  let luma = sampleLuma(src, sampleX, sampleY);
+
+  const sideLight = 0.16 * turn * localX;
+  const cheekCatch = gauss2(localX - turn * 0.42, localY + 0.03, 0.38, 0.55);
+  const noseCatch = gauss2(localX - turn * 0.14, localY + 0.02, 0.16, 0.45);
+  const shadowSide = gauss2(localX + turn * 0.54, localY, 0.42, 0.72);
+  const verticalLight =
+    nod * (0.08 * gauss2(localX, localY + 0.42, 0.8, 0.42) - 0.06 * gauss2(localX, localY - 0.42, 0.85, 0.42));
+
+  luma += sideLight + Math.abs(turn) * (0.1 * cheekCatch + 0.09 * noseCatch - 0.13 * shadowSide);
+  luma += verticalLight;
+  return clamp(luma, 0, 1);
 };
 
 /**
@@ -218,6 +256,7 @@ export const editLuma = (
   s: FaceState
 ): number => {
   const size = src.size;
+  const baseLuma = applyHeadMotion(src, ix, iy, s);
 
   if (kind === 1 || kind === 2) {
     const eye = kind === 1 ? LM.eyeL : LM.eyeR;
@@ -228,7 +267,7 @@ export const editLuma = (
     // 视线：仅眼区中心做微小位移，让虹膜/瞳孔随视线移动（眼睑几乎不动）
     const gx = s.gazeX * 7 * wEye;
     const gy = s.gazeY * 5 * wEye;
-    let luma = sampleLuma(src, ix - gx, iy - gy);
+    let luma = applyHeadMotion(src, ix - gx, iy - gy, s);
 
     // 眨眼：眼区亮度抬向眼睑肤色（采样眼上方皮肤），并压一条折痕暗线
     if (s.blink > 0) {
@@ -244,20 +283,21 @@ export const editLuma = (
     const mcx = LM.mouth.x * size;
     const mcy = LM.mouth.y * size;
     const o = s.mouthOpen;
-    let luma = sampleLuma(src, ix, iy);
+    let luma = baseLuma;
     // 嘴心凹陷：张开越大、开口越暗越高
-    const openH = LM.mouthRY * size * (0.42 + 0.9 * o);
-    const open = gauss2(ix - mcx, iy - mcy, LM.mouthRX * size * 0.74, openH);
-    luma -= (0.12 + 0.5 * o) * open;
+    const openH = LM.mouthRY * size * (0.34 + 1.55 * o);
+    const openW = LM.mouthRX * size * (0.48 + 0.28 * o);
+    const open = gauss2(ix - mcx, iy - mcy, openW, openH);
+    luma -= (0.16 + 0.72 * o) * open;
     // 上下唇缘略亮
-    const lipOff = LM.mouthRY * size * (0.55 + 0.7 * o);
-    const upper = gauss2(ix - mcx, iy - (mcy - lipOff), LM.mouthRX * size, size * 0.008);
-    const lower = gauss2(ix - mcx, iy - (mcy + lipOff), LM.mouthRX * size, size * 0.01);
-    luma += (0.05 + 0.12 * o) * upper + (0.06 + 0.14 * o) * lower;
+    const lipOff = LM.mouthRY * size * (0.42 + 1.12 * o);
+    const upper = gauss2(ix - mcx, iy - (mcy - lipOff), LM.mouthRX * size * 0.86, size * 0.01);
+    const lower = gauss2(ix - mcx, iy - (mcy + lipOff), LM.mouthRX * size * 0.9, size * 0.012);
+    luma += (0.08 + 0.2 * o) * upper + (0.09 + 0.24 * o) * lower;
     return clamp(luma, 0, 1);
   }
 
-  return sampleLuma(src, ix, iy);
+  return baseLuma;
 };
 
 /**

@@ -1,11 +1,26 @@
-import { BinaryFace } from "../binary-face/BinaryFace";
-import { VoiceCapsule } from "../voice-capsule/VoiceCapsule";
+import { useEffect, useState } from "react";
+import { BlobScene } from "../blob-scene/BlobScene";
+import { VOID_VISUAL_STATE_BY_KEY, type VoidVisualState } from "../void-state/voidVisualState";
 
 export function VoidStage() {
+  const [visualState, setVisualState] = useState<VoidVisualState>("idle");
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const nextState = VOID_VISUAL_STATE_BY_KEY[event.key];
+      if (!nextState) {
+        return;
+      }
+      setVisualState(nextState);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
     <main className="void-stage">
-      <BinaryFace />
-      <VoiceCapsule />
+      <BlobScene visualState={visualState} />
     </main>
   );
 }
