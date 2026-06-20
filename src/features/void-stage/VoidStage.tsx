@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BlobScene } from "../blob-scene/BlobScene";
 import { sendVoidMessage, type VoidConversationMessage } from "../agent/voidConversation";
+import { ConversationHistoryOverlay } from "../conversation-history/ConversationHistoryOverlay";
 import { loadModelConfig } from "../settings/modelConfig";
 import { ModelSettingsModal } from "../settings/ModelSettingsModal";
 import { VoidResponseLayer } from "../response-layer/VoidResponseLayer";
@@ -24,6 +25,8 @@ const TEXT_SPEAKING_PREVIEW_MS = 1800;
 export function VoidStage() {
   const [visualState, setVisualState] = useState<VoidVisualState>("idle");
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
+  const [isConversationHistoryOpen, setIsConversationHistoryOpen] = useState(false);
+  const [conversationHistory, setConversationHistory] = useState<VoidConversationMessage[]>([]);
   const [responseLayer, setResponseLayer] = useState<ResponseLayerState>({
     isVisible: false,
     text: "",
@@ -94,12 +97,14 @@ export function VoidStage() {
         conversationHistoryRef.current,
         loadModelConfig()
       );
-
-      conversationHistoryRef.current = [
+      const nextConversationHistory: VoidConversationMessage[] = [
         ...conversationHistoryRef.current,
         { role: "user", content: message },
         { role: "assistant", content: assistantResponse.content }
       ];
+
+      conversationHistoryRef.current = nextConversationHistory;
+      setConversationHistory(nextConversationHistory);
       showResponseLayer({
         text: assistantResponse.content,
         tone: "quiet",
@@ -129,6 +134,11 @@ export function VoidStage() {
     setIsModelSettingsOpen(true);
   }, []);
 
+  const handleOpenConversationHistory = useCallback(() => {
+    setConversationHistory(conversationHistoryRef.current);
+    setIsConversationHistoryOpen(true);
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const nextState = VOID_VISUAL_STATE_BY_KEY[event.key];
@@ -145,7 +155,7 @@ export function VoidStage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [hideResponseLayer]);
 
   useEffect(() => {
     return () => {
@@ -162,7 +172,16 @@ export function VoidStage() {
         text={responseLayer.text}
         tone={responseLayer.tone}
       />
-      <LuminousTextEntry onSend={handleTextMessage} onOpenModelConfig={handleOpenModelConfig} />
+      <LuminousTextEntry
+        onSend={handleTextMessage}
+        onOpenModelConfig={handleOpenModelConfig}
+        onOpenConversationHistory={handleOpenConversationHistory}
+      />
+      <ConversationHistoryOverlay
+        isOpen={isConversationHistoryOpen}
+        messages={conversationHistory}
+        onClose={() => setIsConversationHistoryOpen(false)}
+      />
       <ModelSettingsModal isOpen={isModelSettingsOpen} onClose={() => setIsModelSettingsOpen(false)} />
     </main>
   );

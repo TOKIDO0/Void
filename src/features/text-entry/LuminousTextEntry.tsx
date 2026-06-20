@@ -21,6 +21,7 @@ type LuminousTextEntryProps = {
   disabled?: boolean;
   onSend: (message: string) => void | Promise<void>;
   onOpenModelConfig: () => void;
+  onOpenConversationHistory: () => void;
 };
 
 type LuminousCapsuleProps = {
@@ -115,7 +116,8 @@ function LuminousCapsule({
 export function LuminousTextEntry({
   disabled = false,
   onSend,
-  onOpenModelConfig
+  onOpenModelConfig,
+  onOpenConversationHistory
 }: LuminousTextEntryProps) {
   const [inputValue, setInputValue] = useState("");
   const rootRef = useRef<HTMLFormElement | null>(null);
@@ -375,8 +377,13 @@ export function LuminousTextEntry({
     pinOpen();
   };
 
-  const handleAgentActionClick = (action: "thinking" | "upload" | "settings") => {
+  const handleAgentActionClick = (action: "thinking" | "upload" | "history" | "settings") => {
     pinOpen();
+    if (action === "history") {
+      setIsAgentMenuOpen(false);
+      onOpenConversationHistory();
+    }
+
     if (action === "settings") {
       setIsAgentMenuOpen(false);
       onOpenModelConfig();
@@ -449,6 +456,9 @@ export function LuminousTextEntry({
             </button>
             <button type="button" onClick={() => handleAgentActionClick("upload")}>
               Upload file
+            </button>
+            <button type="button" onClick={() => handleAgentActionClick("history")}>
+              History
             </button>
             <button type="button" onClick={() => handleAgentActionClick("settings")}>
               Settings

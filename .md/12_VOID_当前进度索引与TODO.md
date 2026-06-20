@@ -15,6 +15,7 @@
 - 模型配置与文本对话闭环
 - 极简对话回复呈现
 - 多模型服务预设与开发环境模型请求代理
+- 设置面板中英文 i18n 基础结构
 
 当前阶段不要接入：
 - 完整 STT
@@ -149,7 +150,7 @@
 - DOM 只保留透明 textarea 和左右透明点击热区，不使用 SVG 图片作为按钮。
 - textarea 支持多行输入，胶囊高度随内容自适应增长，发送后通过同一高度动画恢复默认形态。
 - 默认胶囊高度已略增，避免看起来像过低的横条。
-- 左端点点击后打开 agent 操作栏，操作栏包含“思考模式 / 上传文件 / 设置”。点击“设置”后再进入设置入口。
+- 左端点点击后打开 agent 操作栏，操作栏包含“思考模式 / 上传文件 / 历史 / 设置”。点击“设置”后再进入设置入口。
 - agent 操作栏支持点击页面其他位置自动收起。
 - agent 操作栏已调整为更贴近底部胶囊的玻璃质感样式。
 
@@ -169,14 +170,17 @@
 - 从左端 agent 操作栏点击 `Settings` 打开设置模态框。
 - 设置模态框使用半透明玻璃质感。
 - 当前优先实现“模型”分组。
-- 支持 Provider、API Key、Base URL、Model Name、温度、最大输出长度、流式输出开关。
+- 支持 Provider、API Key、Base URL、Model Name、请求方式、温度、最大输出长度、流式输出开关。
 - Provider 支持 `OpenAI-compatible` 和 `Anthropic`。
 - 设置中已增加 OpenAI、FreeModel 默认线路、FreeModel openai-t1-sg、DeepSeek、豆包 Ark、智谱 GLM、Anthropic Claude 预设。
+- 设置面板已增加中英文 i18n 基础结构，默认中文，可切换 English。
+- 模型面板中的技术字段保留英文原词，但通过中文标签和说明降低理解成本。
 - 普通模型配置保存到 `localStorage`。
 - API Key 只保存到当前浏览器会话 `sessionStorage`，不做长期明文持久化。
 - OpenAI-compatible provider 请求已接入 `temperature` 和 `max_tokens`。
 - OpenAI-compatible Base URL 已做规范化：用户可以填根地址，例如 `https://vip-sg.freemodel.dev/v1`，也可以填完整 `.../chat/completions`，不会再重复拼接成 `.../chat/completions/chat/completions`。
 - 开发环境已增加 Vite 同源模型请求代理 `/void-model-proxy`，用于绕过浏览器直连第三方模型服务时的 CORS 阻断。
+- 请求方式已显式区分 `development-proxy` 和 `direct`，方便验证开发代理和浏览器直连的真实差异。
 - Anthropic provider 已接入原生 Messages API 请求结构，`system` 单独传递，消息历史排除 system 消息。
 
 当前文件：
@@ -209,6 +213,7 @@
 - 回复呈现层下方的能量线由独立 R3F / GLSL 实现，不使用 CSS 画光效。
 - 回复呈现层会在文本链路触发时出现，空闲一段时间后淡出；用户进入语音 `listening` 时会淡出，把视觉焦点还给中央 agent。
 - 模型错误会通过同一回复呈现层给出克制、明确的错误反馈。
+- 当前会话历史已有轻量查看入口，从 agent 操作栏点击 `History` 打开，不做传统大面积聊天列表。
 
 当前文件：
 - `src/features/void-stage/VoidStage.tsx`
@@ -219,7 +224,6 @@
 - `src/features/agent/voidSystemPrompt.ts`
 
 未完成：
-- 当前会话历史还没有可见展开入口。
 - 对话历史还没有本地持久化。
 - 真实流式回复还未实现。
 - STT / TTS 尚未接入，回复呈现层已预留 `text`、`voice-transcript`、`voice-reply` 来源结构。
@@ -261,6 +265,8 @@
   - 新窗口发任务时可参考这里。
 - `11_VOID_面部主体开发交接文档.md`
   - 当前 agent 流体主体的技术交接和调参方向看这里。
+- `13_VOID_回复展开动效与模型接入配置方案.md`
+  - 看回复框点击展开、R3F/GLSL beam 光效、非官方 API 配置说明和实现前确认问题。
 
 ## 4. 下一步建议
 
@@ -275,13 +281,14 @@
 - 生产 Web 或 Tauri 阶段不能长期依赖 Vite dev proxy，需要尽快设计正式模型请求代理和 Key 安全边界。
 
 建议下一步任务：
-1. 用真实 API Key 验证 FreeModel、DeepSeek、智谱、豆包 Ark、Anthropic 至少各一条文本对话链路。
-2. 根据真实错误继续完善 provider 错误信息，不做隐藏 fallback。
-3. 设计正式生产/Tauri 模型请求代理，避免浏览器直连第三方 API 暴露 Key 或触发 CORS。
-4. 决定当前会话历史的轻量查看方式，但不要做传统大面积聊天列表。
-5. 在文本链路稳定后，再进入本地持久化历史或真实流式回复。
-6. “思考模式”“上传文件”继续保留入口，不接真实功能。
-7. 不做记忆、健康档案、完整 STT/TTS。
+1. 先启动本地页面，用真实 API Key 逐个验证 FreeModel、DeepSeek、智谱、豆包 Ark、Anthropic 至少各一条文本对话链路。
+2. 验证时优先使用 `development-proxy`；如果某个服务失败，再切到 `direct` 对照真实浏览器直连/CORS 行为。
+3. 记录每个 provider 的真实 HTTP 状态、服务端错误信息、Base URL、Model Name，不做隐藏 fallback。
+4. 根据真实错误继续完善 provider 错误信息和预设默认值。
+5. 文本链路稳定后，再设计正式生产 Web / Tauri 模型请求代理和 Key 安全边界。
+6. 之后再考虑本地持久化历史或真实流式回复。
+7. “思考模式”“上传文件”继续保留入口，不接真实功能。
+8. 不做记忆、健康档案、完整 STT/TTS。
 
 下一步需要阅读：
 - `01_VOID_产品定位与边界文档.md`
@@ -312,20 +319,22 @@
 - 新底部 WebGL 辉光文本输入框
 - 输入框强光效由 R3F + GLSL 实现，DOM 只做透明交互层
 - textarea 支持多行输入，胶囊高度随内容自适应增长，发送后丝滑恢复默认高度
-- 左端点点击打开 agent 操作栏，包含“思考模式 / 上传文件 / 设置”
+- 左端点点击打开 agent 操作栏，包含“思考模式 / 上传文件 / 历史 / 设置”
 - agent 操作栏点击外部自动收起，并已调整为贴近胶囊的玻璃质感
 - 设置模态框已从 Settings 入口打开
-- 模型分组已支持 Provider、API Key、Base URL、Model Name、温度、最大输出长度、流式输出开关
+- 模型分组已支持 Provider、API Key、Base URL、Model Name、请求方式、温度、最大输出长度、流式输出开关
 - OpenAI-compatible provider 基础链路已接入，并修复 Base URL 重复拼接问题
-- 开发环境已增加 `/void-model-proxy` 同源代理，用于解决第三方模型服务 CORS
+- 开发环境已增加 `/void-model-proxy` 同源代理，用于解决第三方模型服务 CORS，并可在设置中切换开发代理 / 浏览器直连
 - 设置中已有 OpenAI、FreeModel、DeepSeek、豆包 Ark、智谱、Anthropic 预设
 - Anthropic provider 已接入原生 Messages API
 - 已实现极简回复呈现层，R3F / GLSL 回声光线随文本高度自适应
 - 文本回复会临时显示，语音 listening 时淡出
 - 模型错误会在回复呈现层给出克制反馈
+- 模型设置面板默认中文，支持 English 切换
+- 当前会话历史已有轻量查看入口，不做传统聊天列表
 
 下一步任务：
-验证真实模型请求链路，并设计生产/Tauri 阶段的正式模型请求代理。
+验证真实模型请求链路，记录真实错误，再设计生产/Tauri 阶段的正式模型请求代理。
 
 要求：
 1. 不做完整 STT/TTS。
@@ -344,3 +353,4 @@
 14. 回复呈现层必须克制，不能把主界面变成传统聊天列表。
 15. 不要把 Vite 开发代理当作生产方案；生产 Web 或 Tauri 阶段必须重新设计正式代理和 Key 安全边界。
 ```
+

@@ -48,7 +48,7 @@ export const anthropicProvider: ModelProvider = {
 
     const systemPrompt = request.messages.find((message) => message.role === "system")?.content;
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "messages");
-    const fetchTarget = buildFetchTarget(endpointUrl);
+    const fetchTarget = buildFetchTarget(endpointUrl, config.requestMode);
     const response = await fetch(fetchTarget.url, {
       method: "POST",
       headers: {
@@ -68,7 +68,8 @@ export const anthropicProvider: ModelProvider = {
     });
 
     if (!response.ok) {
-      throw new Error(`模型请求失败：${response.status} ${await readErrorMessage(response)}`);
+      const errorMessage = await readErrorMessage(response);
+      throw new Error(`模型请求失败：${response.status}${errorMessage ? ` ${errorMessage}` : ""}`);
     }
 
     return this.normalizeResponse(await response.json());
@@ -92,6 +93,10 @@ export const anthropicProvider: ModelProvider = {
   },
 
   mapError(error: unknown): Error {
+    if (error instanceof TypeError) {
+      return new Error("模型网络请求失败。请检查 Base URL、浏览器 CORS 限制，或切换到开发代理模式。");
+    }
+
     if (error instanceof Error) {
       return error;
     }

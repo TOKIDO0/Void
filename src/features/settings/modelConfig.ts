@@ -1,5 +1,7 @@
 export type ModelProviderType = "openai-compatible" | "anthropic";
 
+export type ModelRequestMode = "development-proxy" | "direct";
+
 export type ModelConfig = {
   provider: ModelProviderType;
   apiKey: string;
@@ -8,6 +10,7 @@ export type ModelConfig = {
   temperature: number;
   maxOutputTokens: number;
   streamEnabled: boolean;
+  requestMode: ModelRequestMode;
 };
 
 export type ModelPreset = {
@@ -30,7 +33,8 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   modelName: "gpt-4o-mini",
   temperature: 0.7,
   maxOutputTokens: 1200,
-  streamEnabled: false
+  streamEnabled: false,
+  requestMode: "development-proxy"
 };
 
 export const MODEL_PRESETS: ModelPreset[] = [
@@ -104,7 +108,10 @@ export function loadModelConfig(): ModelConfig {
       modelName: parsedConfig.modelName ?? DEFAULT_MODEL_CONFIG.modelName,
       temperature: normalizeTemperature(parsedConfig.temperature),
       maxOutputTokens: normalizeMaxOutputTokens(parsedConfig.maxOutputTokens),
-      streamEnabled: parsedConfig.streamEnabled ?? DEFAULT_MODEL_CONFIG.streamEnabled
+      streamEnabled: parsedConfig.streamEnabled ?? DEFAULT_MODEL_CONFIG.streamEnabled,
+      requestMode: isModelRequestMode(parsedConfig.requestMode)
+        ? parsedConfig.requestMode
+        : DEFAULT_MODEL_CONFIG.requestMode
     };
   } catch {
     return {
@@ -121,7 +128,8 @@ export function saveModelConfig(modelConfig: ModelConfig) {
     modelName: modelConfig.modelName,
     temperature: normalizeTemperature(modelConfig.temperature),
     maxOutputTokens: normalizeMaxOutputTokens(modelConfig.maxOutputTokens),
-    streamEnabled: modelConfig.streamEnabled
+    streamEnabled: modelConfig.streamEnabled,
+    requestMode: modelConfig.requestMode
   };
 
   window.localStorage.setItem(MODEL_CONFIG_STORAGE_KEY, JSON.stringify(storedConfig));
@@ -150,4 +158,8 @@ function normalizeMaxOutputTokens(value: unknown) {
 
 function isModelProviderType(value: unknown): value is ModelProviderType {
   return value === "openai-compatible" || value === "anthropic";
+}
+
+function isModelRequestMode(value: unknown): value is ModelRequestMode {
+  return value === "development-proxy" || value === "direct";
 }

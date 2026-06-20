@@ -1,5 +1,18 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
-import { MODEL_PRESETS, loadModelConfig, saveModelConfig, type ModelConfig, type ModelProviderType } from "./modelConfig";
+import {
+  MODEL_PRESETS,
+  loadModelConfig,
+  saveModelConfig,
+  type ModelConfig,
+  type ModelProviderType,
+  type ModelRequestMode
+} from "./modelConfig";
+import {
+  SETTINGS_COPY,
+  loadSettingsLanguage,
+  saveSettingsLanguage,
+  type SettingsLanguage
+} from "./settingsI18n";
 
 type ModelSettingsModalProps = {
   isOpen: boolean;
@@ -8,6 +21,8 @@ type ModelSettingsModalProps = {
 
 export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps) {
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
+  const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
+  const copy = SETTINGS_COPY[language];
 
   useEffect(() => {
     if (!isOpen) {
@@ -50,6 +65,19 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       ...currentConfig,
       provider: event.target.value as ModelProviderType
     }));
+  };
+
+  const handleRequestModeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setDraftConfig((currentConfig) => ({
+      ...currentConfig,
+      requestMode: event.target.value as ModelRequestMode
+    }));
+  };
+
+  const handleLanguageChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextLanguage = event.target.value as SettingsLanguage;
+    setLanguage(nextLanguage);
+    saveSettingsLanguage(nextLanguage);
   };
 
   const handlePresetChange = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -97,24 +125,38 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     <div className="model-settings-modal" role="presentation" onMouseDown={onClose}>
       <form
         className="model-settings-modal__panel"
-        aria-label="Model settings"
+        aria-label={copy.model}
         onMouseDown={(event) => event.stopPropagation()}
         onSubmit={handleSubmit}
       >
         <div className="model-settings-modal__header">
           <div>
-            <p className="model-settings-modal__eyebrow">Settings</p>
-            <h2>Model</h2>
+            <p className="model-settings-modal__eyebrow">{copy.settings}</p>
+            <h2>{copy.model}</h2>
           </div>
-          <button className="model-settings-modal__close" type="button" aria-label="Close settings" onClick={onClose} />
+          <div className="model-settings-modal__header-actions">
+            <label className="model-settings-modal__language">
+              <span>{copy.language}</span>
+              <select value={language} onChange={handleLanguageChange}>
+                <option value="zh-CN">中文</option>
+                <option value="en-US">English</option>
+              </select>
+            </label>
+            <button
+              className="model-settings-modal__close"
+              type="button"
+              aria-label={copy.closeSettings}
+              onClick={onClose}
+            />
+          </div>
         </div>
 
         <div className="model-settings-modal__grid">
           <label className="model-settings-modal__field model-settings-modal__field--wide">
-            <span>Preset</span>
+            <span>{copy.preset}</span>
             <select defaultValue="" onChange={handlePresetChange}>
               <option value="" disabled>
-                Select a provider preset
+                {copy.presetPlaceholder}
               </option>
               {MODEL_PRESETS.map((preset) => (
                 <option key={preset.id} value={preset.id}>
@@ -125,7 +167,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
           </label>
 
           <label className="model-settings-modal__field">
-            <span>Provider</span>
+            <span>{copy.provider}</span>
             <select value={draftConfig.provider} onChange={handleProviderChange}>
               <option value="openai-compatible">OpenAI-compatible</option>
               <option value="anthropic">Anthropic</option>
@@ -133,28 +175,37 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
           </label>
 
           <label className="model-settings-modal__field">
-            <span>API Key</span>
+            <span>{copy.apiKey}</span>
             <input
               type="password"
               value={draftConfig.apiKey}
               autoComplete="off"
-              placeholder="Session only"
+              placeholder={copy.apiKeyHint}
               onChange={updateTextField("apiKey")}
             />
           </label>
 
           <label className="model-settings-modal__field model-settings-modal__field--wide">
-            <span>Base URL</span>
+            <span>{copy.baseUrl}</span>
             <input type="url" value={draftConfig.baseUrl} onChange={updateTextField("baseUrl")} />
           </label>
 
           <label className="model-settings-modal__field model-settings-modal__field--wide">
-            <span>Model Name</span>
+            <span>{copy.modelName}</span>
             <input type="text" value={draftConfig.modelName} onChange={updateTextField("modelName")} />
           </label>
 
+          <label className="model-settings-modal__field model-settings-modal__field--wide">
+            <span>{copy.requestMode}</span>
+            <select value={draftConfig.requestMode} onChange={handleRequestModeChange}>
+              <option value="development-proxy">{copy.developmentProxy}</option>
+              <option value="direct">{copy.browserDirect}</option>
+            </select>
+            <small>{copy.requestModeNote}</small>
+          </label>
+
           <label className="model-settings-modal__field">
-            <span>Temperature</span>
+            <span>{copy.temperature}</span>
             <input
               type="number"
               min="0"
@@ -166,7 +217,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
           </label>
 
           <label className="model-settings-modal__field">
-            <span>Max Output</span>
+            <span>{copy.maxOutput}</span>
             <input
               type="number"
               min="128"
@@ -180,14 +231,14 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
 
         <label className="model-settings-modal__toggle">
           <input type="checkbox" checked={draftConfig.streamEnabled} onChange={handleStreamEnabledChange} />
-          <span>Stream output</span>
+          <span>{copy.streamOutput}</span>
         </label>
 
         <div className="model-settings-modal__actions">
           <button type="button" onClick={onClose}>
-            Cancel
+            {copy.cancel}
           </button>
-          <button type="submit">Save</button>
+          <button type="submit">{copy.save}</button>
         </div>
       </form>
     </div>
