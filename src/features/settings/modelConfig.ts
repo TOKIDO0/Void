@@ -1,4 +1,4 @@
-export type ModelProviderType = "openai-compatible";
+export type ModelProviderType = "openai-compatible" | "anthropic";
 
 export type ModelConfig = {
   provider: ModelProviderType;
@@ -8,6 +8,14 @@ export type ModelConfig = {
   temperature: number;
   maxOutputTokens: number;
   streamEnabled: boolean;
+};
+
+export type ModelPreset = {
+  id: string;
+  label: string;
+  provider: ModelProviderType;
+  baseUrl: string;
+  modelName: string;
 };
 
 const MODEL_CONFIG_STORAGE_KEY = "void.modelConfig";
@@ -25,6 +33,58 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   streamEnabled: false
 };
 
+export const MODEL_PRESETS: ModelPreset[] = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    provider: "openai-compatible",
+    baseUrl: "https://api.openai.com/v1",
+    modelName: "gpt-4o-mini"
+  },
+  {
+    id: "freemodel-default",
+    label: "FreeModel 默认线路",
+    provider: "openai-compatible",
+    baseUrl: "https://api.freemodel.dev/v1",
+    modelName: "gpt-4o-mini"
+  },
+  {
+    id: "freemodel-sg",
+    label: "FreeModel openai-t1-sg",
+    provider: "openai-compatible",
+    baseUrl: "https://vip-sg.freemodel.dev/v1",
+    modelName: "gpt-4o-mini"
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    provider: "openai-compatible",
+    baseUrl: "https://api.deepseek.com",
+    modelName: "deepseek-chat"
+  },
+  {
+    id: "doubao",
+    label: "豆包 Ark",
+    provider: "openai-compatible",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    modelName: ""
+  },
+  {
+    id: "zhipu",
+    label: "智谱 GLM",
+    provider: "openai-compatible",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    modelName: "glm-4-flash"
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic Claude",
+    provider: "anthropic",
+    baseUrl: "https://api.anthropic.com/v1",
+    modelName: "claude-3-5-haiku-latest"
+  }
+];
+
 export function loadModelConfig(): ModelConfig {
   const rawConfig = window.localStorage.getItem(MODEL_CONFIG_STORAGE_KEY);
   const sessionApiKey = window.sessionStorage.getItem(MODEL_API_KEY_STORAGE_KEY) ?? "";
@@ -38,7 +98,7 @@ export function loadModelConfig(): ModelConfig {
   try {
     const parsedConfig = JSON.parse(rawConfig) as Partial<StoredModelConfig>;
     return {
-      provider: parsedConfig.provider === "openai-compatible" ? parsedConfig.provider : DEFAULT_MODEL_CONFIG.provider,
+      provider: isModelProviderType(parsedConfig.provider) ? parsedConfig.provider : DEFAULT_MODEL_CONFIG.provider,
       apiKey: sessionApiKey,
       baseUrl: parsedConfig.baseUrl ?? DEFAULT_MODEL_CONFIG.baseUrl,
       modelName: parsedConfig.modelName ?? DEFAULT_MODEL_CONFIG.modelName,
@@ -86,4 +146,8 @@ function normalizeMaxOutputTokens(value: unknown) {
   }
 
   return Math.min(Math.max(Math.round(value), 128), 8192);
+}
+
+function isModelProviderType(value: unknown): value is ModelProviderType {
+  return value === "openai-compatible" || value === "anthropic";
 }

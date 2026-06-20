@@ -14,6 +14,7 @@
 - 麦克风音量驱动的前端状态变化
 - 模型配置与文本对话闭环
 - 极简对话回复呈现
+- 多模型服务预设与开发环境模型请求代理
 
 当前阶段不要接入：
 - 完整 STT
@@ -169,24 +170,32 @@
 - 设置模态框使用半透明玻璃质感。
 - 当前优先实现“模型”分组。
 - 支持 Provider、API Key、Base URL、Model Name、温度、最大输出长度、流式输出开关。
-- Provider 先支持 `OpenAI-compatible`。
+- Provider 支持 `OpenAI-compatible` 和 `Anthropic`。
+- 设置中已增加 OpenAI、FreeModel 默认线路、FreeModel openai-t1-sg、DeepSeek、豆包 Ark、智谱 GLM、Anthropic Claude 预设。
 - 普通模型配置保存到 `localStorage`。
 - API Key 只保存到当前浏览器会话 `sessionStorage`，不做长期明文持久化。
 - OpenAI-compatible provider 请求已接入 `temperature` 和 `max_tokens`。
+- OpenAI-compatible Base URL 已做规范化：用户可以填根地址，例如 `https://vip-sg.freemodel.dev/v1`，也可以填完整 `.../chat/completions`，不会再重复拼接成 `.../chat/completions/chat/completions`。
+- 开发环境已增加 Vite 同源模型请求代理 `/void-model-proxy`，用于绕过浏览器直连第三方模型服务时的 CORS 阻断。
+- Anthropic provider 已接入原生 Messages API 请求结构，`system` 单独传递，消息历史排除 system 消息。
 
 当前文件：
 - `src/features/settings/ModelSettingsModal.tsx`
 - `src/features/settings/modelConfig.ts`
+- `src/lib/model-providers/anthropicProvider.ts`
 - `src/lib/model-providers/openAiCompatibleProvider.ts`
+- `src/lib/model-providers/providerUrl.ts`
 - `src/lib/model-providers/providerContract.ts`
 - `src/lib/model-providers/providerRegistry.ts`
+- `vite.config.ts`
 - `src/features/void-stage/VoidStage.tsx`
 - `src/styles/base.css`
 
 后续注意：
 - `streamEnabled` 当前只是配置项，真实流式回复还未实现。
-- 后续新增 Anthropic、DeepSeek、MiniMax、智谱、Ollama 时必须继续走 provider contract。
+- 后续新增 MiniMax、Ollama、自定义 JSON 请求模板时必须继续走 provider contract。
 - UI 不允许直接依赖厂商 SDK 或在组件里拼厂商私有请求结构。
+- 当前 `/void-model-proxy` 只解决 Vite 开发环境。生产 Web 或 Tauri 阶段需要实现正式本地/服务端代理，否则浏览器直连第三方 API 仍可能暴露 Key 或遇到 CORS。
 
 ### 2.7 文本对话链路
 
@@ -196,16 +205,24 @@
 - `sendVoidMessage` 会注入 `VOID_SYSTEM_PROMPT`。
 - 当前会话内会维护 user / assistant 对话历史。
 - 模型返回后会进入短暂 `speaking` 状态。
+- 页面已有极简回复呈现层，用于显示最近一条 VOID 回复。
+- 回复呈现层下方的能量线由独立 R3F / GLSL 实现，不使用 CSS 画光效。
+- 回复呈现层会在文本链路触发时出现，空闲一段时间后淡出；用户进入语音 `listening` 时会淡出，把视觉焦点还给中央 agent。
+- 模型错误会通过同一回复呈现层给出克制、明确的错误反馈。
 
 当前文件：
 - `src/features/void-stage/VoidStage.tsx`
+- `src/features/response-layer/VoidResponseLayer.tsx`
+- `src/features/response-layer/EchoLightLine.tsx`
+- `src/features/response-layer/echoLightLineShader.ts`
 - `src/features/agent/voidConversation.ts`
 - `src/features/agent/voidSystemPrompt.ts`
 
 未完成：
-- 页面还没有极简回复呈现层，用户无法直接看到 VOID 的文字回复。
-- 模型错误还没有克制、明确的前端反馈。
+- 当前会话历史还没有可见展开入口。
 - 对话历史还没有本地持久化。
+- 真实流式回复还未实现。
+- STT / TTS 尚未接入，回复呈现层已预留 `text`、`voice-transcript`、`voice-reply` 来源结构。
 
 ## 3. 现有文档索引
 
@@ -247,22 +264,22 @@
 
 ## 4. 下一步建议
 
-下一步建议做“极简文字回复呈现层与文本对话第一闭环收口”，不要马上做完整语音对话、记忆系统或健康档案。
+下一步建议做“文本对话闭环验证与正式代理方案设计”，不要马上做完整语音对话、记忆系统或健康档案。
 
 原因：
 - 当前 agent 视觉已经成立。
 - 麦克风现在只负责视觉状态，不负责语义理解。
 - 如果直接做 STT/TTS，会同时引入权限、转写、唤醒、回复、播放多个不稳定变量。
-- 设置模态框和基础模型配置已经完成。
-- 现在最大缺口是：模型回复已经进入代码链路，但用户看不到回复内容。
-- 先做可见文本闭环，可以验证 VOID 人格、provider contract、状态切换和错误处理。
+- 设置模态框、基础模型配置、OpenAI-compatible、Anthropic、常用中转/厂商预设、回复呈现层已经完成。
+- 现在需要优先验证真实模型请求链路，尤其是中转站、DeepSeek、智谱、豆包 Ark 等 OpenAI-compatible 服务是否能在开发代理下正常返回。
+- 生产 Web 或 Tauri 阶段不能长期依赖 Vite dev proxy，需要尽快设计正式模型请求代理和 Key 安全边界。
 
 建议下一步任务：
-1. 增加极简回复呈现层，用于显示 VOID 最近一条回复。
-2. 保持主界面克制，不做聊天软件式大面积消息列表。
-3. 模型请求失败时给出克制、明确的错误反馈。
-4. 保存当前会话内对话历史，避免连续追问丢上下文。
-5. 只在文本链路稳定后，再考虑本地持久化历史或多 provider 扩展。
+1. 用真实 API Key 验证 FreeModel、DeepSeek、智谱、豆包 Ark、Anthropic 至少各一条文本对话链路。
+2. 根据真实错误继续完善 provider 错误信息，不做隐藏 fallback。
+3. 设计正式生产/Tauri 模型请求代理，避免浏览器直连第三方 API 暴露 Key 或触发 CORS。
+4. 决定当前会话历史的轻量查看方式，但不要做传统大面积聊天列表。
+5. 在文本链路稳定后，再进入本地持久化历史或真实流式回复。
 6. “思考模式”“上传文件”继续保留入口，不接真实功能。
 7. 不做记忆、健康档案、完整 STT/TTS。
 
@@ -299,10 +316,16 @@
 - agent 操作栏点击外部自动收起，并已调整为贴近胶囊的玻璃质感
 - 设置模态框已从 Settings 入口打开
 - 模型分组已支持 Provider、API Key、Base URL、Model Name、温度、最大输出长度、流式输出开关
-- OpenAI-compatible provider 基础链路已接入
+- OpenAI-compatible provider 基础链路已接入，并修复 Base URL 重复拼接问题
+- 开发环境已增加 `/void-model-proxy` 同源代理，用于解决第三方模型服务 CORS
+- 设置中已有 OpenAI、FreeModel、DeepSeek、豆包 Ark、智谱、Anthropic 预设
+- Anthropic provider 已接入原生 Messages API
+- 已实现极简回复呈现层，R3F / GLSL 回声光线随文本高度自适应
+- 文本回复会临时显示，语音 listening 时淡出
+- 模型错误会在回复呈现层给出克制反馈
 
 下一步任务：
-实现极简文字回复呈现层，然后收口文本对话第一闭环。
+验证真实模型请求链路，并设计生产/Tauri 阶段的正式模型请求代理。
 
 要求：
 1. 不做完整 STT/TTS。
@@ -310,13 +333,14 @@
 3. 不做健康档案。
 4. Provider 必须模块化。
 5. UI 不要直接依赖某个厂商 SDK。
-6. 至少支持 OpenAI-compatible API。
+6. OpenAI-compatible、Anthropic 已有基础支持，后续 provider 必须继续走 provider contract。
 7. 设置模态框从左端 agent 操作栏里的“设置”按钮打开，不要让左端点直接弹设置模态框。
 8. 设置模态框使用半透明玻璃质感、圆润边角、克制布局。
-9. 当前优先实现“模型”分组，其它“人格与回应 / 记忆与隐私 / 语音与监听 / 视觉”可先做信息架构预留，不要一次性接复杂功能。
+9. 当前优先验证“模型”分组真实链路，其它“人格与回应 / 记忆与隐私 / 语音与监听 / 视觉”可先做信息架构预留，不要一次性接复杂功能。
 10. 对话流程要驱动 agent 的 thinking / speaking 状态。
 11. 不要添加多余 UI 或测试文案。
 12. 不要写测试代码，除非用户明确要求。
 13. 底部辉光输入框、agent 主体、强辉光、流体、能量线、lens flare 等强视觉效果必须继续使用 WebGL / GLSL / R3F，不要用 CSS box-shadow、SVG 图片或组件库图标承担主效果。
 14. 回复呈现层必须克制，不能把主界面变成传统聊天列表。
+15. 不要把 Vite 开发代理当作生产方案；生产 Web 或 Tauri 阶段必须重新设计正式代理和 Key 安全边界。
 ```

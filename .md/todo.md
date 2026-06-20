@@ -40,24 +40,30 @@
 
 - [x] 建立 provider contract。对应文档：`07_VOID_技术架构与模型接入文档.md`
 - [x] 实现 OpenAI-compatible provider 基础请求。对应文档：`07_VOID_技术架构与模型接入文档.md`
+- [x] 修复 OpenAI-compatible Base URL 重复拼接问题，支持填写根地址或完整 `/chat/completions` 地址。对应文档：`07_VOID_技术架构与模型接入文档.md`
+- [x] 增加开发环境模型请求同源代理，解决浏览器直连中转站 CORS 阻断。对应文档：`07_VOID_技术架构与模型接入文档.md`
 - [x] 实现设置模态框入口。对应文档：`07_VOID_技术架构与模型接入文档.md`、`09_VOID_MVP阶段任务拆分.md`
 - [x] 实现模型配置“模型”分组。对应文档：`07_VOID_技术架构与模型接入文档.md`
 - [x] 支持 Provider、API Key、Base URL、Model Name。对应文档：`07_VOID_技术架构与模型接入文档.md`
+- [x] 设置中增加 OpenAI、FreeModel、DeepSeek、豆包 Ark、智谱、Anthropic 预设，便于快速切换。对应文档：`07_VOID_技术架构与模型接入文档.md`
 - [x] 支持温度、最大输出长度、流式输出开关配置。对应文档：`07_VOID_技术架构与模型接入文档.md`
 - [x] 接入 VOID system prompt。对应文档：`03_VOID_System_Prompt正式版.md`
 - [x] 提交文本后驱动 `thinking` / `speaking` 状态。对应文档：`07_VOID_技术架构与模型接入文档.md`、`08_VOID_前端交互与动效设计文档.md`
-- [ ] 实现极简文字回复呈现层。对应文档：`01_VOID_产品定位与边界文档.md`、`08_VOID_前端交互与动效设计文档.md`
-- [ ] 实现模型错误的克制前端反馈。对应文档：`02_VOID_Agent人格与情绪系统文档.md`、`07_VOID_技术架构与模型接入文档.md`
+- [x] 实现极简文字回复呈现层。对应文档：`01_VOID_产品定位与边界文档.md`、`08_VOID_前端交互与动效设计文档.md`
+- [x] 回复呈现层下方光线使用 R3F / GLSL 实现，并随文本高度自适应。对应文档：`08_VOID_前端交互与动效设计文档.md`
+- [x] 实现模型错误的克制前端反馈。对应文档：`02_VOID_Agent人格与情绪系统文档.md`、`07_VOID_技术架构与模型接入文档.md`
 - [ ] 实现当前会话对话历史可见或可追踪。对应文档：`07_VOID_技术架构与模型接入文档.md`
 - [ ] 实现对话历史本地持久化。对应文档：`07_VOID_技术架构与模型接入文档.md`
 - [ ] 实现真实流式回复渲染。对应文档：`07_VOID_技术架构与模型接入文档.md`
+- [ ] 为生产环境或 Tauri 环境实现正式模型请求代理，避免浏览器生产直连第三方 API 暴露 Key 和触发 CORS。对应文档：`07_VOID_技术架构与模型接入文档.md`、`09_VOID_MVP阶段任务拆分.md`
 
 ## 阶段 5：多 Provider 适配
 
-- [ ] 接入 Anthropic provider。对应文档：`07_VOID_技术架构与模型接入文档.md`
-- [ ] 接入 DeepSeek provider。对应文档：`07_VOID_技术架构与模型接入文档.md`
+- [x] 接入 Anthropic provider。对应文档：`07_VOID_技术架构与模型接入文档.md`
+- [x] 通过 OpenAI-compatible 预设接入 DeepSeek。对应文档：`07_VOID_技术架构与模型接入文档.md`
 - [ ] 接入 MiniMax provider。对应文档：`07_VOID_技术架构与模型接入文档.md`
-- [ ] 接入智谱 provider。对应文档：`07_VOID_技术架构与模型接入文档.md`
+- [x] 通过 OpenAI-compatible 预设接入智谱。对应文档：`07_VOID_技术架构与模型接入文档.md`
+- [x] 通过 OpenAI-compatible 预设接入豆包 Ark。对应文档：`07_VOID_技术架构与模型接入文档.md`
 - [ ] 接入 Ollama provider。对应文档：`07_VOID_技术架构与模型接入文档.md`
 - [ ] 支持自定义 JSON 请求模板。对应文档：`07_VOID_技术架构与模型接入文档.md`
 

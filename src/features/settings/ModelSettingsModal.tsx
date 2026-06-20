@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
-import { loadModelConfig, saveModelConfig, type ModelConfig } from "./modelConfig";
+import { MODEL_PRESETS, loadModelConfig, saveModelConfig, type ModelConfig, type ModelProviderType } from "./modelConfig";
 
 type ModelSettingsModalProps = {
   isOpen: boolean;
@@ -43,6 +43,27 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
         [fieldName]: event.target.value
       }));
     };
+  };
+
+  const handleProviderChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setDraftConfig((currentConfig) => ({
+      ...currentConfig,
+      provider: event.target.value as ModelProviderType
+    }));
+  };
+
+  const handlePresetChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const preset = MODEL_PRESETS.find((currentPreset) => currentPreset.id === event.target.value);
+    if (!preset) {
+      return;
+    }
+
+    setDraftConfig((currentConfig) => ({
+      ...currentConfig,
+      provider: preset.provider,
+      baseUrl: preset.baseUrl,
+      modelName: preset.modelName || currentConfig.modelName
+    }));
   };
 
   const handleTemperatureChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -89,10 +110,25 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
         </div>
 
         <div className="model-settings-modal__grid">
+          <label className="model-settings-modal__field model-settings-modal__field--wide">
+            <span>Preset</span>
+            <select defaultValue="" onChange={handlePresetChange}>
+              <option value="" disabled>
+                Select a provider preset
+              </option>
+              {MODEL_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className="model-settings-modal__field">
             <span>Provider</span>
-            <select value={draftConfig.provider} disabled>
+            <select value={draftConfig.provider} onChange={handleProviderChange}>
               <option value="openai-compatible">OpenAI-compatible</option>
+              <option value="anthropic">Anthropic</option>
             </select>
           </label>
 

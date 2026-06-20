@@ -1,5 +1,6 @@
 import type {
   ModelProvider,
+  ProviderMessage,
   ProviderRequest,
   ProviderResponse,
   ProviderValidationResult
@@ -7,17 +8,16 @@ import type {
 import type { ModelConfig } from "../../features/settings/modelConfig";
 import { buildFetchTarget, buildProviderEndpointUrl } from "./providerUrl";
 
-type OpenAiCompatibleChoice = {
-  message?: {
-    content?: string;
-  };
+type AnthropicContentBlock = {
+  type?: string;
+  text?: string;
 };
 
-type OpenAiCompatibleResponse = {
-  choices?: OpenAiCompatibleChoice[];
+type AnthropicResponse = {
+  content?: AnthropicContentBlock[];
 };
 
-export const openAiCompatibleProvider: ModelProvider = {
+export const anthropicProvider: ModelProvider = {
   validateConfig(config: ModelConfig): ProviderValidationResult {
     if (!config.apiKey.trim()) {
       return { valid: false, message: "需要先填写 API Key。" };
@@ -46,18 +46,21 @@ export const openAiCompatibleProvider: ModelProvider = {
       throw new Error(validation.message);
     }
 
-    const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
+    const systemPrompt = request.messages.find((message) => message.role === "system")?.content;
+    const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "messages");
     const fetchTarget = buildFetchTarget(endpointUrl);
     const response = await fetch(fetchTarget.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
+        "x-api-key": config.apiKey,
+        "anthropic-version": "2023-06-01",
         ...fetchTarget.headers
       },
       body: JSON.stringify({
         model: config.modelName,
-        messages: request.messages,
+        system: systemPrompt,
+        messages: buildAnthropicMessages(request.messages),
         temperature: config.temperature,
         max_tokens: config.maxOutputTokens,
         stream: false
@@ -74,8 +77,12 @@ export const openAiCompatibleProvider: ModelProvider = {
   streamMessage: null,
 
   normalizeResponse(response: unknown): ProviderResponse {
-    const parsedResponse = response as OpenAiCompatibleResponse;
-    const content = parsedResponse.choices?.[0]?.message?.content?.trim();
+    const parsedResponse = response as AnthropicResponse;
+    const content = parsedResponse.content
+      ?.filter((block) => block.type === "text" && block.text)
+      .map((block) => block.text)
+      .join("")
+      .trim();
 
     if (!content) {
       throw new Error("模型没有返回有效内容。");
@@ -92,6 +99,15 @@ export const openAiCompatibleProvider: ModelProvider = {
     return new Error("模型连接暂时不可用。");
   }
 };
+
+function buildAnthropicMessages(messages: ProviderMessage[]) {
+  return messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({
+      role: message.role === "assistant" ? "assistant" : "user",
+      content: message.content
+    }));
+}
 
 async function readErrorMessage(response: Response) {
   try {
