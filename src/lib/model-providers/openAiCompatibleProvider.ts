@@ -47,7 +47,7 @@ export const openAiCompatibleProvider: ModelProvider = {
     }
 
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
-    const fetchTarget = buildFetchTarget(endpointUrl, config.requestMode);
+    const fetchTarget = buildFetchTarget(endpointUrl);
     const response = await fetch(fetchTarget.url, {
       method: "POST",
       headers: {

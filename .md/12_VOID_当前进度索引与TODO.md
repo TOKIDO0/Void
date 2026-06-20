@@ -1,3 +1,18 @@
+﻿# 2026-06-21 视觉优化补充记录
+
+本轮已完成：
+- 回复展开 beam 裂隙已从偏宽的左右双裂缝，调整为单体窄裂隙：中段略粗，上下两端收细，整体不再像大面积撕开。
+- 裂隙生命周期已改为“出现 -> 推开模态 -> 向内坍缩消失”，模态框稳定展开后不再持续保留中央裂缝。
+- 横向能量 ripple 已收敛范围，避免在展开后左右延伸成“触手”。
+- agent 展开态保留现有粉色高激活效果，只优化中间空洞形态：空洞边缘加入有机扰动和更柔的透明过渡，减少被竖向光柱切开的观感。
+- 已执行 `cmd.exe /c npm run build`，构建通过。
+
+下一步建议：
+1. 启动本地页面做真实浏览器视觉验收，重点看回复框点击展开、History 展开、关闭回流、裂隙坍缩消失和 agent 中空形态是否符合截图反馈。
+2. 如果视觉验收通过，再进入真实模型请求链路验证，按 provider 逐个记录 HTTP 状态、Base URL、Model Name 和服务端错误。
+3. 不要在视觉确认前继续叠加新光效，否则容易把当前已经满意的粉色高激活状态带偏。
+
+---
 # VOID 当前进度索引与 TODO
 
 > 本文档是 VOID 当前阶段的主进度文档。后续新窗口继续开发时，先读本文档，再按本文档指向读取对应详情文档。
@@ -16,6 +31,8 @@
 - 极简对话回复呈现
 - 多模型服务预设与开发环境模型请求代理
 - 设置面板中英文 i18n 基础结构
+- 回复框点击展开的电影式长回复模态
+- 展开模态时 agent 粉色环状高激活形变
 
 当前阶段不要接入：
 - 完整 STT
@@ -180,7 +197,7 @@
 - OpenAI-compatible provider 请求已接入 `temperature` 和 `max_tokens`。
 - OpenAI-compatible Base URL 已做规范化：用户可以填根地址，例如 `https://vip-sg.freemodel.dev/v1`，也可以填完整 `.../chat/completions`，不会再重复拼接成 `.../chat/completions/chat/completions`。
 - 开发环境已增加 Vite 同源模型请求代理 `/void-model-proxy`，用于绕过浏览器直连第三方模型服务时的 CORS 阻断。
-- 请求方式已显式区分 `development-proxy` 和 `direct`，方便验证开发代理和浏览器直连的真实差异。
+- 当前 Web MVP 模型请求主线已收敛为 `development-proxy`，设置面板不再暴露浏览器直连入口，避免 API Key 暴露和 CORS 误导。
 - Anthropic provider 已接入原生 Messages API 请求结构，`system` 单独传递，消息历史排除 system 消息。
 
 当前文件：
@@ -213,7 +230,9 @@
 - 回复呈现层下方的能量线由独立 R3F / GLSL 实现，不使用 CSS 画光效。
 - 回复呈现层会在文本链路触发时出现，空闲一段时间后淡出；用户进入语音 `listening` 时会淡出，把视觉焦点还给中央 agent。
 - 模型错误会通过同一回复呈现层给出克制、明确的错误反馈。
-- 当前会话历史已有轻量查看入口，从 agent 操作栏点击 `History` 打开，不做传统大面积聊天列表。
+- 当前会话历史已有电影式展开入口：点击当前回复框或 agent 操作栏 `History`，会从回复层触发 R3F/GLSL beam 裂缝光效并展开长回复模态。
+- 展开模态使用非传统聊天气泡样式，用户和 VOID 消息以角标文本块呈现。
+- 展开时中央 agent 会从蓝色完整 Blob 平滑变为粉色环状高激活态，关闭后回流恢复。
 
 当前文件：
 - `src/features/void-stage/VoidStage.tsx`
@@ -281,8 +300,8 @@
 - 生产 Web 或 Tauri 阶段不能长期依赖 Vite dev proxy，需要尽快设计正式模型请求代理和 Key 安全边界。
 
 建议下一步任务：
-1. 先启动本地页面，用真实 API Key 逐个验证 FreeModel、DeepSeek、智谱、豆包 Ark、Anthropic 至少各一条文本对话链路。
-2. 验证时优先使用 `development-proxy`；如果某个服务失败，再切到 `direct` 对照真实浏览器直连/CORS 行为。
+1. 先启动本地页面，实测回复框点击展开、History 入口展开、关闭回流、移动端布局和 agent 环状形变是否自然。
+2. 然后用真实 API Key 逐个验证 FreeModel、DeepSeek、智谱、豆包 Ark、Anthropic 至少各一条文本对话链路，当前 Web MVP 统一走开发代理。
 3. 记录每个 provider 的真实 HTTP 状态、服务端错误信息、Base URL、Model Name，不做隐藏 fallback。
 4. 根据真实错误继续完善 provider 错误信息和预设默认值。
 5. 文本链路稳定后，再设计正式生产 Web / Tauri 模型请求代理和 Key 安全边界。
@@ -324,7 +343,7 @@
 - 设置模态框已从 Settings 入口打开
 - 模型分组已支持 Provider、API Key、Base URL、Model Name、请求方式、温度、最大输出长度、流式输出开关
 - OpenAI-compatible provider 基础链路已接入，并修复 Base URL 重复拼接问题
-- 开发环境已增加 `/void-model-proxy` 同源代理，用于解决第三方模型服务 CORS，并可在设置中切换开发代理 / 浏览器直连
+- 开发环境已增加 `/void-model-proxy` 同源代理，用于解决第三方模型服务 CORS；设置中已移除浏览器直连入口
 - 设置中已有 OpenAI、FreeModel、DeepSeek、豆包 Ark、智谱、Anthropic 预设
 - Anthropic provider 已接入原生 Messages API
 - 已实现极简回复呈现层，R3F / GLSL 回声光线随文本高度自适应
@@ -353,4 +372,5 @@
 14. 回复呈现层必须克制，不能把主界面变成传统聊天列表。
 15. 不要把 Vite 开发代理当作生产方案；生产 Web 或 Tauri 阶段必须重新设计正式代理和 Key 安全边界。
 ```
+
 

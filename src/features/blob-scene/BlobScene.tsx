@@ -7,10 +7,13 @@ import type { VoidVisualState } from "../void-state/voidVisualState";
 
 type BlobSceneProps = {
   visualState: VoidVisualState;
+  expandedResponseProgress: number;
+  isExpandedResponseClosing: boolean;
 };
 
-export function BlobScene({ visualState }: BlobSceneProps) {
+export function BlobScene({ visualState, expandedResponseProgress, isExpandedResponseClosing }: BlobSceneProps) {
   const bloomIntensity = BLOB_VISUAL_PROFILES[visualState].bloomIntensity;
+  const expandedBloomLift = expandedResponseProgress * 1.15;
 
   return (
     <div className="blob-scene" aria-hidden="true">
@@ -22,10 +25,14 @@ export function BlobScene({ visualState }: BlobSceneProps) {
         <color attach="background" args={["#000000"]} />
         <Suspense fallback={null}>
           <group position={[0, 0.08, 0]}>
-            <VoidBlob visualState={visualState} />
+            <VoidBlob
+              visualState={visualState}
+              expandedResponseProgress={expandedResponseProgress}
+              isExpandedResponseClosing={isExpandedResponseClosing}
+            />
           </group>
           <EffectComposer multisampling={0}>
-            <Bloom intensity={bloomIntensity} luminanceThreshold={0.22} luminanceSmoothing={0.12} />
+            <Bloom intensity={bloomIntensity + expandedBloomLift} luminanceThreshold={0.2} luminanceSmoothing={0.12} />
           </EffectComposer>
         </Suspense>
       </Canvas>

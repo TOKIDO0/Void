@@ -9,10 +9,12 @@ type VoidResponseLayerProps = {
   isVisible: boolean;
   text: string;
   tone: "quiet" | "thinking" | "error";
+  onExpand?: () => void;
 };
 
-export function VoidResponseLayer({ isVisible, text, tone }: VoidResponseLayerProps) {
+export function VoidResponseLayer({ isVisible, text, tone, onExpand }: VoidResponseLayerProps) {
   const layerRef = useRef<HTMLDivElement>(null);
+  const canExpand = Boolean(onExpand && isVisible && text && tone === "quiet");
 
   useGSAP(() => {
     const layerElement = layerRef.current;
@@ -46,9 +48,10 @@ export function VoidResponseLayer({ isVisible, text, tone }: VoidResponseLayerPr
   return (
     <section
       ref={layerRef}
-      className={`void-response-layer void-response-layer--${tone}`}
+      className={`void-response-layer void-response-layer--${tone}${canExpand ? " void-response-layer--expandable" : ""}`}
       aria-live={tone === "thinking" ? "polite" : "assertive"}
       aria-hidden={!isVisible}
+      onClick={canExpand ? onExpand : undefined}
     >
       <p>{text}</p>
       <EchoLightLine pulseKey={`${tone}:${text}`} tone={tone} />

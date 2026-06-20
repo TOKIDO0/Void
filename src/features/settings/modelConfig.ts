@@ -1,6 +1,6 @@
 export type ModelProviderType = "openai-compatible" | "anthropic";
 
-export type ModelRequestMode = "development-proxy" | "direct";
+export type ModelRequestMode = "development-proxy";
 
 export type ModelConfig = {
   provider: ModelProviderType;
@@ -109,9 +109,7 @@ export function loadModelConfig(): ModelConfig {
       temperature: normalizeTemperature(parsedConfig.temperature),
       maxOutputTokens: normalizeMaxOutputTokens(parsedConfig.maxOutputTokens),
       streamEnabled: parsedConfig.streamEnabled ?? DEFAULT_MODEL_CONFIG.streamEnabled,
-      requestMode: isModelRequestMode(parsedConfig.requestMode)
-        ? parsedConfig.requestMode
-        : DEFAULT_MODEL_CONFIG.requestMode
+      requestMode: "development-proxy"
     };
   } catch {
     return {
@@ -129,7 +127,7 @@ export function saveModelConfig(modelConfig: ModelConfig) {
     temperature: normalizeTemperature(modelConfig.temperature),
     maxOutputTokens: normalizeMaxOutputTokens(modelConfig.maxOutputTokens),
     streamEnabled: modelConfig.streamEnabled,
-    requestMode: modelConfig.requestMode
+    requestMode: "development-proxy"
   };
 
   window.localStorage.setItem(MODEL_CONFIG_STORAGE_KEY, JSON.stringify(storedConfig));
@@ -158,8 +156,4 @@ function normalizeMaxOutputTokens(value: unknown) {
 
 function isModelProviderType(value: unknown): value is ModelProviderType {
   return value === "openai-compatible" || value === "anthropic";
-}
-
-function isModelRequestMode(value: unknown): value is ModelRequestMode {
-  return value === "development-proxy" || value === "direct";
 }

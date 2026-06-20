@@ -48,7 +48,7 @@ export const anthropicProvider: ModelProvider = {
 
     const systemPrompt = request.messages.find((message) => message.role === "system")?.content;
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "messages");
-    const fetchTarget = buildFetchTarget(endpointUrl, config.requestMode);
+    const fetchTarget = buildFetchTarget(endpointUrl);
     const response = await fetch(fetchTarget.url, {
       method: "POST",
       headers: {

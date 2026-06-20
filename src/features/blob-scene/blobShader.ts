@@ -18,6 +18,8 @@ export const createBlobUniforms = () => ({
   uInternalFlow: { value: 1 },
   uIrregularity: { value: 1 },
   uTransitionEnergy: { value: 0 },
+  uExpandedResponse: { value: 0 },
+  uExpandedResponseClosing: { value: 0 },
   uViewPosition: { value: new Vector3(0, 0, 5) }
 });
 
@@ -97,11 +99,16 @@ uniform float uAmplitude;
 uniform float uNoiseSpeed;
 uniform float uIrregularity;
 uniform float uTransitionEnergy;
+uniform float uExpandedResponse;
+uniform float uExpandedResponseClosing;
 
 varying vec3 vNormal;
 varying vec3 vWorldPosition;
 varying vec3 vObjectPosition;
 varying float vDisplacement;
+varying float vRingMask;
+varying float vInnerEdge;
+varying float vInkMask;
 
 ${simplexNoise3d}
 
@@ -121,13 +128,37 @@ float blobFbm(vec3 point) {
 void main() {
   vec3 unitNormal = normalize(normal);
   float displacement = blobFbm(position);
-  vec3 displacedPosition = position + unitNormal * displacement * uAmplitude;
+  float expanded = smoothstep(0.0, 1.0, uExpandedResponse);
+  float closing = smoothstep(0.0, 1.0, uExpandedResponseClosing);
+  float radial = length(position.xy);
+  float ringAngle = atan(position.y, position.x);
+  float inkNoise = snoise(vec3(position.xy * 2.15, uTime * 0.16)) * 0.08;
+  float fineInkNoise = snoise(vec3(position.xy * 5.2, -uTime * 0.11)) * 0.035;
+  float inkReveal = smoothstep(0.08, 0.2, expanded);
+  float inkReach = mix(-0.18, 1.08, expanded) + (inkNoise + fineInkNoise) * inkReveal;
+  float inkMask = smoothstep(radial - 0.2, radial + 0.18, inkReach) * inkReveal;
+  float hollowStructure = smoothstep(0.18, 1.0, expanded) * (1.0 - smoothstep(0.02, 0.58, closing));
+  float organicHole = snoise(vec3(cos(ringAngle) * 1.7, sin(ringAngle) * 1.7, uTime * 0.12)) * 0.055;
+  float surfaceBreath = snoise(vec3(position.xy * 2.4, uTime * 0.15)) * 0.025;
+  float innerRadius = mix(0.05, 0.43 + organicHole + surfaceBreath, hollowStructure);
+  float ringMask = smoothstep(innerRadius - 0.07, innerRadius + 0.15, radial);
+  float edgeRadiusGuard = smoothstep(0.18, 0.34, innerRadius);
+  float innerRimEnergy = hollowStructure * edgeRadiusGuard * (1.0 - closing);
+  float innerEdge = (1.0 - smoothstep(0.0, 0.105, abs(radial - innerRadius))) * innerRimEnergy;
+  vec2 radialDirection = normalize(position.xy + vec2(0.0001));
+  vec3 ringSpread = vec3(radialDirection * ringMask * hollowStructure * 0.21, 0.0);
+  vec3 inwardSoftening = vec3(radialDirection * -(1.0 - ringMask) * hollowStructure * 0.045, -hollowStructure * (1.0 - ringMask) * 0.075);
+  float activeAmplitude = uAmplitude * (1.0 + expanded * 0.18);
+  vec3 displacedPosition = position + unitNormal * displacement * activeAmplitude + ringSpread + inwardSoftening;
 
   vec4 worldPosition = modelMatrix * vec4(displacedPosition, 1.0);
   vWorldPosition = worldPosition.xyz;
   vObjectPosition = displacedPosition;
   vNormal = normalize(mat3(modelMatrix) * unitNormal);
   vDisplacement = displacement;
+  vRingMask = ringMask;
+  vInnerEdge = innerEdge;
+  vInkMask = inkMask;
 
   gl_Position = projectionMatrix * viewMatrix * worldPosition;
 }
@@ -141,31 +172,52 @@ uniform float uFresnelPower;
 uniform float uEdgeBoost;
 uniform float uInternalFlow;
 uniform float uTransitionEnergy;
+uniform float uExpandedResponse;
+uniform float uExpandedResponseClosing;
 uniform vec3 uViewPosition;
 
 varying vec3 vNormal;
 varying vec3 vWorldPosition;
 varying vec3 vObjectPosition;
 varying float vDisplacement;
+varying float vRingMask;
+varying float vInnerEdge;
+varying float vInkMask;
 
 ${simplexNoise3d}
 
 void main() {
   vec3 normalDirection = normalize(vNormal);
   vec3 viewDirection = normalize(uViewPosition - vWorldPosition);
+  float expanded = smoothstep(0.0, 1.0, uExpandedResponse);
+  float closing = smoothstep(0.0, 1.0, uExpandedResponseClosing);
+  float hollowStructure = smoothstep(0.18, 1.0, expanded) * (1.0 - smoothstep(0.02, 0.58, closing));
   float time = uTime * (0.18 + uTransitionEnergy * 0.035);
   float fresnel = pow(1.0 - max(dot(viewDirection, normalDirection), 0.0), uFresnelPower);
   float innerLarge = snoise(vObjectPosition * 1.15 + vec3(time * 0.9, -time * 0.42, time * 0.31));
   float innerSmall = snoise(vObjectPosition * (3.4 + uTransitionEnergy * 0.22) + vec3(-time * 0.33, time * 0.74, -time * 0.52));
   float innerFlow = innerLarge * 0.7 + innerSmall * 0.3;
-  float flowStrength = uInternalFlow + uTransitionEnergy * 0.16;
+  float flowStrength = uInternalFlow + uTransitionEnergy * 0.16 + expanded * 0.14;
   float surfaceShade = 0.44 + vDisplacement * 0.1 + innerFlow * 0.085 * flowStrength;
   float coreGlow = smoothstep(-0.35, 0.72, innerFlow) * (0.16 + uTransitionEnergy * 0.025);
 
-  vec3 innerColor = uBaseColor * (surfaceShade + coreGlow);
-  vec3 rimColor = uEdgeColor * fresnel * (2.05 * uEdgeBoost);
+  vec3 activeBaseColor = vec3(1.0, 0.08, 0.58);
+  vec3 activeEdgeColor = vec3(1.0, 0.74, 0.95);
+  vec3 deepInnerColor = vec3(0.2, 0.0, 0.13);
+  float inkColorMask = clamp(vInkMask, 0.0, 1.0);
+  vec3 baseColor = mix(uBaseColor, activeBaseColor, inkColorMask);
+  vec3 edgeColor = mix(uEdgeColor, activeEdgeColor, max(inkColorMask, expanded * 0.34));
+  float hollowFade = mix(1.0, clamp(vRingMask + vInnerEdge * 0.32, 0.0, 1.0), hollowStructure);
+  float innerDepth = (1.0 - vRingMask) * hollowStructure;
+  float activeEdge = vInnerEdge * (1.0 - closing) * (0.78 + sin(uTime * 1.2 + innerFlow * 2.0) * 0.08);
+  vec3 innerColor = mix(baseColor * (surfaceShade + coreGlow), deepInnerColor, innerDepth * 0.74);
+  vec3 rimColor = edgeColor * fresnel * (2.05 * uEdgeBoost + expanded * 0.72);
+  vec3 innerRimColor = activeEdgeColor * activeEdge * 1.28;
   vec3 glowColor = innerColor + rimColor;
+  glowColor += innerRimColor;
+  glowColor *= 0.72 + hollowFade * 0.36;
 
-  gl_FragColor = vec4(glowColor, 1.0);
+  float alpha = mix(1.0, clamp(hollowFade + activeEdge * 0.22, 0.035, 1.0), hollowStructure);
+  gl_FragColor = vec4(glowColor, alpha);
 }
 `;

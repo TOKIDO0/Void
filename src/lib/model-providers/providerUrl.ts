@@ -14,10 +14,8 @@ export function buildProviderEndpointUrl(baseUrl: string, terminalPath: string) 
   return `${endpointBaseUrl}/${terminalPath.replace(/^\/+/, "")}`;
 }
 
-import type { ModelConfig } from "../../features/settings/modelConfig";
-
-export function buildFetchTarget(endpointUrl: string, requestMode: ModelConfig["requestMode"]) {
-  if (!import.meta.env.DEV || requestMode === "direct") {
+export function buildFetchTarget(endpointUrl: string) {
+  if (!import.meta.env.DEV) {
     return {
       url: endpointUrl,
       headers: {} as Record<string, string>

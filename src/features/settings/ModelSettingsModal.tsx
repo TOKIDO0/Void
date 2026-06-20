@@ -4,8 +4,7 @@ import {
   loadModelConfig,
   saveModelConfig,
   type ModelConfig,
-  type ModelProviderType,
-  type ModelRequestMode
+  type ModelProviderType
 } from "./modelConfig";
 import {
   SETTINGS_COPY,
@@ -64,13 +63,6 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
       provider: event.target.value as ModelProviderType
-    }));
-  };
-
-  const handleRequestModeChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setDraftConfig((currentConfig) => ({
-      ...currentConfig,
-      requestMode: event.target.value as ModelRequestMode
     }));
   };
 
@@ -197,10 +189,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
 
           <label className="model-settings-modal__field model-settings-modal__field--wide">
             <span>{copy.requestMode}</span>
-            <select value={draftConfig.requestMode} onChange={handleRequestModeChange}>
-              <option value="development-proxy">{copy.developmentProxy}</option>
-              <option value="direct">{copy.browserDirect}</option>
-            </select>
+            <div className="model-settings-modal__static-value">{copy.developmentProxy}</div>
             <small>{copy.requestModeNote}</small>
           </label>
 

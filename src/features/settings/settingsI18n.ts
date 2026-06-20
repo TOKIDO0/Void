@@ -15,7 +15,6 @@ type SettingsCopy = {
   modelName: string;
   requestMode: string;
   developmentProxy: string;
-  browserDirect: string;
   temperature: string;
   maxOutput: string;
   streamOutput: string;
@@ -39,14 +38,13 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     modelName: "模型名称",
     requestMode: "请求方式",
     developmentProxy: "开发代理",
-    browserDirect: "浏览器直连",
     temperature: "温度",
     maxOutput: "最大输出",
     streamOutput: "流式输出",
     cancel: "取消",
     save: "保存",
     closeSettings: "关闭设置",
-    requestModeNote: "开发代理只用于本地验证；生产 Web 或 Tauri 不能长期依赖它。"
+    requestModeNote: "当前 Web MVP 统一通过本地开发代理请求模型；浏览器直连会暴露 Key 且常被 CORS 拦截，已不作为主线。"
   },
   "en-US": {
     settings: "Settings",
@@ -61,14 +59,13 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     modelName: "Model Name",
     requestMode: "Request Mode",
     developmentProxy: "Development proxy",
-    browserDirect: "Browser direct",
     temperature: "Temperature",
     maxOutput: "Max Output",
     streamOutput: "Stream output",
     cancel: "Cancel",
     save: "Save",
     closeSettings: "Close settings",
-    requestModeNote: "The development proxy is only for local verification. Production Web or Tauri needs a formal proxy."
+    requestModeNote: "The Web MVP uses the local development proxy. Browser direct requests expose keys and are often blocked by CORS."
   }
 };
 
