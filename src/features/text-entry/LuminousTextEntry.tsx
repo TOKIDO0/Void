@@ -383,6 +383,25 @@ export function LuminousTextEntry({
     }
   };
 
+  useEffect(() => {
+    if (!isAgentMenuOpen) {
+      return;
+    }
+
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const rootElement = rootRef.current;
+      if (!rootElement || rootElement.contains(event.target as Node)) {
+        return;
+      }
+
+      setIsAgentMenuOpen(false);
+      releaseIfPossible();
+    };
+
+    window.addEventListener("pointerdown", handleOutsidePointerDown);
+    return () => window.removeEventListener("pointerdown", handleOutsidePointerDown);
+  }, [isAgentMenuOpen, releaseIfPossible]);
+
   return (
     <form
       ref={rootRef}

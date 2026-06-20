@@ -12,7 +12,8 @@
 - 中央 agent 流体主体
 - 前端视觉状态机
 - 麦克风音量驱动的前端状态变化
-- 后续模型配置与文本对话闭环
+- 模型配置与文本对话闭环
+- 极简对话回复呈现
 
 当前阶段不要接入：
 - 完整 STT
@@ -148,6 +149,8 @@
 - textarea 支持多行输入，胶囊高度随内容自适应增长，发送后通过同一高度动画恢复默认形态。
 - 默认胶囊高度已略增，避免看起来像过低的横条。
 - 左端点点击后打开 agent 操作栏，操作栏包含“思考模式 / 上传文件 / 设置”。点击“设置”后再进入设置入口。
+- agent 操作栏支持点击页面其他位置自动收起。
+- agent 操作栏已调整为更贴近底部胶囊的玻璃质感样式。
 
 当前文件：
 - `src/features/text-entry/LuminousTextEntry.tsx`
@@ -158,6 +161,51 @@
 - 输入框强光效不要用 CSS box-shadow、SVG 图片或组件库图标实现。
 - 端点、边缘流动、发送扫光、内部流体纹理均有独立 shader 变量或局部逻辑，后续如果效果不好应按模块删改，不要混在一起补丁式修改。
 - 左端 agent 操作栏当前只完成入口结构，“思考模式”和“上传文件”尚未接真实功能。
+
+### 2.6 设置模态框与模型配置
+
+已完成：
+- 从左端 agent 操作栏点击 `Settings` 打开设置模态框。
+- 设置模态框使用半透明玻璃质感。
+- 当前优先实现“模型”分组。
+- 支持 Provider、API Key、Base URL、Model Name、温度、最大输出长度、流式输出开关。
+- Provider 先支持 `OpenAI-compatible`。
+- 普通模型配置保存到 `localStorage`。
+- API Key 只保存到当前浏览器会话 `sessionStorage`，不做长期明文持久化。
+- OpenAI-compatible provider 请求已接入 `temperature` 和 `max_tokens`。
+
+当前文件：
+- `src/features/settings/ModelSettingsModal.tsx`
+- `src/features/settings/modelConfig.ts`
+- `src/lib/model-providers/openAiCompatibleProvider.ts`
+- `src/lib/model-providers/providerContract.ts`
+- `src/lib/model-providers/providerRegistry.ts`
+- `src/features/void-stage/VoidStage.tsx`
+- `src/styles/base.css`
+
+后续注意：
+- `streamEnabled` 当前只是配置项，真实流式回复还未实现。
+- 后续新增 Anthropic、DeepSeek、MiniMax、智谱、Ollama 时必须继续走 provider contract。
+- UI 不允许直接依赖厂商 SDK 或在组件里拼厂商私有请求结构。
+
+### 2.7 文本对话链路
+
+已完成：
+- 底部输入框可以提交文本。
+- `VoidStage` 提交文本后会进入 `thinking` 状态。
+- `sendVoidMessage` 会注入 `VOID_SYSTEM_PROMPT`。
+- 当前会话内会维护 user / assistant 对话历史。
+- 模型返回后会进入短暂 `speaking` 状态。
+
+当前文件：
+- `src/features/void-stage/VoidStage.tsx`
+- `src/features/agent/voidConversation.ts`
+- `src/features/agent/voidSystemPrompt.ts`
+
+未完成：
+- 页面还没有极简回复呈现层，用户无法直接看到 VOID 的文字回复。
+- 模型错误还没有克制、明确的前端反馈。
+- 对话历史还没有本地持久化。
 
 ## 3. 现有文档索引
 
@@ -199,21 +247,23 @@
 
 ## 4. 下一步建议
 
-下一步建议做“设置模态框与模型配置入口”，然后继续完成文本对话第一闭环，不要马上做完整语音对话。
+下一步建议做“极简文字回复呈现层与文本对话第一闭环收口”，不要马上做完整语音对话、记忆系统或健康档案。
 
 原因：
 - 当前 agent 视觉已经成立。
 - 麦克风现在只负责视觉状态，不负责语义理解。
 - 如果直接做 STT/TTS，会同时引入权限、转写、唤醒、回复、播放多个不稳定变量。
-- 先做文本闭环，可以验证 VOID 人格、provider contract、状态切换和错误处理。
+- 设置模态框和基础模型配置已经完成。
+- 现在最大缺口是：模型回复已经进入代码链路，但用户看不到回复内容。
+- 先做可见文本闭环，可以验证 VOID 人格、provider contract、状态切换和错误处理。
 
 建议下一步任务：
-1. 从左端 agent 操作栏的“设置”进入半透明玻璃质感设置模态框。
-2. 设置模态框优先实现“模型”分组：Provider、API Key、Base URL、Model Name、温度、最大输出长度、流式输出开关。
-3. 复用已有 model provider contract，不让 UI 直接依赖厂商 SDK。
-4. 完成文本输入到 LLM 回复的第一闭环。
-5. 对话期间驱动 `thinking` / `speaking` 状态。
-6. “思考模式”“上传文件”先保留入口，不接真实功能。
+1. 增加极简回复呈现层，用于显示 VOID 最近一条回复。
+2. 保持主界面克制，不做聊天软件式大面积消息列表。
+3. 模型请求失败时给出克制、明确的错误反馈。
+4. 保存当前会话内对话历史，避免连续追问丢上下文。
+5. 只在文本链路稳定后，再考虑本地持久化历史或多 provider 扩展。
+6. “思考模式”“上传文件”继续保留入口，不接真实功能。
 7. 不做记忆、健康档案、完整 STT/TTS。
 
 下一步需要阅读：
@@ -246,9 +296,13 @@
 - 输入框强光效由 R3F + GLSL 实现，DOM 只做透明交互层
 - textarea 支持多行输入，胶囊高度随内容自适应增长，发送后丝滑恢复默认高度
 - 左端点点击打开 agent 操作栏，包含“思考模式 / 上传文件 / 设置”
+- agent 操作栏点击外部自动收起，并已调整为贴近胶囊的玻璃质感
+- 设置模态框已从 Settings 入口打开
+- 模型分组已支持 Provider、API Key、Base URL、Model Name、温度、最大输出长度、流式输出开关
+- OpenAI-compatible provider 基础链路已接入
 
 下一步任务：
-实现设置模态框与模型配置入口，然后继续文本对话第一闭环。
+实现极简文字回复呈现层，然后收口文本对话第一闭环。
 
 要求：
 1. 不做完整 STT/TTS。
@@ -264,4 +318,5 @@
 11. 不要添加多余 UI 或测试文案。
 12. 不要写测试代码，除非用户明确要求。
 13. 底部辉光输入框、agent 主体、强辉光、流体、能量线、lens flare 等强视觉效果必须继续使用 WebGL / GLSL / R3F，不要用 CSS box-shadow、SVG 图片或组件库图标承担主效果。
+14. 回复呈现层必须克制，不能把主界面变成传统聊天列表。
 ```

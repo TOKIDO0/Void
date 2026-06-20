@@ -58,7 +58,9 @@ export const openAiCompatibleProvider: ModelProvider = {
       body: JSON.stringify({
         model: config.modelName,
         messages: request.messages,
-        temperature: 0.7
+        temperature: config.temperature,
+        max_tokens: config.maxOutputTokens,
+        stream: false
       })
     });
 
