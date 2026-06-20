@@ -15,6 +15,7 @@ uniform float uReveal;
 uniform float uFocus;
 uniform float uAspect;
 uniform float uBodyRatio;
+uniform float uHeightRatio;
 uniform float uHasMessage;
 uniform float uSendSweep;
 
@@ -52,7 +53,7 @@ void main() {
   float focus = smoothstep(0.0, 1.0, uFocus);
   float canvasHalfWidth = uAspect * 0.5;
   float halfWidth = canvasHalfWidth * clamp(uBodyRatio, 0.68, 0.96);
-  float halfHeight = 0.156;
+  float halfHeight = 0.18 * clamp(uHeightRatio, 1.0, 2.18);
   float radius = halfHeight;
   float capsule = capsuleDistance(point, vec2(halfWidth, halfHeight), radius);
   float body = 1.0 - smoothstep(-0.018, 0.014, capsule);

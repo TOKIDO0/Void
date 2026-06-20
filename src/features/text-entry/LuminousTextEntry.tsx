@@ -1,9 +1,10 @@
-import {
+﻿import {
   ChangeEvent,
   FormEvent,
   KeyboardEvent,
   MutableRefObject,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState
@@ -27,17 +28,29 @@ type LuminousCapsuleProps = {
   focusRef: MutableRefObject<number>;
   hasMessageRef: MutableRefObject<number>;
   bodyRatioRef: MutableRefObject<number>;
+  heightRatioRef: MutableRefObject<number>;
   sendSweepRef: MutableRefObject<number>;
 };
 
 const MIN_VISIBLE_REVEAL = 0.08;
 const BOTTOM_REVEAL_DISTANCE = 260;
 const IDLE_ALPHA = 0.18;
-const MIN_ENTRY_HEIGHT = 48;
+const MIN_ENTRY_HEIGHT = 64;
 const MAX_ENTRY_HEIGHT = 132;
+const TEXT_LINE_HEIGHT = 20;
+const MAX_VISIBLE_TEXT_LINES = 5;
 
 function clamp01(value: number) {
   return Math.min(Math.max(value, 0), 1);
+}
+
+function countWrappedLines(text: string, mirror: HTMLDivElement | null) {
+  if (!text.trim() || !mirror) {
+    return 1;
+  }
+
+  mirror.textContent = text.endsWith("\n") ? `${text} ` : text;
+  return Math.max(Math.round(mirror.scrollHeight / TEXT_LINE_HEIGHT), 1);
 }
 
 function createCapsuleUniforms() {
@@ -47,6 +60,7 @@ function createCapsuleUniforms() {
     uFocus: { value: 0 },
     uAspect: { value: 1 },
     uBodyRatio: { value: 0.86 },
+    uHeightRatio: { value: 1 },
     uHasMessage: { value: 0 },
     uSendSweep: { value: 0 }
   };
@@ -57,6 +71,7 @@ function LuminousCapsule({
   focusRef,
   hasMessageRef,
   bodyRatioRef,
+  heightRatioRef,
   sendSweepRef
 }: LuminousCapsuleProps) {
   const materialRef = useRef<ShaderMaterial | null>(null);
@@ -74,6 +89,7 @@ function LuminousCapsule({
     material.uniforms.uFocus.value = focusRef.current;
     material.uniforms.uHasMessage.value = hasMessageRef.current;
     material.uniforms.uBodyRatio.value = bodyRatioRef.current;
+    material.uniforms.uHeightRatio.value = heightRatioRef.current;
     material.uniforms.uSendSweep.value = sendSweepRef.current;
     material.uniforms.uAspect.value = size.width / Math.max(size.height, 1);
   });
@@ -105,10 +121,13 @@ export function LuminousTextEntry({
   const rootRef = useRef<HTMLFormElement | null>(null);
   const opticsRef = useRef<HTMLDivElement | null>(null);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const textMeasureRef = useRef<HTMLDivElement | null>(null);
+  const inputValueRef = useRef("");
   const revealRef = useRef(MIN_VISIBLE_REVEAL);
   const focusRef = useRef(0);
   const hasMessageRef = useRef(0);
   const bodyRatioRef = useRef(0.86);
+  const heightRatioRef = useRef(1);
   const sendSweepRef = useRef(0);
   const entryHeightRef = useRef(MIN_ENTRY_HEIGHT);
   const isPinnedRef = useRef(false);
@@ -116,6 +135,7 @@ export function LuminousTextEntry({
   const isHoveredRef = useRef(false);
   const lastPointerYRef = useRef<number | null>(null);
   const isSendingRef = useRef(false);
+  const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
 
   const animatePresence = useCallback((targetReveal: number, targetFocus: number) => {
     gsap.to(revealRef, {
@@ -170,6 +190,49 @@ export function LuminousTextEntry({
     bodyRatioRef.current = Math.min(Math.max(rootWidth / opticsWidth, 0.68), 0.96);
   }, []);
 
+  const applyTextAreaMetrics = useCallback((currentHeight: number, visibleLines: number) => {
+    const root = rootRef.current;
+    const textArea = textAreaRef.current;
+    if (!root || !textArea) {
+      return;
+    }
+
+    const textHeight = Math.min(visibleLines, MAX_VISIBLE_TEXT_LINES) * TEXT_LINE_HEIGHT;
+    const textOffset = Math.max((currentHeight - textHeight) / 2, 0);
+
+    heightRatioRef.current = currentHeight / MIN_ENTRY_HEIGHT;
+    root.style.setProperty("--entry-height", `${currentHeight}px`);
+    textArea.style.height = `${textHeight}px`;
+    textArea.style.marginTop = `${textOffset}px`;
+  }, []);
+
+  const animateEntryHeight = useCallback((nextHeight: number, visibleLines: number, duration = 0.36) => {
+    gsap.to(entryHeightRef, {
+      current: nextHeight,
+      duration,
+      ease: "power2.out",
+      overwrite: "auto",
+      onUpdate: () => {
+        applyTextAreaMetrics(entryHeightRef.current, visibleLines);
+      }
+    });
+  }, [applyTextAreaMetrics]);
+
+  const syncEntryHeightForText = useCallback((text: string, duration = 0.36) => {
+    const lineCount = countWrappedLines(text, textMeasureRef.current);
+    const visibleLines = Math.min(Math.max(lineCount, 1), MAX_VISIBLE_TEXT_LINES);
+    const nextHeight =
+      visibleLines <= 1
+        ? MIN_ENTRY_HEIGHT
+        : Math.min(MIN_ENTRY_HEIGHT + (visibleLines - 1) * TEXT_LINE_HEIGHT, MAX_ENTRY_HEIGHT);
+
+    animateEntryHeight(nextHeight, visibleLines, duration);
+  }, [animateEntryHeight]);
+
+  useEffect(() => {
+    syncEntryHeightForText(inputValue, 0.24);
+  }, [inputValue, syncEntryHeightForText]);
+
   useGSAP(
     () => {
       gsap.set(rootRef.current, {
@@ -178,6 +241,7 @@ export function LuminousTextEntry({
         scale: 0.982,
         transformOrigin: "50% 50%"
       });
+      applyTextAreaMetrics(MIN_ENTRY_HEIGHT, 1);
 
       const handlePointerMove = (event: PointerEvent) => {
         updateRevealFromPointer(event.clientY);
@@ -191,6 +255,7 @@ export function LuminousTextEntry({
 
       const handleResize = () => {
         syncOpticalBodyRatio();
+        syncEntryHeightForText(inputValueRef.current, 0.2);
       };
 
       window.addEventListener("pointermove", handlePointerMove);
@@ -204,7 +269,7 @@ export function LuminousTextEntry({
         window.removeEventListener("resize", handleResize);
       };
     },
-    { scope: rootRef, dependencies: [animatePresence, syncOpticalBodyRatio, updateRevealFromPointer] }
+    { scope: rootRef, dependencies: [animatePresence, applyTextAreaMetrics, syncEntryHeightForText, syncOpticalBodyRatio, updateRevealFromPointer] }
   );
 
   const pinOpen = useCallback(() => {
@@ -226,6 +291,12 @@ export function LuminousTextEntry({
     updateRevealFromPointer(lastPointerYRef.current);
   }, [animatePresence, updateRevealFromPointer]);
 
+  const resetEntryContent = useCallback(() => {
+    inputValueRef.current = "";
+    setInputValue("");
+    hasMessageRef.current = 0;
+  }, []);
+
   const submitMessage = useCallback(async () => {
     const trimmedMessage = inputValue.trim();
     if (!trimmedMessage || disabled || isSendingRef.current) {
@@ -233,8 +304,7 @@ export function LuminousTextEntry({
     }
 
     isSendingRef.current = true;
-    setInputValue("");
-    hasMessageRef.current = 0;
+    resetEntryContent();
     gsap.fromTo(
       sendSweepRef,
       { current: 0 },
@@ -253,7 +323,7 @@ export function LuminousTextEntry({
     } finally {
       isSendingRef.current = false;
     }
-  }, [disabled, inputValue, onSend]);
+  }, [disabled, inputValue, onSend, resetEntryContent]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -273,36 +343,11 @@ export function LuminousTextEntry({
     void submitMessage();
   };
 
-  const animateEntryHeight = useCallback((nextHeight: number) => {
-    if (!rootRef.current) {
-      return;
-    }
-
-    gsap.to(entryHeightRef, {
-      current: nextHeight,
-      duration: 0.36,
-      ease: "power2.out",
-      overwrite: "auto",
-      onUpdate: () => {
-        rootRef.current?.style.setProperty("--entry-height", `${entryHeightRef.current}px`);
-      }
-    });
-  }, []);
-
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     const nextValue = event.target.value;
+    inputValueRef.current = nextValue;
     setInputValue(nextValue);
     hasMessageRef.current = nextValue.trim() ? 1 : 0;
-
-    const textArea = textAreaRef.current;
-    if (!textArea) {
-      return;
-    }
-
-    textArea.style.height = "0px";
-    const nextHeight = Math.min(Math.max(textArea.scrollHeight + 18, MIN_ENTRY_HEIGHT), MAX_ENTRY_HEIGHT);
-    textArea.style.height = "";
-    animateEntryHeight(nextHeight);
   };
 
   const handleMouseEnter = () => {
@@ -323,6 +368,19 @@ export function LuminousTextEntry({
   const handleBlur = () => {
     isFocusedRef.current = false;
     window.setTimeout(releaseIfPossible, 0);
+  };
+
+  const handleAgentMenuToggle = () => {
+    setIsAgentMenuOpen((currentIsOpen) => !currentIsOpen);
+    pinOpen();
+  };
+
+  const handleAgentActionClick = (action: "thinking" | "upload" | "settings") => {
+    pinOpen();
+    if (action === "settings") {
+      setIsAgentMenuOpen(false);
+      onOpenModelConfig();
+    }
   };
 
   return (
@@ -349,6 +407,7 @@ export function LuminousTextEntry({
             focusRef={focusRef}
             hasMessageRef={hasMessageRef}
             bodyRatioRef={bodyRatioRef}
+            heightRatioRef={heightRatioRef}
             sendSweepRef={sendSweepRef}
           />
         </Canvas>
@@ -358,11 +417,25 @@ export function LuminousTextEntry({
         <button
           className="luminous-text-entry__config"
           type="button"
-          aria-label="Open model config"
-          onClick={onOpenModelConfig}
+          aria-label="Open agent actions"
+          aria-expanded={isAgentMenuOpen}
+          onClick={handleAgentMenuToggle}
           onFocus={handleFocus}
           onBlur={handleBlur}
         />
+        {isAgentMenuOpen ? (
+          <div className="luminous-text-entry__agent-menu" onMouseDown={(event) => event.preventDefault()}>
+            <button type="button" onClick={() => handleAgentActionClick("thinking")}>
+              Think mode
+            </button>
+            <button type="button" onClick={() => handleAgentActionClick("upload")}>
+              Upload file
+            </button>
+            <button type="button" onClick={() => handleAgentActionClick("settings")}>
+              Settings
+            </button>
+          </div>
+        ) : null}
         <textarea
           ref={textAreaRef}
           className="luminous-text-entry__input"
@@ -377,6 +450,7 @@ export function LuminousTextEntry({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
         />
+        <div ref={textMeasureRef} className="luminous-text-entry__measure" aria-hidden="true" />
         <button
           className="luminous-text-entry__send"
           type="submit"
