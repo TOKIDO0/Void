@@ -86,7 +86,7 @@ body {
   left: 50%;
   top: 50%;
   width: var(--entry-optics-width);
-  height: 92px;
+  height: calc(var(--entry-height) + 44px);
   overflow: visible;
   pointer-events: none;
   transform: translate(-50%, -50%);
@@ -116,9 +116,10 @@ body {
 }
 
 .luminous-text-entry__input {
+  display: block;
   width: 100%;
   min-width: 0;
-  height: 100%;
+  max-height: calc(var(--entry-height) - 12px);
   border: 0;
   outline: 0;
   padding: 0 8px;
@@ -126,9 +127,16 @@ body {
   color: rgba(255, 255, 255, 0.92);
   font: inherit;
   font-size: 15px;
-  line-height: var(--entry-height);
+  line-height: 20px;
   letter-spacing: 0;
   caret-color: rgba(255, 255, 255, 0.95);
+  resize: none;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.luminous-text-entry__input::-webkit-scrollbar {
+  display: none;
 }
 
 .luminous-text-entry__input:disabled {

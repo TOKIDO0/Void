@@ -1,4 +1,13 @@
-import { FormEvent, KeyboardEvent, MutableRefObject, useCallback, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  KeyboardEvent,
+  MutableRefObject,
+  useCallback,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
@@ -17,11 +26,15 @@ type LuminousCapsuleProps = {
   revealRef: MutableRefObject<number>;
   focusRef: MutableRefObject<number>;
   hasMessageRef: MutableRefObject<number>;
+  bodyRatioRef: MutableRefObject<number>;
+  sendSweepRef: MutableRefObject<number>;
 };
 
 const MIN_VISIBLE_REVEAL = 0.08;
 const BOTTOM_REVEAL_DISTANCE = 260;
 const IDLE_ALPHA = 0.18;
+const MIN_ENTRY_HEIGHT = 48;
+const MAX_ENTRY_HEIGHT = 132;
 
 function clamp01(value: number) {
   return Math.min(Math.max(value, 0), 1);
@@ -33,11 +46,19 @@ function createCapsuleUniforms() {
     uReveal: { value: MIN_VISIBLE_REVEAL },
     uFocus: { value: 0 },
     uAspect: { value: 1 },
-    uHasMessage: { value: 0 }
+    uBodyRatio: { value: 0.86 },
+    uHasMessage: { value: 0 },
+    uSendSweep: { value: 0 }
   };
 }
 
-function LuminousCapsule({ revealRef, focusRef, hasMessageRef }: LuminousCapsuleProps) {
+function LuminousCapsule({
+  revealRef,
+  focusRef,
+  hasMessageRef,
+  bodyRatioRef,
+  sendSweepRef
+}: LuminousCapsuleProps) {
   const materialRef = useRef<ShaderMaterial | null>(null);
   const uniforms = useMemo(() => createCapsuleUniforms(), []);
   const { size, viewport } = useThree();
@@ -52,6 +73,8 @@ function LuminousCapsule({ revealRef, focusRef, hasMessageRef }: LuminousCapsule
     material.uniforms.uReveal.value = revealRef.current;
     material.uniforms.uFocus.value = focusRef.current;
     material.uniforms.uHasMessage.value = hasMessageRef.current;
+    material.uniforms.uBodyRatio.value = bodyRatioRef.current;
+    material.uniforms.uSendSweep.value = sendSweepRef.current;
     material.uniforms.uAspect.value = size.width / Math.max(size.height, 1);
   });
 
@@ -80,9 +103,14 @@ export function LuminousTextEntry({
 }: LuminousTextEntryProps) {
   const [inputValue, setInputValue] = useState("");
   const rootRef = useRef<HTMLFormElement | null>(null);
+  const opticsRef = useRef<HTMLDivElement | null>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const revealRef = useRef(MIN_VISIBLE_REVEAL);
   const focusRef = useRef(0);
   const hasMessageRef = useRef(0);
+  const bodyRatioRef = useRef(0.86);
+  const sendSweepRef = useRef(0);
+  const entryHeightRef = useRef(MIN_ENTRY_HEIGHT);
   const isPinnedRef = useRef(false);
   const isFocusedRef = useRef(false);
   const isHoveredRef = useRef(false);
@@ -132,6 +160,16 @@ export function LuminousTextEntry({
     [animatePresence]
   );
 
+  const syncOpticalBodyRatio = useCallback(() => {
+    const rootWidth = rootRef.current?.getBoundingClientRect().width ?? 0;
+    const opticsWidth = opticsRef.current?.getBoundingClientRect().width ?? 0;
+    if (!rootWidth || !opticsWidth) {
+      return;
+    }
+
+    bodyRatioRef.current = Math.min(Math.max(rootWidth / opticsWidth, 0.68), 0.96);
+  }, []);
+
   useGSAP(
     () => {
       gsap.set(rootRef.current, {
@@ -151,15 +189,22 @@ export function LuminousTextEntry({
         }
       };
 
+      const handleResize = () => {
+        syncOpticalBodyRatio();
+      };
+
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerleave", handlePointerLeave);
+      window.addEventListener("resize", handleResize);
+      syncOpticalBodyRatio();
 
       return () => {
         window.removeEventListener("pointermove", handlePointerMove);
         window.removeEventListener("pointerleave", handlePointerLeave);
+        window.removeEventListener("resize", handleResize);
       };
     },
-    { scope: rootRef, dependencies: [animatePresence, updateRevealFromPointer] }
+    { scope: rootRef, dependencies: [animatePresence, syncOpticalBodyRatio, updateRevealFromPointer] }
   );
 
   const pinOpen = useCallback(() => {
@@ -190,6 +235,19 @@ export function LuminousTextEntry({
     isSendingRef.current = true;
     setInputValue("");
     hasMessageRef.current = 0;
+    gsap.fromTo(
+      sendSweepRef,
+      { current: 0 },
+      {
+        current: 1,
+        duration: 0.92,
+        ease: "power2.inOut",
+        overwrite: true,
+        onComplete: () => {
+          sendSweepRef.current = 0;
+        }
+      }
+    );
     try {
       await onSend(trimmedMessage);
     } finally {
@@ -202,8 +260,12 @@ export function LuminousTextEntry({
     void submitMessage();
   };
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter") {
+      return;
+    }
+
+    if (event.shiftKey) {
       return;
     }
 
@@ -211,9 +273,36 @@ export function LuminousTextEntry({
     void submitMessage();
   };
 
-  const handleInputChange = (nextValue: string) => {
+  const animateEntryHeight = useCallback((nextHeight: number) => {
+    if (!rootRef.current) {
+      return;
+    }
+
+    gsap.to(entryHeightRef, {
+      current: nextHeight,
+      duration: 0.36,
+      ease: "power2.out",
+      overwrite: "auto",
+      onUpdate: () => {
+        rootRef.current?.style.setProperty("--entry-height", `${entryHeightRef.current}px`);
+      }
+    });
+  }, []);
+
+  const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    const nextValue = event.target.value;
     setInputValue(nextValue);
     hasMessageRef.current = nextValue.trim() ? 1 : 0;
+
+    const textArea = textAreaRef.current;
+    if (!textArea) {
+      return;
+    }
+
+    textArea.style.height = "0px";
+    const nextHeight = Math.min(Math.max(textArea.scrollHeight + 18, MIN_ENTRY_HEIGHT), MAX_ENTRY_HEIGHT);
+    textArea.style.height = "";
+    animateEntryHeight(nextHeight);
   };
 
   const handleMouseEnter = () => {
@@ -245,16 +334,23 @@ export function LuminousTextEntry({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      <div className="luminous-text-entry__optics" aria-hidden="true">
+      <div ref={opticsRef} className="luminous-text-entry__optics" aria-hidden="true">
         <Canvas
           camera={{ position: [0, 0, 2.2], fov: 34, near: 0.1, far: 10 }}
           dpr={[1, 2]}
           gl={{ antialias: false, alpha: true, powerPreference: "high-performance" }}
           onCreated={({ gl }) => {
             gl.setClearColor(0x000000, 0);
+            window.requestAnimationFrame(syncOpticalBodyRatio);
           }}
         >
-          <LuminousCapsule revealRef={revealRef} focusRef={focusRef} hasMessageRef={hasMessageRef} />
+          <LuminousCapsule
+            revealRef={revealRef}
+            focusRef={focusRef}
+            hasMessageRef={hasMessageRef}
+            bodyRatioRef={bodyRatioRef}
+            sendSweepRef={sendSweepRef}
+          />
         </Canvas>
       </div>
 
@@ -267,14 +363,16 @@ export function LuminousTextEntry({
           onFocus={handleFocus}
           onBlur={handleBlur}
         />
-        <input
+        <textarea
+          ref={textAreaRef}
           className="luminous-text-entry__input"
           value={inputValue}
           disabled={disabled}
           aria-label="Message"
           autoComplete="off"
           spellCheck={false}
-          onChange={(event) => handleInputChange(event.target.value)}
+          rows={1}
+          onChange={handleInputChange}
           onFocus={handleFocus}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
