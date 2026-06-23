@@ -157,6 +157,63 @@ export function VoidStage() {
     }
   }, [scheduleResponseLayerHide, showResponseLayer]);
 
+  const handleRegenerateLatestUserMessage = useCallback(async (messageIndex: number, content: string) => {
+    const currentHistory = conversationHistoryRef.current;
+    const targetMessage = currentHistory[messageIndex];
+
+    if (!targetMessage || targetMessage.role !== "user") {
+      return;
+    }
+
+    textExchangeActiveRef.current = true;
+    window.clearTimeout(speakingTimeoutRef.current);
+    setVisualState("thinking");
+    showResponseLayer({
+      text: "正在重新思考…",
+      tone: "thinking",
+      source: "text"
+    });
+
+    try {
+      const historyBeforeEditedMessage = currentHistory.slice(0, messageIndex);
+      const assistantResponse = await sendVoidMessage(
+        content,
+        historyBeforeEditedMessage,
+        loadModelConfig()
+      );
+      const nextConversationHistory: VoidConversationMessage[] = [
+        ...historyBeforeEditedMessage,
+        { role: "user", content },
+        { role: "assistant", content: assistantResponse.content }
+      ];
+
+      conversationHistoryRef.current = nextConversationHistory;
+      setConversationHistory(nextConversationHistory);
+      showResponseLayer({
+        text: assistantResponse.content,
+        tone: "quiet",
+        source: "text"
+      });
+      scheduleResponseLayerHide();
+      setVisualState("speaking");
+      speakingTimeoutRef.current = window.setTimeout(() => {
+        if (textExchangeActiveRef.current) {
+          textExchangeActiveRef.current = false;
+          setVisualState("idle");
+        }
+      }, TEXT_SPEAKING_PREVIEW_MS);
+    } catch (error) {
+      textExchangeActiveRef.current = false;
+      showResponseLayer({
+        text: error instanceof Error ? error.message : "模型连接失败，请检查配置。",
+        tone: "error",
+        source: "text"
+      });
+      scheduleResponseLayerHide(14000);
+      setVisualState("idle");
+    }
+  }, [scheduleResponseLayerHide, showResponseLayer]);
+
   const handleOpenModelConfig = useCallback(() => {
     setIsModelSettingsOpen(true);
   }, []);
@@ -225,6 +282,7 @@ export function VoidStage() {
         onClose={() => setIsExpandedResponseOpen(false)}
         onClosingChange={setIsExpandedResponseClosing}
         onOpenProgressChange={setExpandedProgress}
+        onRegenerateLatestUserMessage={handleRegenerateLatestUserMessage}
       />
       <ModelSettingsModal isOpen={isModelSettingsOpen} onClose={() => setIsModelSettingsOpen(false)} />
     </main>

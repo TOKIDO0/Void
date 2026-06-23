@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
+import { Icon } from "@iconify/react";
 import type { VoidConversationMessage } from "../agent/voidConversation";
 import { ExpandedDialogueLine } from "./ExpandedDialogueLine";
 
@@ -12,6 +13,7 @@ type ExpandedResponseOverlayProps = {
   onClose: () => void;
   onClosingChange: (isClosing: boolean) => void;
   onOpenProgressChange: (progress: number) => void;
+  onRegenerateLatestUserMessage: (messageIndex: number, content: string) => Promise<void>;
 };
 
 export function ExpandedResponseOverlay({
@@ -19,13 +21,45 @@ export function ExpandedResponseOverlay({
   messages,
   onClose,
   onClosingChange,
-  onOpenProgressChange
+  onOpenProgressChange,
+  onRegenerateLatestUserMessage
 }: ExpandedResponseOverlayProps) {
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isClosing, setIsClosing] = useState(false);
+  const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const rootRef = useRef<HTMLElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef<HTMLDivElement | null>(null);
+  const scrollButtonRef = useRef<HTMLButtonElement | null>(null);
   const progressRef = useRef({ value: 0 });
+  const copyBubbleTimeoutRef = useRef(0);
+  const latestUserMessageIndex = findLatestUserMessageIndex(messages);
+
+  const updateScrollButtonVisibility = useCallback(() => {
+    const messagesElement = messagesRef.current;
+    if (!messagesElement) {
+      return;
+    }
+
+    const distanceToBottom = messagesElement.scrollHeight - messagesElement.scrollTop - messagesElement.clientHeight;
+    setIsScrollButtonVisible(distanceToBottom > 80);
+  }, []);
+
+  const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior) => {
+    const messagesElement = messagesRef.current;
+    if (!messagesElement) {
+      return;
+    }
+
+    messagesElement.scrollTo({
+      top: messagesElement.scrollHeight,
+      behavior
+    });
+  }, []);
 
   const playClose = useCallback(() => {
     if (isClosing) {
@@ -81,6 +115,39 @@ export function ExpandedResponseOverlay({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [playClose, shouldRender]);
 
+  useEffect(() => {
+    if (!shouldRender || !isOpen) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      scrollMessagesToBottom("auto");
+      updateScrollButtonVisibility();
+    });
+  }, [isOpen, messages.length, scrollMessagesToBottom, shouldRender, updateScrollButtonVisibility]);
+
+  useEffect(() => {
+    const buttonElement = scrollButtonRef.current;
+    if (!buttonElement) {
+      return;
+    }
+
+    gsap.to(buttonElement, {
+      autoAlpha: isScrollButtonVisible ? 1 : 0,
+      y: isScrollButtonVisible ? 0 : 10,
+      scale: isScrollButtonVisible ? 1 : 0.96,
+      filter: isScrollButtonVisible ? "blur(0px)" : "blur(8px)",
+      duration: 0.26,
+      ease: "power3.out",
+      pointerEvents: isScrollButtonVisible ? "auto" : "none",
+      overwrite: "auto"
+    });
+  }, [isScrollButtonVisible]);
+
+  useEffect(() => {
+    return () => window.clearTimeout(copyBubbleTimeoutRef.current);
+  }, []);
+
   useGSAP(() => {
     if (!shouldRender || !isOpen) {
       return;
@@ -125,6 +192,42 @@ export function ExpandedResponseOverlay({
     return null;
   }
 
+  const handleCopyMessage = async (message: VoidConversationMessage, index: number) => {
+    await navigator.clipboard.writeText(message.content);
+    window.clearTimeout(copyBubbleTimeoutRef.current);
+    setCopiedMessageIndex(index);
+    copyBubbleTimeoutRef.current = window.setTimeout(() => {
+      setCopiedMessageIndex(null);
+    }, 1200);
+  };
+
+  const handleStartEdit = (index: number, content: string) => {
+    setEditingMessageIndex(index);
+    setEditingDraft(content);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageIndex(null);
+    setEditingDraft("");
+  };
+
+  const handleSubmitEdit = async (index: number, content: string) => {
+    const trimmedContent = content.trim();
+    if (!trimmedContent || isRegenerating) {
+      return;
+    }
+
+    setIsRegenerating(true);
+    try {
+      await onRegenerateLatestUserMessage(index, trimmedContent);
+      setEditingMessageIndex(null);
+      setEditingDraft("");
+      window.requestAnimationFrame(() => scrollMessagesToBottom("smooth"));
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
   return (
     <section
       ref={rootRef}
@@ -139,16 +242,49 @@ export function ExpandedResponseOverlay({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="expanded-response-overlay__mark">Session</div>
-        <div className="expanded-response-overlay__messages">
+        <div
+          ref={messagesRef}
+          className="expanded-response-overlay__messages"
+          onScroll={updateScrollButtonVisibility}
+        >
           {messages.map((message, index) => (
             <ExpandedDialogueLine
               key={`${message.role}-${index}-${message.content.slice(0, 16)}`}
               message={message}
               index={index}
+              canEdit={message.role === "user" && index === latestUserMessageIndex}
+              copiedMessageIndex={copiedMessageIndex}
+              editingMessageIndex={editingMessageIndex}
+              editingDraft={editingDraft}
+              isRegenerating={isRegenerating}
+              onCopy={handleCopyMessage}
+              onStartEdit={handleStartEdit}
+              onCancelEdit={handleCancelEdit}
+              onEditingDraftChange={setEditingDraft}
+              onSubmitEdit={handleSubmitEdit}
             />
           ))}
         </div>
+        <button
+          ref={scrollButtonRef}
+          className="expanded-response-overlay__scroll-bottom"
+          type="button"
+          aria-label="滚动到最新消息"
+          onClick={() => scrollMessagesToBottom("smooth")}
+        >
+          <Icon icon="solar:alt-arrow-down-linear" aria-hidden="true" />
+        </button>
       </div>
     </section>
   );
+}
+
+function findLatestUserMessageIndex(messages: VoidConversationMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") {
+      return index;
+    }
+  }
+
+  return -1;
 }

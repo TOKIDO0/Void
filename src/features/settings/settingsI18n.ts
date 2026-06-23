@@ -13,15 +13,16 @@ type SettingsCopy = {
   apiKeyHint: string;
   baseUrl: string;
   modelName: string;
-  requestMode: string;
-  developmentProxy: string;
+  modelStrength: string;
   temperature: string;
+  temperatureHint: string;
   maxOutput: string;
+  maxOutputHint: string;
   streamOutput: string;
+  streamOutputHint: string;
   cancel: string;
   save: string;
   closeSettings: string;
-  requestModeNote: string;
 };
 
 export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
@@ -30,42 +31,44 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     model: "模型",
     language: "语言",
     preset: "服务预设",
-    presetPlaceholder: "选择一个模型服务预设",
-    provider: "请求格式",
+    presetPlaceholder: "选择官方模型服务",
+    provider: "接口格式",
     apiKey: "API Key",
     apiKeyHint: "仅当前会话保存",
     baseUrl: "Base URL",
-    modelName: "模型名称",
-    requestMode: "请求方式",
-    developmentProxy: "开发代理",
-    temperature: "温度",
-    maxOutput: "最大输出",
+    modelName: "模型选择",
+    modelStrength: "模型强度",
+    temperature: "回应风格",
+    temperatureHint: "控制回复的稳定程度和发散程度",
+    maxOutput: "输出规模",
+    maxOutputHint: "控制单次回复可生成的内容量",
     streamOutput: "流式输出",
+    streamOutputHint: "开启后模型会边生成边显示回复，体感更快。当前 MVP 先保留配置，真实流式链路后续接入。",
     cancel: "取消",
     save: "保存",
-    closeSettings: "关闭设置",
-    requestModeNote: "当前 Web MVP 统一通过本地开发代理请求模型；浏览器直连会暴露 Key 且常被 CORS 拦截，已不作为主线。"
+    closeSettings: "关闭设置"
   },
   "en-US": {
     settings: "Settings",
     model: "Model",
     language: "Language",
     preset: "Preset",
-    presetPlaceholder: "Select a provider preset",
-    provider: "Provider",
+    presetPlaceholder: "Select an official provider",
+    provider: "API format",
     apiKey: "API Key",
     apiKeyHint: "Session only",
     baseUrl: "Base URL",
-    modelName: "Model Name",
-    requestMode: "Request Mode",
-    developmentProxy: "Development proxy",
-    temperature: "Temperature",
-    maxOutput: "Max Output",
+    modelName: "Model",
+    modelStrength: "Model strength",
+    temperature: "Response style",
+    temperatureHint: "Controls how stable or exploratory the response feels",
+    maxOutput: "Output scale",
+    maxOutputHint: "Controls how much content a single response can generate",
     streamOutput: "Stream output",
+    streamOutputHint: "When enabled, responses can appear while the model is still generating. The MVP stores this setting before the real streaming path is connected.",
     cancel: "Cancel",
     save: "Save",
-    closeSettings: "Close settings",
-    requestModeNote: "The Web MVP uses the local development proxy. Browser direct requests expose keys and are often blocked by CORS."
+    closeSettings: "Close settings"
   }
 };
 

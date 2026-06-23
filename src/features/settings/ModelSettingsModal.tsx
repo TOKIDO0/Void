@@ -1,10 +1,18 @@
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import { ChangeEvent, CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  MAX_OUTPUT_LEVELS,
+  MODEL_OPTIONS_BY_PRESET,
   MODEL_PRESETS,
+  MODEL_STRENGTH_LABELS,
+  TEMPERATURE_LEVELS,
   loadModelConfig,
   saveModelConfig,
+  type LevelOption,
   type ModelConfig,
-  type ModelProviderType
+  type ModelProviderType,
+  type ModelStrength
 } from "./modelConfig";
 import {
   SETTINGS_COPY,
@@ -13,22 +21,45 @@ import {
   type SettingsLanguage
 } from "./settingsI18n";
 
+gsap.registerPlugin(useGSAP);
+
 type ModelSettingsModalProps = {
   isOpen: boolean;
   onClose: () => void;
 };
 
+const MODEL_STRENGTH_ORDER: ModelStrength[] = ["low", "middle", "high", "max"];
+const ORBIT_TRAIL_PARTICLES = [
+  { position: 0.08, y: -4, size: 2 },
+  { position: 0.16, y: 4, size: 3 },
+  { position: 0.24, y: -1, size: 2 },
+  { position: 0.33, y: 5, size: 2 },
+  { position: 0.42, y: -5, size: 3 },
+  { position: 0.52, y: 2, size: 2 },
+  { position: 0.62, y: -3, size: 3 },
+  { position: 0.71, y: 5, size: 2 },
+  { position: 0.8, y: -2, size: 3 },
+  { position: 0.89, y: 3, size: 2 }
+] as const;
+
 export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps) {
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
+  const [selectedPresetId, setSelectedPresetId] = useState(() => findPresetId(loadModelConfig()));
   const copy = SETTINGS_COPY[language];
+  const modelOptions = useMemo(() => MODEL_OPTIONS_BY_PRESET[selectedPresetId] ?? [], [selectedPresetId]);
+  const availableStrengths = useMemo(() => {
+    return MODEL_STRENGTH_ORDER.filter((strength) => modelOptions.some((option) => option.strength === strength));
+  }, [modelOptions]);
 
   useEffect(() => {
     if (!isOpen) {
       return;
     }
 
-    setDraftConfig(loadModelConfig());
+    const storedConfig = loadModelConfig();
+    setDraftConfig(storedConfig);
+    setSelectedPresetId(findPresetId(storedConfig));
   }, [isOpen]);
 
   useEffect(() => {
@@ -50,7 +81,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     return null;
   }
 
-  const updateTextField = (fieldName: "apiKey" | "baseUrl" | "modelName") => {
+  const updateTextField = (fieldName: "apiKey" | "baseUrl") => {
     return (event: ChangeEvent<HTMLInputElement>) => {
       setDraftConfig((currentConfig) => ({
         ...currentConfig,
@@ -78,6 +109,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       return;
     }
 
+    setSelectedPresetId(preset.id);
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
       provider: preset.provider,
@@ -86,17 +118,47 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     }));
   };
 
-  const handleTemperatureChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleModelOptionChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
-      temperature: Number(event.target.value)
+      modelName: event.target.value
     }));
   };
 
-  const handleMaxOutputTokensChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleStrengthChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextStrength = event.target.value as ModelStrength;
+    const nextModel = modelOptions.find((option) => option.strength === nextStrength);
+    if (!nextModel?.modelName) {
+      return;
+    }
+
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
-      maxOutputTokens: Number(event.target.value)
+      modelName: nextModel.modelName
+    }));
+  };
+
+  const handleTemperatureLevelChange = (levelIndex: number) => {
+    const level = TEMPERATURE_LEVELS[levelIndex];
+    if (!level) {
+      return;
+    }
+
+    setDraftConfig((currentConfig) => ({
+      ...currentConfig,
+      temperature: level.value
+    }));
+  };
+
+  const handleMaxOutputLevelChange = (levelIndex: number) => {
+    const level = MAX_OUTPUT_LEVELS[levelIndex];
+    if (!level) {
+      return;
+    }
+
+    setDraftConfig((currentConfig) => ({
+      ...currentConfig,
+      maxOutputTokens: level.value
     }));
   };
 
@@ -112,6 +174,12 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     saveModelConfig(draftConfig);
     onClose();
   };
+
+  const selectedTemperatureIndex = findClosestLevelIndex(TEMPERATURE_LEVELS, draftConfig.temperature);
+  const selectedMaxOutputIndex = findClosestLevelIndex(MAX_OUTPUT_LEVELS, draftConfig.maxOutputTokens);
+  const selectedModel = modelOptions.find((option) => option.modelName === draftConfig.modelName);
+  const selectedStrength = selectedModel?.strength ?? availableStrengths[0] ?? "middle";
+  const modelSelectValue = selectedModel ? draftConfig.modelName : "";
 
   return (
     <div className="model-settings-modal" role="presentation" onMouseDown={onClose}>
@@ -143,93 +211,239 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
           </div>
         </div>
 
-        <div className="model-settings-modal__grid">
-          <label className="model-settings-modal__field model-settings-modal__field--wide">
-            <span>{copy.preset}</span>
-            <select defaultValue="" onChange={handlePresetChange}>
-              <option value="" disabled>
-                {copy.presetPlaceholder}
-              </option>
-              {MODEL_PRESETS.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.label}
+        <div className="model-settings-modal__content">
+          <section className="model-settings-modal__section">
+            <label className="model-settings-modal__field">
+              <span>{copy.preset}</span>
+              <select value={selectedPresetId} onChange={handlePresetChange}>
+                <option value="" disabled>
+                  {copy.presetPlaceholder}
                 </option>
-              ))}
-            </select>
-          </label>
+                {MODEL_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label className="model-settings-modal__field">
-            <span>{copy.provider}</span>
-            <select value={draftConfig.provider} onChange={handleProviderChange}>
-              <option value="openai-compatible">OpenAI-compatible</option>
-              <option value="anthropic">Anthropic</option>
-            </select>
-          </label>
+            <label className="model-settings-modal__field">
+              <span>{copy.provider}</span>
+              <select value={draftConfig.provider} onChange={handleProviderChange}>
+                <option value="openai-compatible">OpenAI-compatible</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </label>
 
-          <label className="model-settings-modal__field">
-            <span>{copy.apiKey}</span>
-            <input
-              type="password"
-              value={draftConfig.apiKey}
-              autoComplete="off"
-              placeholder={copy.apiKeyHint}
-              onChange={updateTextField("apiKey")}
+            <label className="model-settings-modal__field">
+              <span>{copy.apiKey}</span>
+              <input
+                type="password"
+                value={draftConfig.apiKey}
+                autoComplete="off"
+                placeholder={copy.apiKeyHint}
+                onChange={updateTextField("apiKey")}
+              />
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.baseUrl}</span>
+              <input type="url" value={draftConfig.baseUrl} onChange={updateTextField("baseUrl")} />
+            </label>
+          </section>
+
+          <section className="model-settings-modal__section">
+            <label className="model-settings-modal__field">
+              <span>{copy.modelName}</span>
+              <select value={modelSelectValue} onChange={handleModelOptionChange}>
+                <option value="" disabled>
+                  {copy.modelName}
+                </option>
+                {modelOptions
+                  .filter((option) => option.modelName)
+                  .map((option) => (
+                    <option key={option.modelName} value={option.modelName}>
+                      {option.label}
+                    </option>
+                  ))}
+              </select>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.modelStrength}</span>
+              <select value={selectedStrength} onChange={handleStrengthChange}>
+                {availableStrengths.map((strength) => (
+                  <option key={strength} value={strength}>
+                    {MODEL_STRENGTH_LABELS[strength]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <LevelSlider
+              label={copy.temperature}
+              hint={copy.temperatureHint}
+              levels={TEMPERATURE_LEVELS}
+              selectedIndex={selectedTemperatureIndex}
+              variant="response"
+              onSelect={handleTemperatureLevelChange}
             />
-          </label>
 
-          <label className="model-settings-modal__field model-settings-modal__field--wide">
-            <span>{copy.baseUrl}</span>
-            <input type="url" value={draftConfig.baseUrl} onChange={updateTextField("baseUrl")} />
-          </label>
-
-          <label className="model-settings-modal__field model-settings-modal__field--wide">
-            <span>{copy.modelName}</span>
-            <input type="text" value={draftConfig.modelName} onChange={updateTextField("modelName")} />
-          </label>
-
-          <label className="model-settings-modal__field model-settings-modal__field--wide">
-            <span>{copy.requestMode}</span>
-            <div className="model-settings-modal__static-value">{copy.developmentProxy}</div>
-            <small>{copy.requestModeNote}</small>
-          </label>
-
-          <label className="model-settings-modal__field">
-            <span>{copy.temperature}</span>
-            <input
-              type="number"
-              min="0"
-              max="2"
-              step="0.1"
-              value={draftConfig.temperature}
-              onChange={handleTemperatureChange}
+            <LevelSlider
+              label={copy.maxOutput}
+              hint={copy.maxOutputHint}
+              levels={MAX_OUTPUT_LEVELS}
+              selectedIndex={selectedMaxOutputIndex}
+              variant="output"
+              onSelect={handleMaxOutputLevelChange}
             />
-          </label>
-
-          <label className="model-settings-modal__field">
-            <span>{copy.maxOutput}</span>
-            <input
-              type="number"
-              min="128"
-              max="8192"
-              step="128"
-              value={draftConfig.maxOutputTokens}
-              onChange={handleMaxOutputTokensChange}
-            />
-          </label>
+          </section>
         </div>
 
-        <label className="model-settings-modal__toggle">
-          <input type="checkbox" checked={draftConfig.streamEnabled} onChange={handleStreamEnabledChange} />
-          <span>{copy.streamOutput}</span>
-        </label>
+        <div className="model-settings-modal__footer">
+          <label className="model-settings-modal__toggle">
+            <input type="checkbox" checked={draftConfig.streamEnabled} onChange={handleStreamEnabledChange} />
+            <span>{copy.streamOutput}</span>
+            <span className="model-settings-modal__hint-trigger" tabIndex={0} aria-label={copy.streamOutputHint}>
+              ?
+              <span className="model-settings-modal__tooltip" role="tooltip">
+                {copy.streamOutputHint}
+              </span>
+            </span>
+          </label>
 
-        <div className="model-settings-modal__actions">
-          <button type="button" onClick={onClose}>
-            {copy.cancel}
-          </button>
-          <button type="submit">{copy.save}</button>
+          <div className="model-settings-modal__actions">
+            <button type="button" onClick={onClose}>
+              {copy.cancel}
+            </button>
+            <button type="submit">{copy.save}</button>
+          </div>
         </div>
       </form>
     </div>
   );
+}
+
+function LevelSlider({
+  label,
+  hint,
+  levels,
+  selectedIndex,
+  variant,
+  onSelect
+}: {
+  label: string;
+  hint: string;
+  levels: readonly LevelOption[];
+  selectedIndex: number;
+  variant: "response" | "output";
+  onSelect: (levelIndex: number) => void;
+}) {
+  const progress = selectedIndex / Math.max(levels.length - 1, 1);
+  const heat = progress;
+  const controlRef = useRef<HTMLDivElement>(null);
+
+  useGSAP(() => {
+    const planetElement = controlRef.current?.querySelector(".model-settings-modal__planet");
+    const trailElements = controlRef.current?.querySelectorAll(".model-settings-modal__trail-particle");
+
+    if (!planetElement || !trailElements?.length) {
+      return;
+    }
+
+    gsap.to(controlRef.current, {
+      "--planet-progress": progress,
+      duration: 0.58,
+      ease: "power3.out",
+      overwrite: "auto"
+    });
+
+    trailElements.forEach((trailElement, particleIndex) => {
+      const particle = ORBIT_TRAIL_PARTICLES[particleIndex];
+      const isVisible = progress >= particle.position;
+      const distanceFromPlanet = Math.max(progress - particle.position, 0);
+
+      gsap.to(trailElement, {
+        autoAlpha: isVisible ? Math.min(0.32 + distanceFromPlanet * 0.72, 0.86) : 0,
+        scale: isVisible ? Math.min(0.72 + distanceFromPlanet * 0.72, 1) : 0.36,
+        duration: 0.36,
+        ease: "power2.out",
+        overwrite: "auto"
+      });
+    });
+  }, { dependencies: [progress], scope: controlRef });
+
+  return (
+    <div className="model-settings-modal__field model-settings-modal__level-field">
+      <span>{label}</span>
+      <div
+        ref={controlRef}
+        className={`model-settings-modal__energy-control model-settings-modal__energy-control--${variant}`}
+        style={{
+          "--slider-progress": `${progress * 100}%`,
+          "--planet-progress": progress,
+          "--slider-heat": heat
+        } as CSSProperties}
+      >
+        <div className="model-settings-modal__energy-particles" aria-hidden="true">
+          {ORBIT_TRAIL_PARTICLES.map((particle) => (
+            <span
+              className="model-settings-modal__trail-particle"
+              key={particle.position}
+              style={{
+                "--trail-position": particle.position,
+                "--trail-y": `${particle.y}px`,
+                "--trail-size": `${particle.size}px`
+              } as CSSProperties}
+            />
+          ))}
+        </div>
+        <div className="model-settings-modal__planet" aria-hidden="true" />
+        <input
+          className="model-settings-modal__range"
+          type="range"
+          min="0"
+          max={levels.length - 1}
+          step="1"
+          value={selectedIndex}
+          onChange={(event) => onSelect(Number(event.target.value))}
+        />
+      </div>
+      <div
+        className="model-settings-modal__level-labels"
+        style={{ "--level-count": levels.length } as CSSProperties}
+      >
+        {levels.map((level, index) => (
+          <button
+            key={level.label}
+            className={index === selectedIndex ? "is-active" : ""}
+            type="button"
+            onClick={() => onSelect(index)}
+          >
+            {level.label}
+          </button>
+        ))}
+      </div>
+      <small>{hint}</small>
+    </div>
+  );
+}
+
+function findPresetId(config: ModelConfig) {
+  return MODEL_PRESETS.find((preset) => preset.baseUrl === config.baseUrl && preset.provider === config.provider)?.id ?? "";
+}
+
+function findClosestLevelIndex(levels: readonly LevelOption[], value: number) {
+  let selectedIndex = 0;
+  let smallestDistance = Number.POSITIVE_INFINITY;
+
+  levels.forEach((level, index) => {
+    const distance = Math.abs(level.value - value);
+    if (distance < smallestDistance) {
+      smallestDistance = distance;
+      selectedIndex = index;
+    }
+  });
+
+  return selectedIndex;
 }
