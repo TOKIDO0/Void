@@ -34,6 +34,8 @@ export function ExpandedDialogueLine({
   const speakerLabel = message.role === "user" ? "You" : "VOID";
   const isCopied = copiedMessageIndex === index;
   const isEditing = editingMessageIndex === index;
+  const isPendingAssistantMessage = message.role === "assistant" && !message.content.trim();
+  const canCopyMessage = Boolean(message.content.trim());
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -52,6 +54,7 @@ export function ExpandedDialogueLine({
             className="expanded-dialogue-line__icon-button"
             type="button"
             aria-label="复制消息"
+            disabled={!canCopyMessage}
             onClick={() => onCopy(message, index)}
           >
             <Icon icon="solar:copy-linear" aria-hidden="true" />
@@ -91,7 +94,9 @@ export function ExpandedDialogueLine({
           </div>
         </form>
       ) : (
-        <p>{message.content}</p>
+        <p className={isPendingAssistantMessage ? "expanded-dialogue-line__pending" : undefined}>
+          {isPendingAssistantMessage ? "..." : message.content}
+        </p>
       )}
     </article>
   );

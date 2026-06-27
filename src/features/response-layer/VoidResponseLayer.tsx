@@ -39,7 +39,7 @@ export function VoidResponseLayer({ isVisible, text, tone, onExpand }: VoidRespo
       { autoAlpha: 0, y: 10, filter: "blur(6px)" },
       { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.72, ease: "power2.out", overwrite: "auto" }
     );
-  }, { dependencies: [isVisible, text, tone], scope: layerRef, revertOnUpdate: true });
+  }, { dependencies: [isVisible, tone], scope: layerRef, revertOnUpdate: true });
 
   if (!text) {
     return null;

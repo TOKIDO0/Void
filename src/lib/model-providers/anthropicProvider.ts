@@ -6,7 +6,7 @@ import type {
   ProviderValidationResult
 } from "./providerContract";
 import type { ModelConfig } from "../../features/settings/modelConfig";
-import { buildFetchTarget, buildProviderEndpointUrl } from "./providerUrl";
+import { buildFetchTarget, buildProviderEndpointUrl, fetchWithProxyFallback } from "./providerUrl";
 
 type AnthropicContentBlock = {
   type?: string;
@@ -50,13 +50,12 @@ export const anthropicProvider: ModelProvider = {
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "messages");
     const fetchTarget = buildFetchTarget(endpointUrl);
     const requestBody = buildAnthropicRequestBody(request, config, systemPrompt);
-    const response = await fetch(fetchTarget.url, {
+    const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": config.apiKey,
         "anthropic-version": "2023-06-01",
-        ...fetchTarget.headers
       },
       body: JSON.stringify(requestBody)
     });

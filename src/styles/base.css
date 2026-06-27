@@ -532,6 +532,49 @@ body {
   opacity: 0.78;
 }
 
+.model-settings-modal__advanced-model {
+  display: grid;
+  gap: 10px;
+}
+
+.model-settings-modal__advanced-panel {
+  overflow: hidden;
+  opacity: 0;
+  height: 0;
+  will-change: height, transform, opacity;
+}
+
+.model-settings-modal__advanced-panel .model-settings-modal__field {
+  padding-top: 2px;
+}
+
+.model-settings-modal__advanced-toggle {
+  width: 100%;
+  height: 36px;
+  border: 1px solid rgba(132, 226, 255, 0.16);
+  border-radius: 0;
+  padding: 0 12px;
+  background: rgba(0, 22, 32, 0.28);
+  color: rgba(177, 226, 238, 0.68);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-settings-modal__advanced-toggle:hover,
+.model-settings-modal__advanced-toggle:focus-visible {
+  outline: 0;
+  border-color: rgba(132, 226, 255, 0.34);
+  color: rgba(235, 252, 255, 0.88);
+}
+
+.model-settings-modal__advanced-toggle[aria-expanded="true"] {
+  border-color: rgba(123, 238, 255, 0.42);
+  background: rgba(85, 217, 244, 0.12);
+}
+
 .model-settings-modal__level-field {
   align-content: start;
 }
@@ -624,6 +667,7 @@ body {
   right: 0;
   left: 0;
   height: 1px;
+  overflow: visible;
 }
 
 .model-settings-modal__trail-particle {
@@ -633,13 +677,17 @@ body {
   --trail-color: color-mix(in srgb, var(--slider-low), var(--slider-high) calc(var(--trail-position) * 100%));
   top: 0;
   left: calc(var(--orbit-travel-start) + (var(--orbit-travel-width) * var(--trail-position)));
-  width: var(--trail-size);
-  height: var(--trail-size);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--trail-color), white 14%);
-  box-shadow: 0 0 9px color-mix(in srgb, var(--trail-color), transparent 24%);
+  width: calc(var(--trail-size) * 1.2);
+  height: calc(var(--trail-size) * 1.2);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.96) 0 28%, color-mix(in srgb, var(--trail-color), white 16%) 34%, transparent 76%);
+  box-shadow:
+    0 0 10px color-mix(in srgb, var(--trail-color), transparent 20%),
+    0 0 22px color-mix(in srgb, var(--trail-color), transparent 58%);
   opacity: 0;
-  transform: translate(-50%, calc(-50% + var(--trail-y)));
+  transform: translate(-50%, -50%);
+  will-change: transform, opacity, filter;
 }
 
 .model-settings-modal__planet {
@@ -657,6 +705,8 @@ body {
     inset 3px 3px 7px rgba(255, 255, 255, 0.18),
     0 0 18px color-mix(in srgb, var(--slider-core), transparent 24%);
   transform: translate(-50%, -50%);
+  transform-origin: center;
+  will-change: transform, left;
 }
 
 .model-settings-modal__energy-control--response {
@@ -1088,6 +1138,11 @@ body {
   white-space: pre-wrap;
 }
 
+.expanded-dialogue-line__pending {
+  color: rgba(255, 210, 245, 0.46);
+  animation: expanded-pending-pulse 1.1s ease-in-out infinite alternate;
+}
+
 @keyframes expanded-copy-bubble {
   from {
     opacity: 0;
@@ -1102,12 +1157,28 @@ body {
   }
 }
 
+@keyframes expanded-pending-pulse {
+  from {
+    opacity: 0.42;
+    filter: blur(1px);
+  }
+
+  to {
+    opacity: 0.86;
+    filter: blur(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .expanded-response-overlay__messages {
     scroll-behavior: auto;
   }
 
   .expanded-dialogue-line__copy-bubble {
+    animation: none;
+  }
+
+  .expanded-dialogue-line__pending {
     animation: none;
   }
 }

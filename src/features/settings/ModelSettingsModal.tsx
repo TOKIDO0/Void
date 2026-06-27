@@ -1,6 +1,6 @@
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { ChangeEvent, CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   MAX_OUTPUT_LEVELS,
   MODEL_OPTIONS_BY_PRESET,
@@ -30,22 +30,24 @@ type ModelSettingsModalProps = {
 
 const MODEL_STRENGTH_ORDER: ModelStrength[] = ["low", "middle", "high", "max"];
 const ORBIT_TRAIL_PARTICLES = [
-  { position: 0.08, y: -4, size: 2 },
-  { position: 0.16, y: 4, size: 3 },
-  { position: 0.24, y: -1, size: 2 },
-  { position: 0.33, y: 5, size: 2 },
-  { position: 0.42, y: -5, size: 3 },
-  { position: 0.52, y: 2, size: 2 },
-  { position: 0.62, y: -3, size: 3 },
-  { position: 0.71, y: 5, size: 2 },
-  { position: 0.8, y: -2, size: 3 },
-  { position: 0.89, y: 3, size: 2 }
+  { position: 0.08, y: -4, size: 3, delay: 0.04 },
+  { position: 0.15, y: 5, size: 4, delay: 0.02 },
+  { position: 0.23, y: -2, size: 2, delay: 0.08 },
+  { position: 0.31, y: 6, size: 3, delay: 0.01 },
+  { position: 0.4, y: -6, size: 4, delay: 0.06 },
+  { position: 0.48, y: 1, size: 2, delay: 0.03 },
+  { position: 0.58, y: -4, size: 3, delay: 0.09 },
+  { position: 0.67, y: 5, size: 4, delay: 0.05 },
+  { position: 0.77, y: -1, size: 3, delay: 0.07 },
+  { position: 0.87, y: 4, size: 2, delay: 0.02 },
+  { position: 0.93, y: -5, size: 3, delay: 0.1 }
 ] as const;
 
 export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps) {
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
   const [selectedPresetId, setSelectedPresetId] = useState(() => findPresetId(loadModelConfig()));
+  const [isAdvancedModelOpen, setIsAdvancedModelOpen] = useState(false);
   const copy = SETTINGS_COPY[language];
   const modelOptions = useMemo(() => MODEL_OPTIONS_BY_PRESET[selectedPresetId] ?? [], [selectedPresetId]);
   const availableStrengths = useMemo(() => {
@@ -58,8 +60,12 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     }
 
     const storedConfig = loadModelConfig();
+    const storedPresetId = findPresetId(storedConfig);
+    const storedModelOptions = MODEL_OPTIONS_BY_PRESET[storedPresetId] ?? [];
+
     setDraftConfig(storedConfig);
-    setSelectedPresetId(findPresetId(storedConfig));
+    setSelectedPresetId(storedPresetId);
+    setIsAdvancedModelOpen(!storedModelOptions.some((option) => option.modelName === storedConfig.modelName));
   }, [isOpen]);
 
   useEffect(() => {
@@ -91,9 +97,14 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   };
 
   const handleProviderChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextProvider = event.target.value as ModelProviderType;
+    const nextPresetId = findDefaultPresetIdForProvider(nextProvider);
+
+    setSelectedPresetId(nextPresetId);
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
-      provider: event.target.value as ModelProviderType
+      provider: nextProvider,
+      presetId: nextPresetId
     }));
   };
 
@@ -110,8 +121,10 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     }
 
     setSelectedPresetId(preset.id);
+    setIsAdvancedModelOpen(false);
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
+      presetId: preset.id,
       provider: preset.provider,
       baseUrl: preset.baseUrl,
       modelName: preset.modelName,
@@ -164,10 +177,15 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     }));
   };
 
+  const handleAdvancedModelToggle = () => {
+    setIsAdvancedModelOpen((currentIsOpen) => !currentIsOpen);
+  };
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     saveModelConfig({
       ...draftConfig,
+      presetId: selectedPresetId,
       streamEnabled: draftConfig.provider === "openai-compatible" && draftConfig.streamEnabled
     });
     onClose();
@@ -179,6 +197,48 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   const selectedStrength = draftConfig.modelStrength;
   const modelSelectValue = selectedModel ? draftConfig.modelName : "";
   const canStream = draftConfig.provider === "openai-compatible";
+  const advancedContentRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const contentElement = advancedContentRef.current;
+    if (!contentElement) {
+      return;
+    }
+
+    gsap.killTweensOf(contentElement);
+    gsap.set(contentElement, { height: "auto" });
+    const expandedHeight = contentElement.offsetHeight;
+
+    if (isAdvancedModelOpen) {
+      gsap.fromTo(
+        contentElement,
+        { height: 0, autoAlpha: 0, y: -12 },
+        {
+          height: expandedHeight,
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.48,
+          ease: "power3.out",
+          clearProps: "height",
+          overwrite: "auto"
+        }
+      );
+      return;
+    }
+
+    gsap.fromTo(
+      contentElement,
+      { height: expandedHeight, autoAlpha: 1, y: 0 },
+      {
+        height: 0,
+        autoAlpha: 0,
+        y: -10,
+        duration: 0.4,
+        ease: "power2.inOut",
+        overwrite: "auto"
+      }
+    );
+  }, [isAdvancedModelOpen]);
 
   return (
     <div className="model-settings-modal" role="presentation" onMouseDown={onClose}>
@@ -268,15 +328,33 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
               </select>
             </label>
 
-            <label className="model-settings-modal__field">
-              <span>{copy.customModelName}</span>
-              <input
-                type="text"
-                value={draftConfig.modelName}
-                placeholder={copy.customModelNameHint}
-                onChange={updateTextField("modelName")}
-              />
-            </label>
+            <div className="model-settings-modal__advanced-model">
+              <button
+                className="model-settings-modal__advanced-toggle"
+                type="button"
+                aria-expanded={isAdvancedModelOpen}
+                onClick={handleAdvancedModelToggle}
+              >
+                {copy.advancedModel}
+              </button>
+              <div
+                ref={advancedContentRef}
+                className="model-settings-modal__advanced-panel"
+                aria-hidden={!isAdvancedModelOpen}
+              >
+                <label className="model-settings-modal__field">
+                  <span>{copy.customModelName}</span>
+                  <input
+                    type="text"
+                    disabled={!isAdvancedModelOpen}
+                    value={draftConfig.modelName}
+                    placeholder={copy.customModelNameHint}
+                    onChange={updateTextField("modelName")}
+                  />
+                  <small>{copy.advancedModelHint}</small>
+                </label>
+              </div>
+            </div>
 
             <label className="model-settings-modal__field">
               <span>{copy.modelStrength}</span>
@@ -356,36 +434,67 @@ function LevelSlider({
   const progress = selectedIndex / Math.max(levels.length - 1, 1);
   const heat = progress;
   const controlRef = useRef<HTMLDivElement>(null);
+  const previousProgressRef = useRef(progress);
+  const planetRotationRef = useRef(progress * 360);
 
   useGSAP(() => {
-    const planetElement = controlRef.current?.querySelector(".model-settings-modal__planet");
+    const controlElement = controlRef.current;
+    const planetElement = controlElement?.querySelector(".model-settings-modal__planet");
     const trailElements = controlRef.current?.querySelectorAll(".model-settings-modal__trail-particle");
 
-    if (!planetElement || !trailElements?.length) {
+    if (!controlElement || !planetElement || !trailElements?.length) {
       return;
     }
 
-    gsap.to(controlRef.current, {
+    const previousProgress = previousProgressRef.current;
+    const delta = progress - previousProgress;
+    const direction = delta === 0 ? 0 : delta > 0 ? 1 : -1;
+    const travelDistance = Math.abs(delta);
+    const nextRotation = planetRotationRef.current + (delta * 720);
+
+    gsap.to(controlElement, {
       "--planet-progress": progress,
-      duration: 0.58,
-      ease: "power3.out",
+      duration: Math.max(0.52, travelDistance * 1.25),
+      ease: "power3.inOut",
+      overwrite: "auto"
+    });
+
+    gsap.to(planetElement, {
+      rotation: nextRotation,
+      duration: Math.max(0.52, travelDistance * 1.25),
+      ease: "power3.inOut",
       overwrite: "auto"
     });
 
     trailElements.forEach((trailElement, particleIndex) => {
       const particle = ORBIT_TRAIL_PARTICLES[particleIndex];
-      const isVisible = progress >= particle.position;
-      const distanceFromPlanet = Math.max(progress - particle.position, 0);
+      const seededDrift = (((selectedIndex + 1) * (particleIndex + 3) * 17) % 11) - 5;
+      const driftX = direction === 0 ? 0 : seededDrift * Math.min(travelDistance * 7, 7);
+      const driftY = particle.y + (direction === 0 ? 0 : seededDrift * 0.6);
+      const distanceFromPlanet = direction >= 0
+        ? Math.max(progress - particle.position, 0)
+        : Math.max(particle.position - progress, 0);
+      const shouldGlow = direction >= 0
+        ? progress >= particle.position && particle.position >= progress - Math.max(travelDistance * 1.35, 0.22)
+        : progress <= particle.position && particle.position <= progress + Math.max(travelDistance * 1.35, 0.22);
+      const particleOpacity = shouldGlow ? Math.min(0.38 + distanceFromPlanet * 1.4, 0.94) : 0.04;
+      const particleScale = shouldGlow ? Math.min(0.7 + distanceFromPlanet * 1.2, 1.45) : 0.28;
 
       gsap.to(trailElement, {
-        autoAlpha: isVisible ? Math.min(0.32 + distanceFromPlanet * 0.72, 0.86) : 0,
-        scale: isVisible ? Math.min(0.72 + distanceFromPlanet * 0.72, 1) : 0.36,
-        duration: 0.36,
+        autoAlpha: particleOpacity,
+        scale: particleScale,
+        x: driftX,
+        y: driftY,
+        filter: shouldGlow ? "blur(0px)" : "blur(1.6px)",
+        duration: 0.28 + particle.delay,
         ease: "power2.out",
         overwrite: "auto"
       });
     });
-  }, { dependencies: [progress], scope: controlRef });
+
+    previousProgressRef.current = progress;
+    planetRotationRef.current = nextRotation;
+  }, { dependencies: [progress, selectedIndex], scope: controlRef });
 
   return (
     <div className="model-settings-modal__field model-settings-modal__level-field">
@@ -444,11 +553,20 @@ function LevelSlider({
 }
 
 function findPresetId(config: ModelConfig) {
-  return MODEL_PRESETS.find((preset) => preset.baseUrl === config.baseUrl && preset.provider === config.provider)?.id ?? "";
+  if (MODEL_PRESETS.some((preset) => preset.id === config.presetId && preset.provider === config.provider)) {
+    return config.presetId;
+  }
+
+  return MODEL_PRESETS.find((preset) => preset.baseUrl === config.baseUrl && preset.provider === config.provider)?.id
+    ?? findDefaultPresetIdForProvider(config.provider);
 }
 
 function findModelStrength(presetId: string, modelName: string) {
   return MODEL_OPTIONS_BY_PRESET[presetId]?.find((option) => option.modelName === modelName)?.strength;
+}
+
+function findDefaultPresetIdForProvider(provider: ModelProviderType) {
+  return MODEL_PRESETS.find((preset) => preset.provider === provider)?.id ?? "";
 }
 
 function findClosestLevelIndex(levels: readonly LevelOption[], value: number) {

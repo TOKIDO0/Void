@@ -124,7 +124,7 @@ export function ExpandedResponseOverlay({
       scrollMessagesToBottom("auto");
       updateScrollButtonVisibility();
     });
-  }, [isOpen, messages.length, scrollMessagesToBottom, shouldRender, updateScrollButtonVisibility]);
+  }, [isOpen, messages, scrollMessagesToBottom, shouldRender, updateScrollButtonVisibility]);
 
   useEffect(() => {
     const buttonElement = scrollButtonRef.current;
@@ -249,7 +249,7 @@ export function ExpandedResponseOverlay({
         >
           {messages.map((message, index) => (
             <ExpandedDialogueLine
-              key={`${message.role}-${index}-${message.content.slice(0, 16)}`}
+              key={`${message.role}-${index}`}
               message={message}
               index={index}
               canEdit={message.role === "user" && index === latestUserMessageIndex}

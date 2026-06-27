@@ -15,6 +15,8 @@ type SettingsCopy = {
   modelName: string;
   customModelName: string;
   customModelNameHint: string;
+  advancedModel: string;
+  advancedModelHint: string;
   modelStrength: string;
   temperature: string;
   temperatureHint: string;
@@ -41,6 +43,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     modelName: "模型选择",
     customModelName: "自定义模型名",
     customModelNameHint: "例如 glm-5.2、doubao-1-5-lite-32k 或豆包 Ark Endpoint ID",
+    advancedModel: "高级模型入口",
+    advancedModelHint: "仅在使用中转站、私有 Endpoint 或下拉列表没有目标模型时填写。",
     modelStrength: "模型强度",
     temperature: "回应风格",
     temperatureHint: "控制回复的稳定程度和发散程度",
@@ -65,6 +69,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     modelName: "Model",
     customModelName: "Custom model",
     customModelNameHint: "For example glm-5.2, doubao-1-5-lite-32k, or a Doubao Ark endpoint ID",
+    advancedModel: "Advanced model",
+    advancedModelHint: "Use this only for relays, private endpoints, or models missing from the list.",
     modelStrength: "Model strength",
     temperature: "Response style",
     temperatureHint: "Controls how stable or exploratory the response feels",

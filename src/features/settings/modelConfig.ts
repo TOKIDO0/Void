@@ -6,6 +6,7 @@ export type ModelStrength = "low" | "middle" | "high" | "max";
 
 export type ModelConfig = {
   provider: ModelProviderType;
+  presetId: string;
   apiKey: string;
   baseUrl: string;
   modelName: string;
@@ -42,6 +43,7 @@ type StoredModelConfig = Omit<ModelConfig, "apiKey">;
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   provider: "openai-compatible",
+  presetId: "openai",
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
   modelName: "gpt-5.5",
@@ -167,6 +169,7 @@ export function loadModelConfig(): ModelConfig {
     const parsedConfig = JSON.parse(rawConfig) as Partial<StoredModelConfig>;
     return {
       provider: isModelProviderType(parsedConfig.provider) ? parsedConfig.provider : DEFAULT_MODEL_CONFIG.provider,
+      presetId: normalizePresetId(parsedConfig.presetId),
       apiKey: sessionApiKey,
       baseUrl: parsedConfig.baseUrl ?? DEFAULT_MODEL_CONFIG.baseUrl,
       modelName: parsedConfig.modelName ?? DEFAULT_MODEL_CONFIG.modelName,
@@ -187,6 +190,7 @@ export function loadModelConfig(): ModelConfig {
 export function saveModelConfig(modelConfig: ModelConfig) {
   const storedConfig: StoredModelConfig = {
     provider: modelConfig.provider,
+    presetId: normalizePresetId(modelConfig.presetId),
     baseUrl: modelConfig.baseUrl,
     modelName: modelConfig.modelName,
     modelStrength: modelConfig.modelStrength,
@@ -230,4 +234,12 @@ function normalizeModelStrength(value: unknown): ModelStrength {
 
 function isModelProviderType(value: unknown): value is ModelProviderType {
   return value === "openai-compatible" || value === "anthropic";
+}
+
+function normalizePresetId(value: unknown) {
+  if (typeof value === "string" && MODEL_PRESETS.some((preset) => preset.id === value)) {
+    return value;
+  }
+
+  return DEFAULT_MODEL_CONFIG.presetId;
 }

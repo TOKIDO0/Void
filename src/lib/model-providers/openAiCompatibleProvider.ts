@@ -5,7 +5,7 @@ import type {
   ProviderValidationResult
 } from "./providerContract";
 import type { ModelConfig } from "../../features/settings/modelConfig";
-import { buildFetchTarget, buildProviderEndpointUrl } from "./providerUrl";
+import { buildFetchTarget, buildProviderEndpointUrl, fetchWithProxyFallback } from "./providerUrl";
 
 type OpenAiCompatibleChoice = {
   message?: {
@@ -52,12 +52,11 @@ export const openAiCompatibleProvider: ModelProvider = {
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
     const fetchTarget = buildFetchTarget(endpointUrl);
     logOpenAiCompatibleRequest("send", endpointUrl, config);
-    const response = await fetch(fetchTarget.url, {
+    const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: buildBearerToken(config.apiKey),
-        ...fetchTarget.headers
       },
       body: JSON.stringify({
         model: config.modelName,
@@ -86,12 +85,11 @@ export const openAiCompatibleProvider: ModelProvider = {
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
     const fetchTarget = buildFetchTarget(endpointUrl);
     logOpenAiCompatibleRequest("stream", endpointUrl, config);
-    const response = await fetch(fetchTarget.url, {
+    const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: buildBearerToken(config.apiKey),
-        ...fetchTarget.headers
       },
       body: JSON.stringify({
         model: config.modelName,
