@@ -51,7 +51,7 @@ function countWrappedLines(text: string, mirror: HTMLDivElement | null) {
   }
 
   mirror.textContent = text.endsWith("\n") ? `${text} ` : text;
-  return Math.max(Math.round(mirror.scrollHeight / TEXT_LINE_HEIGHT), 1);
+  return Math.max(Math.ceil(mirror.scrollHeight / TEXT_LINE_HEIGHT), 1);
 }
 
 function createCapsuleUniforms() {

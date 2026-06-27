@@ -9,10 +9,11 @@ type VoidResponseLayerProps = {
   isVisible: boolean;
   text: string;
   tone: "quiet" | "thinking" | "error";
+  pulseKey: string;
   onExpand?: () => void;
 };
 
-export function VoidResponseLayer({ isVisible, text, tone, onExpand }: VoidResponseLayerProps) {
+export function VoidResponseLayer({ isVisible, text, tone, pulseKey, onExpand }: VoidResponseLayerProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const canExpand = Boolean(onExpand && isVisible && text && tone === "quiet");
 
@@ -54,7 +55,7 @@ export function VoidResponseLayer({ isVisible, text, tone, onExpand }: VoidRespo
       onClick={canExpand ? onExpand : undefined}
     >
       <p>{text}</p>
-      <EchoLightLine pulseKey={`${tone}:${text}`} tone={tone} />
+      <EchoLightLine pulseKey={`${tone}:${pulseKey}`} tone={tone} />
     </section>
   );
 }

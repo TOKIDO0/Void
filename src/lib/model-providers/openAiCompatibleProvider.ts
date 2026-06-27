@@ -5,6 +5,7 @@ import type {
   ProviderValidationResult
 } from "./providerContract";
 import type { ModelConfig } from "../../features/settings/modelConfig";
+import { ProviderRequestError, createHttpStatusError } from "./providerErrors";
 import { buildFetchTarget, buildProviderEndpointUrl, fetchWithProxyFallback } from "./providerUrl";
 
 type OpenAiCompatibleChoice = {
@@ -70,7 +71,11 @@ export const openAiCompatibleProvider: ModelProvider = {
 
     if (!response.ok) {
       const errorMessage = await readErrorMessage(response);
-      throw new Error(buildOpenAiCompatibleErrorMessage(response.status, errorMessage, config));
+      throw createHttpStatusError(
+        response.status,
+        buildOpenAiCompatibleServiceMessage(response.status, errorMessage, config),
+        endpointUrl
+      );
     }
 
     return this.normalizeResponse(await response.json());
@@ -103,7 +108,11 @@ export const openAiCompatibleProvider: ModelProvider = {
 
     if (!response.ok) {
       const errorMessage = await readErrorMessage(response);
-      throw new Error(buildOpenAiCompatibleErrorMessage(response.status, errorMessage, config));
+      throw createHttpStatusError(
+        response.status,
+        buildOpenAiCompatibleServiceMessage(response.status, errorMessage, config),
+        endpointUrl
+      );
     }
 
     if (!response.body) {
@@ -125,8 +134,8 @@ export const openAiCompatibleProvider: ModelProvider = {
   },
 
   mapError(error: unknown): Error {
-    if (error instanceof TypeError) {
-      return new Error("模型网络请求失败。请检查 Base URL、浏览器 CORS 限制，或切换到开发代理模式。");
+    if (error instanceof ProviderRequestError) {
+      return new Error(buildOpenAiCompatibleErrorMessage(error));
     }
 
     if (error instanceof Error) {
@@ -175,16 +184,34 @@ function mapModelStrengthToReasoningEffort(strength: ModelConfig["modelStrength"
   return "medium";
 }
 
-function buildOpenAiCompatibleErrorMessage(status: number, errorMessage: string, config: ModelConfig) {
-  if (status === 401 && isVolcengineArkConfig(config)) {
-    return [
-      "模型请求失败：401 豆包 Ark 鉴权失败。",
-      "请确认 API Key 填的是“API Key Secret”，不是 API Key ID、Access Key ID、Secret Access Key 或火山 AK/SK。",
-      errorMessage ? `服务端信息：${errorMessage}` : ""
-    ].filter(Boolean).join(" ");
+function buildOpenAiCompatibleErrorMessage(error: ProviderRequestError) {
+  if (error.kind === "proxy-unavailable") {
+    return "模型请求失败：开发代理不可用，且浏览器直连目标接口也失败了。请确认 Vite 开发服务正常运行，并检查目标接口是否允许当前来源访问。";
   }
 
-  return `模型请求失败：${status}${errorMessage ? ` ${errorMessage}` : ""}`;
+  if (error.kind === "network") {
+    return "模型网络请求失败。请检查 Base URL、网络连通性或目标接口的 CORS 配置。";
+  }
+
+  const status = error.status ?? 0;
+  const errorMessage = error.serviceMessage;
+  if (status === 401 || status === 403) {
+    return `模型请求失败：${status} 鉴权失败。请确认 API Key 可用且请求头格式正确。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
+  }
+
+  if (status === 404) {
+    return `模型请求失败：404。请确认 Base URL、接口路径和模型名是否正确。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
+  }
+
+  if (status === 429) {
+    return `模型请求失败：429，请求过于频繁或额度不足。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
+  }
+
+  if (status >= 500) {
+    return `模型请求失败：${status}，目标模型服务暂时异常。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
+  }
+
+  return `模型请求失败：${status}${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
 }
 
 function isVolcengineArkConfig(config: ModelConfig) {
@@ -193,6 +220,18 @@ function isVolcengineArkConfig(config: ModelConfig) {
   } catch {
     return false;
   }
+}
+
+function buildOpenAiCompatibleServiceMessage(status: number, errorMessage: string, config: ModelConfig) {
+  if (status === 401 && isVolcengineArkConfig(config)) {
+    return [
+      "豆包 Ark 鉴权失败。",
+      "请确认 API Key 填的是“API Key Secret”，不是 API Key ID、Access Key ID、Secret Access Key 或火山 AK/SK。",
+      errorMessage
+    ].filter(Boolean).join(" ");
+  }
+
+  return errorMessage;
 }
 
 function logOpenAiCompatibleRequest(mode: "send" | "stream", endpointUrl: string, config: ModelConfig) {

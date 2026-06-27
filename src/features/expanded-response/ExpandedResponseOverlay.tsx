@@ -37,6 +37,7 @@ export function ExpandedResponseOverlay({
   const scrollButtonRef = useRef<HTMLButtonElement | null>(null);
   const progressRef = useRef({ value: 0 });
   const copyBubbleTimeoutRef = useRef(0);
+  const shouldStickToBottomRef = useRef(true);
   const latestUserMessageIndex = findLatestUserMessageIndex(messages);
 
   const updateScrollButtonVisibility = useCallback(() => {
@@ -46,6 +47,7 @@ export function ExpandedResponseOverlay({
     }
 
     const distanceToBottom = messagesElement.scrollHeight - messagesElement.scrollTop - messagesElement.clientHeight;
+    shouldStickToBottomRef.current = distanceToBottom <= 80;
     setIsScrollButtonVisible(distanceToBottom > 80);
   }, []);
 
@@ -94,6 +96,7 @@ export function ExpandedResponseOverlay({
     if (isOpen) {
       setShouldRender(true);
       setIsClosing(false);
+      shouldStickToBottomRef.current = true;
       onClosingChange(false);
     } else if (shouldRender) {
       playClose();
@@ -121,7 +124,9 @@ export function ExpandedResponseOverlay({
     }
 
     window.requestAnimationFrame(() => {
-      scrollMessagesToBottom("auto");
+      if (shouldStickToBottomRef.current) {
+        scrollMessagesToBottom("auto");
+      }
       updateScrollButtonVisibility();
     });
   }, [isOpen, messages, scrollMessagesToBottom, shouldRender, updateScrollButtonVisibility]);
@@ -249,7 +254,7 @@ export function ExpandedResponseOverlay({
         >
           {messages.map((message, index) => (
             <ExpandedDialogueLine
-              key={`${message.role}-${index}`}
+              key={`${index}-${message.role}`}
               message={message}
               index={index}
               canEdit={message.role === "user" && index === latestUserMessageIndex}

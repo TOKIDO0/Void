@@ -23,6 +23,7 @@ type ResponseLayerState = {
   text: string;
   tone: ResponseLayerTone;
   source: ResponseLayerSource;
+  pulseKey: string;
 };
 
 const RESPONSE_LAYER_IDLE_HIDE_MS = 32000;
@@ -40,7 +41,8 @@ export function VoidStage() {
     isVisible: false,
     text: "",
     tone: "quiet",
-    source: "text"
+    source: "text",
+    pulseKey: "idle"
   });
   const conversationHistoryRef = useRef<VoidConversationMessage[]>(conversationHistory);
   const textExchangeActiveRef = useRef(false);
@@ -109,6 +111,7 @@ export function VoidStage() {
     const modelConfig = loadModelConfig();
     const canStream = modelConfig.streamEnabled && modelConfig.provider === "openai-compatible";
     let streamedContent = "";
+    let didStartStreaming = false;
 
     return sendVoidMessage(message, history, {
       ...modelConfig,
@@ -120,8 +123,10 @@ export function VoidStage() {
         showResponseLayer({
           text: streamedContent,
           tone: "quiet",
-          source: "text"
+          source: "text",
+          pulseKey: didStartStreaming ? "streaming-active" : "streaming-start"
         });
+        didStartStreaming = true;
       }
       : undefined);
   }, [showResponseLayer]);
@@ -155,7 +160,8 @@ export function VoidStage() {
     showResponseLayer({
       text: "正在思考。",
       tone: "thinking",
-      source: "text"
+      source: "text",
+      pulseKey: "thinking"
     });
     setVisualState("thinking");
 
@@ -184,7 +190,8 @@ export function VoidStage() {
       showResponseLayer({
         text: assistantResponse.content,
         tone: "quiet",
-        source: "text"
+        source: "text",
+        pulseKey: "complete"
       });
       scheduleResponseLayerHide();
       setVisualState("speaking");
@@ -203,7 +210,8 @@ export function VoidStage() {
       showResponseLayer({
         text: errorMessage,
         tone: "error",
-        source: "text"
+        source: "text",
+        pulseKey: "error"
       });
       scheduleResponseLayerHide(14000);
       setVisualState("idle");
@@ -224,7 +232,8 @@ export function VoidStage() {
     showResponseLayer({
       text: "正在重新思考。",
       tone: "thinking",
-      source: "text"
+      source: "text",
+      pulseKey: "thinking-regenerate"
     });
 
     const historyBeforeEditedMessage = currentHistory.slice(0, messageIndex);
@@ -252,7 +261,8 @@ export function VoidStage() {
       showResponseLayer({
         text: assistantResponse.content,
         tone: "quiet",
-        source: "text"
+        source: "text",
+        pulseKey: "complete-regenerate"
       });
       scheduleResponseLayerHide();
       setVisualState("speaking");
@@ -271,7 +281,8 @@ export function VoidStage() {
       showResponseLayer({
         text: errorMessage,
         tone: "error",
-        source: "text"
+        source: "text",
+        pulseKey: "error-regenerate"
       });
       scheduleResponseLayerHide(14000);
       setVisualState("idle");
@@ -336,6 +347,7 @@ export function VoidStage() {
         isVisible={responseLayer.isVisible}
         text={responseLayer.text}
         tone={responseLayer.tone}
+        pulseKey={responseLayer.pulseKey}
         onExpand={openExpandedResponse}
       />
       <LuminousTextEntry

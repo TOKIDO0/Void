@@ -25,7 +25,7 @@ export default defineConfig({
             return;
           }
 
-          if (parsedTargetUrl.protocol !== "https:" && parsedTargetUrl.hostname !== "localhost") {
+          if (parsedTargetUrl.protocol !== "https:" && !isLoopbackHostname(parsedTargetUrl.hostname)) {
             response.statusCode = 400;
             response.end("Only HTTPS model endpoints are allowed");
             return;
@@ -84,7 +84,7 @@ function readRequestBody(request: IncomingMessage) {
 
 function buildForwardedHeaders(headers: Record<string, string | string[] | undefined>) {
   const forwardedHeaders = new Headers();
-  const allowedHeaders = ["authorization", "content-type", "x-api-key", "anthropic-version"];
+  const allowedHeaders = ["accept", "authorization", "content-type", "x-api-key", "anthropic-version"];
 
   for (const headerName of allowedHeaders) {
     const headerValue = headers[headerName];
@@ -94,4 +94,8 @@ function buildForwardedHeaders(headers: Record<string, string | string[] | undef
   }
 
   return forwardedHeaders;
+}
+
+function isLoopbackHostname(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }

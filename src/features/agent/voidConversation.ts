@@ -11,6 +11,7 @@ export type VoidConversationMessage = {
 const CURRENT_CONVERSATION_STORAGE_KEY = "void.currentConversation";
 const MAX_STORED_CONVERSATION_MESSAGES = 80;
 const MAX_STORED_MESSAGE_CHARACTERS = 24000;
+const MAX_STORED_TOTAL_CHARACTERS = 120000;
 const MAX_REQUEST_HISTORY_MESSAGES = 20;
 const MAX_REQUEST_HISTORY_CHARACTERS = 18000;
 
@@ -60,11 +61,12 @@ export function loadCurrentConversationHistory(): VoidConversationMessage[] {
 }
 
 export function saveCurrentConversationHistory(conversationHistory: VoidConversationMessage[]) {
-  const storedHistory = conversationHistory
+  const normalizedHistory = conversationHistory
     .filter(isVoidConversationMessage)
     .map(normalizeStoredConversationMessage)
     .filter((message) => message.content)
     .slice(-MAX_STORED_CONVERSATION_MESSAGES);
+  const storedHistory = clipConversationByTotalCharacters(normalizedHistory, MAX_STORED_TOTAL_CHARACTERS);
 
   window.localStorage.setItem(CURRENT_CONVERSATION_STORAGE_KEY, JSON.stringify(storedHistory));
 }
@@ -95,7 +97,7 @@ function buildRequestConversationHistory(conversationHistory: VoidConversationMe
 
   for (const message of conversationHistory.slice(-MAX_REQUEST_HISTORY_MESSAGES).reverse()) {
     const content = message.content.trim();
-    if (!content) {
+    if (!content || shouldSkipRequestHistoryMessage(message.role, content)) {
       continue;
     }
 
@@ -115,4 +117,40 @@ function buildRequestConversationHistory(conversationHistory: VoidConversationMe
   }
 
   return requestMessages;
+}
+
+function clipConversationByTotalCharacters(conversationHistory: VoidConversationMessage[], maxTotalCharacters: number) {
+  const clippedHistory: VoidConversationMessage[] = [];
+  let totalCharacters = 0;
+
+  for (const message of conversationHistory.slice().reverse()) {
+    if (totalCharacters >= maxTotalCharacters) {
+      break;
+    }
+
+    const remainingCharacters = maxTotalCharacters - totalCharacters;
+    const clippedContent = message.content.length > remainingCharacters
+      ? message.content.slice(message.content.length - remainingCharacters)
+      : message.content;
+
+    clippedHistory.unshift({
+      role: message.role,
+      content: clippedContent
+    });
+    totalCharacters += clippedContent.length;
+  }
+
+  return clippedHistory;
+}
+
+function shouldSkipRequestHistoryMessage(role: VoidConversationMessage["role"], content: string) {
+  if (role !== "assistant") {
+    return false;
+  }
+
+  return (
+    content.startsWith("模型请求失败：")
+    || content.startsWith("模型网络请求失败。")
+    || content.startsWith("模型连接失败")
+  );
 }

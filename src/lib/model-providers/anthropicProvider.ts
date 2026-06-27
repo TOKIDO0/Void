@@ -6,6 +6,7 @@ import type {
   ProviderValidationResult
 } from "./providerContract";
 import type { ModelConfig } from "../../features/settings/modelConfig";
+import { ProviderRequestError, createHttpStatusError } from "./providerErrors";
 import { buildFetchTarget, buildProviderEndpointUrl, fetchWithProxyFallback } from "./providerUrl";
 
 type AnthropicContentBlock = {
@@ -62,7 +63,7 @@ export const anthropicProvider: ModelProvider = {
 
     if (!response.ok) {
       const errorMessage = await readErrorMessage(response);
-      throw new Error(`模型请求失败：${response.status}${errorMessage ? ` ${errorMessage}` : ""}`);
+      throw createHttpStatusError(response.status, errorMessage, endpointUrl);
     }
 
     return this.normalizeResponse(await response.json());
@@ -86,8 +87,8 @@ export const anthropicProvider: ModelProvider = {
   },
 
   mapError(error: unknown): Error {
-    if (error instanceof TypeError) {
-      return new Error("模型网络请求失败。请检查 Base URL、浏览器 CORS 限制，或切换到开发代理模式。");
+    if (error instanceof ProviderRequestError) {
+      return new Error(buildAnthropicErrorMessage(error));
     }
 
     if (error instanceof Error) {
@@ -151,13 +152,54 @@ function mapModelStrengthToThinkingBudget(config: ModelConfig) {
 
 async function readErrorMessage(response: Response) {
   try {
-    const payload = await response.json() as { error?: { message?: string } | string; message?: string };
+    const payload = await response.json() as {
+      type?: string;
+      error?: { type?: string; message?: string } | string;
+      message?: string;
+    };
     if (typeof payload.error === "string") {
       return payload.error;
     }
 
-    return payload.error?.message ?? payload.message ?? "";
+    const errorType = payload.error?.type ?? payload.type ?? "";
+    const errorMessage = payload.error?.message ?? payload.message ?? "";
+    if (errorType && errorMessage) {
+      return `${errorType} ${errorMessage}`;
+    }
+
+    return errorMessage || errorType;
   } catch {
     return "";
   }
+}
+
+function buildAnthropicErrorMessage(error: ProviderRequestError) {
+  if (error.kind === "proxy-unavailable") {
+    return "模型请求失败：开发代理不可用，且浏览器直连目标接口也失败了。请确认 Vite 开发服务正常运行，并检查目标接口是否允许当前来源访问。";
+  }
+
+  if (error.kind === "network") {
+    return "模型网络请求失败。请检查 Base URL、网络连通性或目标接口的 CORS 配置。";
+  }
+
+  const status = error.status ?? 0;
+  const errorMessage = error.serviceMessage;
+
+  if (status === 401 || status === 403) {
+    return `模型请求失败：${status} 鉴权失败。请确认 x-api-key 是否正确、账户权限是否有效。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
+  }
+
+  if (status === 404) {
+    return `模型请求失败：404。请确认 Base URL、接口路径和模型名是否正确。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
+  }
+
+  if (status === 429) {
+    return `模型请求失败：429，请求过于频繁或额度不足。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
+  }
+
+  if (status >= 500) {
+    return `模型请求失败：${status}，目标模型服务暂时异常。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
+  }
+
+  return `模型请求失败：${status}${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
 }
