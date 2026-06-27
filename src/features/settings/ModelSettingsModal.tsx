@@ -263,7 +263,9 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
           y: 0,
           duration: 0.48,
           ease: "power3.out",
-          clearProps: "height",
+          onComplete: () => {
+            gsap.set(contentElement, { height: "auto" });
+          },
           overwrite: "auto"
         }
       );
