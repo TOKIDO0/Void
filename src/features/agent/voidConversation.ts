@@ -11,7 +11,8 @@ export type VoidConversationMessage = {
 export async function sendVoidMessage(
   userInput: string,
   conversationHistory: VoidConversationMessage[],
-  modelConfig: ModelConfig
+  modelConfig: ModelConfig,
+  onToken?: (token: string) => void
 ) {
   const provider = getModelProvider(modelConfig.provider);
   const messages: ProviderMessage[] = [
@@ -24,6 +25,10 @@ export async function sendVoidMessage(
   ];
 
   try {
+    if (modelConfig.streamEnabled && provider.streamMessage) {
+      return await provider.streamMessage({ messages, onToken }, modelConfig);
+    }
+
     return await provider.sendMessage({ messages }, modelConfig);
   } catch (error) {
     throw provider.mapError(error);

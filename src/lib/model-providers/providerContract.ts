@@ -9,6 +9,7 @@ export type ProviderMessage = {
 
 export type ProviderRequest = {
   messages: ProviderMessage[];
+  onToken?: (token: string) => void;
 };
 
 export type ProviderResponse = {
@@ -22,7 +23,7 @@ export type ProviderValidationResult = {
 
 export type ModelProvider = {
   sendMessage: (request: ProviderRequest, config: ModelConfig) => Promise<ProviderResponse>;
-  streamMessage: null;
+  streamMessage: ((request: ProviderRequest, config: ModelConfig) => Promise<ProviderResponse>) | null;
   validateConfig: (config: ModelConfig) => ProviderValidationResult;
   normalizeResponse: (response: unknown) => ProviderResponse;
   mapError: (error: unknown) => Error;

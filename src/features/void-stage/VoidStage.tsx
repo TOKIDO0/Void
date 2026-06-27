@@ -85,6 +85,26 @@ export function VoidStage() {
     });
   }, [clearResponseLayerHideTimer]);
 
+  const requestVoidResponse = useCallback((message: string, history: VoidConversationMessage[]) => {
+    const modelConfig = loadModelConfig();
+    const canStream = modelConfig.streamEnabled && modelConfig.provider === "openai-compatible";
+    let streamedContent = "";
+
+    return sendVoidMessage(message, history, {
+      ...modelConfig,
+      streamEnabled: canStream
+    }, canStream
+      ? (token) => {
+        streamedContent += token;
+        showResponseLayer({
+          text: streamedContent,
+          tone: "quiet",
+          source: "text"
+        });
+      }
+      : undefined);
+  }, [showResponseLayer]);
+
   useMicrophoneVoiceActivity({
     onVisualStateChange: (nextVisualState) => {
       if (textExchangeActiveRef.current || isExpandedResponseOpen) {
@@ -119,11 +139,7 @@ export function VoidStage() {
     setVisualState("thinking");
 
     try {
-      const assistantResponse = await sendVoidMessage(
-        message,
-        conversationHistoryRef.current,
-        loadModelConfig()
-      );
+      const assistantResponse = await requestVoidResponse(message, conversationHistoryRef.current);
       const nextConversationHistory: VoidConversationMessage[] = [
         ...conversationHistoryRef.current,
         { role: "user", content: message },
@@ -176,11 +192,7 @@ export function VoidStage() {
 
     try {
       const historyBeforeEditedMessage = currentHistory.slice(0, messageIndex);
-      const assistantResponse = await sendVoidMessage(
-        content,
-        historyBeforeEditedMessage,
-        loadModelConfig()
-      );
+      const assistantResponse = await requestVoidResponse(content, historyBeforeEditedMessage);
       const nextConversationHistory: VoidConversationMessage[] = [
         ...historyBeforeEditedMessage,
         { role: "user", content },

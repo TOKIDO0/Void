@@ -49,6 +49,7 @@ export const anthropicProvider: ModelProvider = {
     const systemPrompt = request.messages.find((message) => message.role === "system")?.content;
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "messages");
     const fetchTarget = buildFetchTarget(endpointUrl);
+    const requestBody = buildAnthropicRequestBody(request, config, systemPrompt);
     const response = await fetch(fetchTarget.url, {
       method: "POST",
       headers: {
@@ -57,14 +58,7 @@ export const anthropicProvider: ModelProvider = {
         "anthropic-version": "2023-06-01",
         ...fetchTarget.headers
       },
-      body: JSON.stringify({
-        model: config.modelName,
-        system: systemPrompt,
-        messages: buildAnthropicMessages(request.messages),
-        temperature: config.temperature,
-        max_tokens: config.maxOutputTokens,
-        stream: false
-      })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
@@ -112,6 +106,48 @@ function buildAnthropicMessages(messages: ProviderMessage[]) {
       role: message.role === "assistant" ? "assistant" : "user",
       content: message.content
     }));
+}
+
+function buildAnthropicRequestBody(request: ProviderRequest, config: ModelConfig, systemPrompt?: string) {
+  const thinkingBudgetTokens = mapModelStrengthToThinkingBudget(config);
+  const baseBody = {
+    model: config.modelName,
+    system: systemPrompt,
+    messages: buildAnthropicMessages(request.messages),
+    max_tokens: config.maxOutputTokens,
+    stream: false
+  };
+
+  if (!thinkingBudgetTokens) {
+    return {
+      ...baseBody,
+      temperature: config.temperature
+    };
+  }
+
+  return {
+    ...baseBody,
+    thinking: {
+      type: "enabled",
+      budget_tokens: thinkingBudgetTokens
+    }
+  };
+}
+
+function mapModelStrengthToThinkingBudget(config: ModelConfig) {
+  if (config.maxOutputTokens <= 1024) {
+    return 0;
+  }
+
+  if (config.modelStrength === "high") {
+    return Math.min(Math.max(Math.floor(config.maxOutputTokens * 0.25), 1024), config.maxOutputTokens - 1);
+  }
+
+  if (config.modelStrength === "max") {
+    return Math.min(Math.max(Math.floor(config.maxOutputTokens * 0.5), 1024), config.maxOutputTokens - 1);
+  }
+
+  return 0;
 }
 
 async function readErrorMessage(response: Response) {

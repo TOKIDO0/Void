@@ -49,8 +49,8 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   const copy = SETTINGS_COPY[language];
   const modelOptions = useMemo(() => MODEL_OPTIONS_BY_PRESET[selectedPresetId] ?? [], [selectedPresetId]);
   const availableStrengths = useMemo(() => {
-    return MODEL_STRENGTH_ORDER.filter((strength) => modelOptions.some((option) => option.strength === strength));
-  }, [modelOptions]);
+    return MODEL_STRENGTH_ORDER;
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -81,7 +81,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     return null;
   }
 
-  const updateTextField = (fieldName: "apiKey" | "baseUrl") => {
+  const updateTextField = (fieldName: "apiKey" | "baseUrl" | "modelName") => {
     return (event: ChangeEvent<HTMLInputElement>) => {
       setDraftConfig((currentConfig) => ({
         ...currentConfig,
@@ -114,7 +114,8 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       ...currentConfig,
       provider: preset.provider,
       baseUrl: preset.baseUrl,
-      modelName: preset.modelName || currentConfig.modelName
+      modelName: preset.modelName,
+      modelStrength: findModelStrength(preset.id, preset.modelName) ?? currentConfig.modelStrength
     }));
   };
 
@@ -126,15 +127,9 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   };
 
   const handleStrengthChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextStrength = event.target.value as ModelStrength;
-    const nextModel = modelOptions.find((option) => option.strength === nextStrength);
-    if (!nextModel?.modelName) {
-      return;
-    }
-
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
-      modelName: nextModel.modelName
+      modelStrength: event.target.value as ModelStrength
     }));
   };
 
@@ -171,15 +166,19 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    saveModelConfig(draftConfig);
+    saveModelConfig({
+      ...draftConfig,
+      streamEnabled: draftConfig.provider === "openai-compatible" && draftConfig.streamEnabled
+    });
     onClose();
   };
 
   const selectedTemperatureIndex = findClosestLevelIndex(TEMPERATURE_LEVELS, draftConfig.temperature);
   const selectedMaxOutputIndex = findClosestLevelIndex(MAX_OUTPUT_LEVELS, draftConfig.maxOutputTokens);
   const selectedModel = modelOptions.find((option) => option.modelName === draftConfig.modelName);
-  const selectedStrength = selectedModel?.strength ?? availableStrengths[0] ?? "middle";
+  const selectedStrength = draftConfig.modelStrength;
   const modelSelectValue = selectedModel ? draftConfig.modelName : "";
+  const canStream = draftConfig.provider === "openai-compatible";
 
   return (
     <div className="model-settings-modal" role="presentation" onMouseDown={onClose}>
@@ -270,6 +269,16 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
             </label>
 
             <label className="model-settings-modal__field">
+              <span>{copy.customModelName}</span>
+              <input
+                type="text"
+                value={draftConfig.modelName}
+                placeholder={copy.customModelNameHint}
+                onChange={updateTextField("modelName")}
+              />
+            </label>
+
+            <label className="model-settings-modal__field">
               <span>{copy.modelStrength}</span>
               <select value={selectedStrength} onChange={handleStrengthChange}>
                 {availableStrengths.map((strength) => (
@@ -302,7 +311,12 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
 
         <div className="model-settings-modal__footer">
           <label className="model-settings-modal__toggle">
-            <input type="checkbox" checked={draftConfig.streamEnabled} onChange={handleStreamEnabledChange} />
+            <input
+              type="checkbox"
+              checked={draftConfig.streamEnabled && canStream}
+              disabled={!canStream}
+              onChange={handleStreamEnabledChange}
+            />
             <span>{copy.streamOutput}</span>
             <span className="model-settings-modal__hint-trigger" tabIndex={0} aria-label={copy.streamOutputHint}>
               ?
@@ -431,6 +445,10 @@ function LevelSlider({
 
 function findPresetId(config: ModelConfig) {
   return MODEL_PRESETS.find((preset) => preset.baseUrl === config.baseUrl && preset.provider === config.provider)?.id ?? "";
+}
+
+function findModelStrength(presetId: string, modelName: string) {
+  return MODEL_OPTIONS_BY_PRESET[presetId]?.find((option) => option.modelName === modelName)?.strength;
 }
 
 function findClosestLevelIndex(levels: readonly LevelOption[], value: number) {

@@ -13,6 +13,8 @@ type SettingsCopy = {
   apiKeyHint: string;
   baseUrl: string;
   modelName: string;
+  customModelName: string;
+  customModelNameHint: string;
   modelStrength: string;
   temperature: string;
   temperatureHint: string;
@@ -34,16 +36,18 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     presetPlaceholder: "选择官方模型服务",
     provider: "接口格式",
     apiKey: "API Key",
-    apiKeyHint: "仅当前会话保存",
+    apiKeyHint: "仅当前会话保存；豆包请填 API Key Secret",
     baseUrl: "Base URL",
     modelName: "模型选择",
+    customModelName: "自定义模型名",
+    customModelNameHint: "例如 glm-5.2、doubao-1-5-lite-32k 或豆包 Ark Endpoint ID",
     modelStrength: "模型强度",
     temperature: "回应风格",
     temperatureHint: "控制回复的稳定程度和发散程度",
     maxOutput: "输出规模",
     maxOutputHint: "控制单次回复可生成的内容量",
     streamOutput: "流式输出",
-    streamOutputHint: "开启后模型会边生成边显示回复，体感更快。当前 MVP 先保留配置，真实流式链路后续接入。",
+    streamOutputHint: "开启后不会等整段回复写完才显示，而是模型生成一点就显示一点。长回复会更快看到开头。",
     cancel: "取消",
     save: "保存",
     closeSettings: "关闭设置"
@@ -56,16 +60,18 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     presetPlaceholder: "Select an official provider",
     provider: "API format",
     apiKey: "API Key",
-    apiKeyHint: "Session only",
+    apiKeyHint: "Session only; use Ark API Key Secret for Doubao",
     baseUrl: "Base URL",
     modelName: "Model",
+    customModelName: "Custom model",
+    customModelNameHint: "For example glm-5.2, doubao-1-5-lite-32k, or a Doubao Ark endpoint ID",
     modelStrength: "Model strength",
     temperature: "Response style",
     temperatureHint: "Controls how stable or exploratory the response feels",
     maxOutput: "Output scale",
     maxOutputHint: "Controls how much content a single response can generate",
     streamOutput: "Stream output",
-    streamOutputHint: "When enabled, responses can appear while the model is still generating. The MVP stores this setting before the real streaming path is connected.",
+    streamOutputHint: "When enabled, the reply appears piece by piece while the model is still generating instead of waiting for the full answer.",
     cancel: "Cancel",
     save: "Save",
     closeSettings: "Close settings"

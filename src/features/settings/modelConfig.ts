@@ -9,6 +9,7 @@ export type ModelConfig = {
   apiKey: string;
   baseUrl: string;
   modelName: string;
+  modelStrength: ModelStrength;
   temperature: number;
   maxOutputTokens: number;
   streamEnabled: boolean;
@@ -44,6 +45,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
   modelName: "gpt-5.5",
+  modelStrength: "middle",
   temperature: 0.7,
   maxOutputTokens: 2000,
   streamEnabled: false,
@@ -70,14 +72,14 @@ export const MODEL_PRESETS: ModelPreset[] = [
     label: "豆包 Ark",
     provider: "openai-compatible",
     baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
-    modelName: ""
+    modelName: "doubao-1-5-lite-32k-250115"
   },
   {
     id: "zhipu",
     label: "智谱 GLM",
     provider: "openai-compatible",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-    modelName: "glm-5-flash"
+    modelName: "glm-5.2"
   },
   {
     id: "anthropic",
@@ -91,26 +93,42 @@ export const MODEL_PRESETS: ModelPreset[] = [
 export const MODEL_OPTIONS_BY_PRESET: Record<string, ModelOption[]> = {
   openai: [
     { label: "GPT-5.5", modelName: "gpt-5.5", strength: "max" },
+    { label: "GPT-5.4 Pro", modelName: "gpt-5.4-pro", strength: "max" },
+    { label: "GPT-5.4 Thinking", modelName: "gpt-5.4-thinking", strength: "high" },
     { label: "GPT-5.4", modelName: "gpt-5.4", strength: "high" },
-    { label: "GPT-5.4 mini", modelName: "gpt-5.4-mini", strength: "middle" }
+    { label: "GPT-5.4 mini", modelName: "gpt-5.4-mini", strength: "middle" },
+    { label: "GPT-5.3 Codex", modelName: "gpt-5.3-codex", strength: "high" },
+    { label: "GPT-5.2", modelName: "gpt-5.2", strength: "middle" },
+    { label: "GPT-5.2 mini", modelName: "gpt-5.2-mini", strength: "low" }
   ],
   deepseek: [
     { label: "DeepSeek V4 Flash", modelName: "deepseek-v4-flash", strength: "low" },
     { label: "DeepSeek V4 Pro", modelName: "deepseek-v4-pro", strength: "high" }
   ],
   doubao: [
-    { label: "自定义豆包 Ark 模型", modelName: "", strength: "middle" }
+    { label: "Doubao-1.5-lite-32k", modelName: "doubao-1-5-lite-32k-250115", strength: "middle" },
+    { label: "Doubao-1.5-pro-32k", modelName: "doubao-1-5-pro-32k-250115", strength: "high" },
+    { label: "Doubao-Seed-Translation", modelName: "doubao-seed-translation-250915", strength: "middle" },
+    { label: "Doubao-Seed-2.1-pro", modelName: "doubao-seed-2-1-pro-260628", strength: "max" },
+    { label: "Doubao-Seed-Evolving", modelName: "doubao-seed-evolving", strength: "high" },
+    { label: "Doubao-Seed-2.1-turbo", modelName: "doubao-seed-2-1-turbo-260628", strength: "middle" }
   ],
   zhipu: [
-    { label: "GLM-5 Flash", modelName: "glm-5-flash", strength: "low" },
-    { label: "GLM-5 Turbo", modelName: "glm-5-turbo", strength: "middle" },
-    { label: "GLM-5", modelName: "glm-5", strength: "high" },
     { label: "GLM-5.2", modelName: "glm-5.2", strength: "max" }
   ],
   anthropic: [
     { label: "Claude Haiku 4.5", modelName: "claude-haiku-4-5", strength: "low" },
+    { label: "Claude Haiku 4.6", modelName: "claude-haiku-4-6", strength: "low" },
+    { label: "Claude Haiku 4.7", modelName: "claude-haiku-4-7", strength: "middle" },
+    { label: "Claude Haiku 4.8", modelName: "claude-haiku-4-8", strength: "middle" },
+    { label: "Claude Sonnet 4.5", modelName: "claude-sonnet-4-5", strength: "middle" },
     { label: "Claude Sonnet 4.6", modelName: "claude-sonnet-4-6", strength: "middle" },
-    { label: "Claude Opus 4.8", modelName: "claude-opus-4-8", strength: "high" },
+    { label: "Claude Sonnet 4.7", modelName: "claude-sonnet-4-7", strength: "high" },
+    { label: "Claude Sonnet 4.8", modelName: "claude-sonnet-4-8", strength: "high" },
+    { label: "Claude Opus 4.5", modelName: "claude-opus-4-5", strength: "high" },
+    { label: "Claude Opus 4.6", modelName: "claude-opus-4-6", strength: "high" },
+    { label: "Claude Opus 4.7", modelName: "claude-opus-4-7", strength: "max" },
+    { label: "Claude Opus 4.8", modelName: "claude-opus-4-8", strength: "max" },
     { label: "Claude Fable 5", modelName: "claude-fable-5", strength: "max" }
   ]
 };
@@ -125,7 +143,7 @@ export const MODEL_STRENGTH_LABELS: Record<ModelStrength, string> = {
 export const TEMPERATURE_LEVELS: readonly LevelOption[] = [
   { label: "稳定克制", value: 0.25 },
   { label: "自然平衡", value: 0.7 },
-  { label: "发散创造", value: 1.05 }
+  { label: "发散创造", value: 0.95 }
 ];
 
 export const MAX_OUTPUT_LEVELS: readonly LevelOption[] = [
@@ -152,6 +170,7 @@ export function loadModelConfig(): ModelConfig {
       apiKey: sessionApiKey,
       baseUrl: parsedConfig.baseUrl ?? DEFAULT_MODEL_CONFIG.baseUrl,
       modelName: parsedConfig.modelName ?? DEFAULT_MODEL_CONFIG.modelName,
+      modelStrength: normalizeModelStrength(parsedConfig.modelStrength),
       temperature: normalizeTemperature(parsedConfig.temperature),
       maxOutputTokens: normalizeMaxOutputTokens(parsedConfig.maxOutputTokens),
       streamEnabled: parsedConfig.streamEnabled ?? DEFAULT_MODEL_CONFIG.streamEnabled,
@@ -170,6 +189,7 @@ export function saveModelConfig(modelConfig: ModelConfig) {
     provider: modelConfig.provider,
     baseUrl: modelConfig.baseUrl,
     modelName: modelConfig.modelName,
+    modelStrength: modelConfig.modelStrength,
     temperature: normalizeTemperature(modelConfig.temperature),
     maxOutputTokens: normalizeMaxOutputTokens(modelConfig.maxOutputTokens),
     streamEnabled: modelConfig.streamEnabled,
@@ -198,6 +218,14 @@ function normalizeMaxOutputTokens(value: unknown) {
   }
 
   return Math.min(Math.max(Math.round(value), 128), 32768);
+}
+
+function normalizeModelStrength(value: unknown): ModelStrength {
+  if (value === "low" || value === "middle" || value === "high" || value === "max") {
+    return value;
+  }
+
+  return DEFAULT_MODEL_CONFIG.modelStrength;
 }
 
 function isModelProviderType(value: unknown): value is ModelProviderType {

@@ -40,10 +40,25 @@ export default defineConfig({
               headers: forwardedHeaders,
               body: requestBody
             });
-            const responseText = await proxyResponse.text();
 
             response.statusCode = proxyResponse.status;
             response.setHeader("Content-Type", proxyResponse.headers.get("content-type") ?? "application/json");
+            if (proxyResponse.headers.get("content-type")?.includes("text/event-stream") && proxyResponse.body) {
+              response.setHeader("Cache-Control", "no-cache");
+              response.setHeader("Connection", "keep-alive");
+              const reader = proxyResponse.body.getReader();
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                  break;
+                }
+                response.write(Buffer.from(value));
+              }
+              response.end();
+              return;
+            }
+
+            const responseText = await proxyResponse.text();
             response.end(responseText);
           } catch (error) {
             response.statusCode = 502;

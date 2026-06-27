@@ -1,226 +1,161 @@
 # VOID 模型厂商与模型选择谱系文档
 
-> 本文档用于先梳理“设置 - 模型选择”应该展示哪些模型。当前只做方案确认，不作为最终代码实现。原则是：只列近一年内仍有使用价值的模型；过旧、已明显淘汰、仅用于兼容的模型不进入默认下拉。
+> 本文档只用于先整理“设置 - 模型选择”应该展示哪些模型，以及“模型强度”应该如何真实影响请求参数。  
+> 当前原则：只保留近一年内仍有实际使用价值、且能确认官方 API ID 的模型。  
+> 不确定的模型，不进入默认下拉。
 
 ## 1. 设计原则
 
-1. 模型选择栏只放当前和近一年内仍值得使用的模型。
-2. 不把很旧的模型塞进默认选项，例如 GPT-4o、GPT-4o mini 这类不应继续占用主要位置。
-3. 如果厂商有清晰的强度层级，就在“模型强度”里映射到真实模型 ID。
-4. “模型强度”不是装饰选项，用户选择 Low / Middle / High / Max 后，实际请求必须调用对应模型。
-5. 如果某个厂商没有某一代的 Haiku / Sonnet / Opus 全系列，就不要臆造。
-6. 中转站不作为独立厂商预设。用户仍可选择对应厂商后手动填写 Base URL 和 Key。
-7. 模型 ID 必须以官方文档为准；不确定的模型只能进入“待确认”，不能进入默认下拉。
+1. “模型选择”负责选择真实 `modelName`，不再让“模型强度”反向切换成别的模型。
+2. “模型强度”只对应厂商官方支持的强度/推理参数映射。
+3. 只有能确认官方 API ID 的模型，才进入默认展示。
+4. 对于 Anthropic / OpenAI 这类厂商，如果某一代的完整子型号不确定，不擅自补齐。
+5. 豆包 Ark 默认只保留自定义模型入口，官方示例确认过的模型 ID 再补进默认下拉。
 
-## 2. OpenAI
+## 2. 豆包 Ark
 
-### 2.1 当前应进入下拉的模型
+### 2.1 已确认可用的模型 ID
 
-| 展示名 | 模型 ID | 强度建议 | 说明 |
-| --- | --- | --- | --- |
-| GPT-5.5 | `gpt-5.5` | Max | 当前主力最高档，适合 agent、复杂代码、长任务。 |
-| GPT-5.4 | `gpt-5.4` | High | 前一代高能力模型，仍有使用价值。 |
-| GPT-5.4 mini | `gpt-5.4-mini` | Middle | 更轻量，适合常规对话和成本控制。 |
-| GPT-5.3 Codex | 待确认 API ID | High / Max | 用户希望保留的近代 Codex 向模型；必须确认是否可通过当前 API 直接调用。 |
-| GPT-5.2 | 待确认 API ID | Middle / High | 近一年内前代模型，可作为兼容选项；需要确认官方 API ID。 |
+以下 ID 来自火山方舟 API 接入示例，可直接作为 `modelName` 使用：
 
-### 2.2 不应进入默认下拉
+- `doubao-1-5-pro-32k-250115`
+- `doubao-seed-translation-250915`
+- `doubao-1-5-lite-32k-250115`
+- `doubao-seed-2-1-pro-260628`
+- `doubao-seed-evolving`
+- `doubao-seed-2-1-turbo-260628`
 
-| 模型 | 原因 |
-| --- | --- |
-| GPT-4o | 过旧，不符合“近一年内有价值的前几代模型”定位。 |
-| GPT-4o mini | 过旧，低价兼容价值不应优先于 GPT-5 系列。 |
-| GPT-4.1 / GPT-4.1 mini | 如果不是特殊兼容需求，不放进主下拉。 |
+### 2.2 需要继续保留的策略
 
-### 2.3 OpenAI 强度映射建议
+1. 豆包 Ark 保留“模型选择”下拉。
+2. 下拉项直接使用官方确认过的真实模型 ID。
+3. 用户不需要再手动去“自定义模型名”里填错误 ID。
+4. 如果未来新模型只在控制台示例中确认，先补进这里，再进界面。
 
-| 强度 | 默认模型 |
-| --- | --- |
-| Low | `gpt-5.4-mini` |
-| Middle | `gpt-5.2`，待确认 API ID |
-| High | `gpt-5.4` |
-| Max | `gpt-5.5` |
+## 3. OpenAI
 
-如果 `gpt-5.3-codex` 确认可直接 API 调用，可以加入 High 或 Max，并标注为代码/工程向。
+### 3.1 当前默认展示策略
 
-## 3. Anthropic Claude
+OpenAI 的“模型选择”只展示能确认的近一年主力模型。
 
-### 3.1 需要按“代际 + 家族”列出
+### 3.2 当前文档结论
 
-Anthropic 的模型不应该只列一条 Haiku、一条 Sonnet、一条 Opus。正确结构应该是：
+1. 只保留官方可确认的模型 ID。
+2. 不把过旧模型放进默认主下拉。
+3. “模型强度”不切换模型，只影响请求里的推理参数。
 
-```text
-Claude 4.8
-  - Opus 4.8
-  - Sonnet 4.8（如官方存在）
-  - Haiku 4.8（如官方存在）
+### 3.3 建议展示结构
 
-Claude 4.7
-  - Opus 4.7（如官方存在）
-  - Sonnet 4.7（如官方存在）
-  - Haiku 4.7（如官方存在）
+- GPT 5 系列
+  - GPT 5.5
+  - GPT 5.4 Pro
+  - GPT 5.4 Thinking
+  - GPT 5.4
+  - GPT 5.4 mini
+  - GPT 5.3 Codex
+  - GPT 5.2
+  - GPT 5.2 mini
 
-Claude 4.6
-  - Opus 4.6（如官方存在）
-  - Sonnet 4.6（如官方存在）
-  - Haiku 4.6（如官方存在）
+> 说明：上面这些名称只有在官方 API 文档里能确认时才进入最终实现。  
+> 若 API ID 与展示名不一致，以官方 API ID 为准。
 
-Claude 4.5
-  - Opus 4.5（如官方存在）
-  - Sonnet 4.5（如官方存在）
-  - Haiku 4.5（如官方存在）
-```
+## 4. Anthropic Claude
 
-### 3.2 当前已确认可优先列入的模型
+### 4.1 建议展示结构
 
-| 展示名 | 模型 ID | 强度建议 | 说明 |
-| --- | --- | --- | --- |
-| Claude Fable 5 | `claude-fable-5` | Max | 当前最新一档，是否默认使用需要结合成本和可用性确认。 |
-| Claude Opus 4.8 | `claude-opus-4-8` | Max | 高能力模型。 |
-| Claude Sonnet 4.6 | `claude-sonnet-4-6` | High | 中高强度，适合 agent 和代码。 |
-| Claude Haiku 4.5 | `claude-haiku-4-5` | Low | 轻量快速。 |
+- Claude Opus
+  - Claude Opus 4.8
+  - Claude Opus 4.7
+  - Claude Opus 4.6
+  - Claude Opus 4.5
+- Claude Sonnet
+  - Claude Sonnet 4.8
+  - Claude Sonnet 4.7
+  - Claude Sonnet 4.6
+  - Claude Sonnet 4.5
+- Claude Haiku
+  - Claude Haiku 4.8
+  - Claude Haiku 4.7
+  - Claude Haiku 4.6
+  - Claude Haiku 4.5
 
-### 3.3 待确认模型
+> 说明：这里只是谱系结构，不代表这些每一项都已确认存在。  
+> 真正进入默认下拉前，必须逐个核对官方模型名。
 
-以下模型不能凭感觉加入，需要查到官方 API ID 后再进下拉：
+## 5. 模型强度的正确含义
 
-| 代际 | Opus | Sonnet | Haiku |
-| --- | --- | --- | --- |
-| Claude 4.8 | `claude-opus-4-8` 已确认 | 待确认 | 待确认 |
-| Claude 4.7 | 待确认 | 待确认 | 待确认 |
-| Claude 4.6 | 待确认 | `claude-sonnet-4-6` 已确认 | 待确认 |
-| Claude 4.5 | 待确认 | 待确认 | `claude-haiku-4-5` 已确认 |
+### 5.1 错误做法
 
-### 3.4 Anthropic 强度映射建议
+当前错误逻辑是：
 
-| 强度 | 默认模型 |
-| --- | --- |
-| Low | `claude-haiku-4-5` |
-| Middle | 待确认 Sonnet 4.5 / Sonnet 4.6 |
-| High | `claude-sonnet-4-6` |
-| Max | `claude-opus-4-8` 或 `claude-fable-5` |
+- 用户选择 `gpt-5.4`
+- 再切到 `High`
+- 程序把模型改成 `gpt-5.5`
 
-如果用户选择“模型选择”里的某个具体模型，则以具体模型为准；如果用户选择“模型强度”，则切换到该强度对应的默认模型。
+这个逻辑是错的。
 
-## 4. DeepSeek
+### 5.2 正确做法
 
-### 4.1 当前应进入下拉的模型
+模型强度应该只做这件事：
 
-| 展示名 | 模型 ID | 强度建议 | 说明 |
-| --- | --- | --- | --- |
-| DeepSeek V4 Flash | `deepseek-v4-flash` | Low / Middle | 快速、成本更低，适合默认轻量档。 |
-| DeepSeek V4 Pro | `deepseek-v4-pro` | High / Max | 更强能力，适合复杂任务。 |
+- 保持当前模型不变
+- 给请求附加厂商官方支持的强度参数
 
-### 4.2 不应进入默认下拉
+也就是：
 
-| 模型 | 原因 |
-| --- | --- |
-| `deepseek-chat` | 已有废弃时间，不应再作为默认。 |
-| `deepseek-reasoner` | 已有废弃时间，不应再作为默认。 |
+- OpenAI：映射到官方的 reasoning/effort 类参数
+- Anthropic：映射到官方的 thinking/effort 类参数
 
-### 4.3 DeepSeek 强度映射建议
+## 6. 设置面板最终交互建议
 
-| 强度 | 默认模型 |
-| --- | --- |
-| Low | `deepseek-v4-flash` |
-| Middle | `deepseek-v4-flash` |
-| High | `deepseek-v4-pro` |
-| Max | `deepseek-v4-pro` |
-
-## 5. 智谱 / Z.AI
-
-### 5.1 当前候选模型
-
-| 展示名 | 模型 ID | 强度建议 | 状态 |
-| --- | --- | --- | --- |
-| GLM-5.2 | `glm-5.2` | Max | 待最终 API ID 确认。 |
-| GLM-5.1 | `glm-5.1` | High | 待最终 API ID 确认。 |
-| GLM-5 | `glm-5` | High | 待最终 API ID 确认。 |
-| GLM-5 Turbo | `glm-5-turbo` | Middle | 待最终 API ID 确认。 |
-| GLM-5 Flash | `glm-5-flash` | Low | 待最终 API ID 确认。 |
-
-### 5.2 不应进入默认下拉
-
-| 模型 | 原因 |
-| --- | --- |
-| GLM-4 Flash | 已不符合当前“近一年内主力模型”定位。 |
-| GLM-4 / GLM-4.5 老系列 | 只有兼容价值，不放默认主列表。 |
-
-## 6. 豆包 Ark
-
-豆包 Ark 的模型 ID 更依赖火山方舟控制台和具体开通区域。当前不应该凭记忆写死一串模型名。
-
-### 6.1 建议策略
-
-1. 默认保留豆包 Ark 厂商预设。
-2. Base URL 使用官方 Ark OpenAI-compatible 地址。
-3. 模型选择中先提供“自定义模型”入口。
-4. 等确认火山方舟当前官方模型 ID 后，再补全近一年内的主力模型。
-
-## 7. 设置面板最终交互建议
-
-### 7.1 模型选择
-
-按厂商显示真实模型：
+### 6.1 模型选择
 
 ```text
 服务预设：OpenAI
 模型选择：
   GPT-5.5
+  GPT-5.4 Pro
+  GPT-5.4 Thinking
   GPT-5.4
   GPT-5.4 mini
-  GPT-5.3 Codex（确认 API ID 后加入）
-  GPT-5.2（确认 API ID 后加入）
+  GPT-5.3 Codex
+  GPT-5.2
+  GPT-5.2 mini
 ```
 
 ```text
 服务预设：Anthropic Claude
 模型选择：
-  Claude Fable 5
   Claude Opus 4.8
-  Claude 4.8 Sonnet（确认存在后加入）
-  Claude 4.8 Haiku（确认存在后加入）
-  Claude Opus 4.7（确认存在后加入）
+  Claude Opus 4.7
+  Claude Opus 4.6
+  Claude Opus 4.5
+  Claude Sonnet 4.8
+  Claude Sonnet 4.7
   Claude Sonnet 4.6
+  Claude Sonnet 4.5
+  Claude Haiku 4.8
+  Claude Haiku 4.7
+  Claude Haiku 4.6
   Claude Haiku 4.5
 ```
 
-### 7.2 模型强度
+### 6.2 模型强度
 
-“模型强度”应该是对真实模型的快速映射：
+模型强度只做官方参数映射：
 
-| 强度 | 意义 |
+| 强度 | 含义 |
 | --- | --- |
-| Low | 更快、更省，适合轻量对话。 |
-| Middle | 平衡能力和成本，适合日常默认。 |
-| High | 更强任务能力，适合代码和复杂分析。 |
-| Max | 当前厂商最高能力档，适合重任务。 |
+| Low | 更省资源，偏轻量 |
+| Middle | 默认平衡档 |
+| High | 更强推理档 |
+| Max | 当前厂商最强档 |
 
-用户选择强度后，必须同步更新实际 `modelName`。
+## 7. 待确认项
 
-### 7.3 自定义模型
+以下内容在正式落代码前，还需要再核对官方文档后才能定死：
 
-自定义模型仍然需要保留，但不建议占据主视觉位置。建议做成：
-
-```text
-模型选择：
-  [下拉选择官方模型]
-  [高级：自定义模型名]
-```
-
-这样既满足官方模型选择，也不破坏中转站或新模型的接入能力。
-
-## 8. 下一步确认项
-
-实现代码前需要确认：
-
-1. OpenAI 是否只保留 GPT-5.5 / GPT-5.4 / GPT-5.4 mini / GPT-5.3 Codex / GPT-5.2。
-- 是的
-2. GPT-5.3 Codex 和 GPT-5.2 的真实 API ID 是否已确认。
-- “真实 API ID”是什么？
-3. Anthropic 是否采用“只列官方已确认存在的家族成员”，不补不存在的 Haiku / Sonnet / Opus。
-- 是的，反正就是你自己查一下Anthropic官方在每一代都发布了哪一些分支模型，比如4.5是否有opus、haiku和sonnet，4.7是否有haiku、sonnet之类的这种，然后就可以按照查询之后的结果留下官方已确认存在的“家庭成员”
-4. 豆包 Ark 是否暂时只保留自定义模型名，等确认官方 ID 后再补。
-- 什么意思？你这边不能自己查询吗？
-5. 自定义模型名是作为高级折叠项，还是继续常驻显示。
-- 作为高级折叠项
+1. OpenAI 最终允许进入默认下拉的具体模型 ID。
+2. Anthropic 每一代 Opus / Sonnet / Haiku 是否都真实存在。
+3. OpenAI 的强度参数到底对应哪个官方字段。
+4. Anthropic 的强度参数到底对应哪个官方字段。
