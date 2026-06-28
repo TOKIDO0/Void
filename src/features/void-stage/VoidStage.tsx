@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
 import { BlobScene } from "../blob-scene/BlobScene";
 import {
+  applyAssistantStreamContent,
+  createPendingAssistantConversation,
+  finalizeAssistantStreamContent,
   loadCurrentConversationHistory,
+  removeAssistantMessageAt,
   saveCurrentConversationHistory,
   sendVoidMessage,
   type VoidConversationMessage
@@ -28,6 +32,9 @@ type ResponseLayerState = {
 
 const RESPONSE_LAYER_IDLE_HIDE_MS = 32000;
 const TEXT_SPEAKING_PREVIEW_MS = 1800;
+const ERROR_RESPONSE_HIDE_MS = 14000;
+const THINKING_TEXT = "正在思考...";
+const REGENERATING_TEXT = "正在重新思考...";
 const MODEL_CONNECTION_FALLBACK_ERROR = "模型连接失败，请检查配置。";
 
 export function VoidStage() {
@@ -131,6 +138,47 @@ export function VoidStage() {
       : undefined);
   }, [showResponseLayer]);
 
+  const completeTextResponse = useCallback((responseText: string, pulseKey: string) => {
+    showResponseLayer({
+      text: responseText,
+      tone: "quiet",
+      source: "text",
+      pulseKey
+    });
+    scheduleResponseLayerHide();
+    setVisualState("speaking");
+    speakingTimeoutRef.current = window.setTimeout(() => {
+      if (textExchangeActiveRef.current) {
+        textExchangeActiveRef.current = false;
+        setVisualState("idle");
+      }
+    }, TEXT_SPEAKING_PREVIEW_MS);
+  }, [scheduleResponseLayerHide, showResponseLayer]);
+
+  const failTextResponse = useCallback((
+    error: unknown,
+    pulseKey: string,
+    pendingHistory: VoidConversationMessage[],
+    assistantMessageIndex: number
+  ) => {
+    textExchangeActiveRef.current = false;
+    const errorMessage = error instanceof Error ? error.message : MODEL_CONNECTION_FALLBACK_ERROR;
+    const hasStreamedAssistantContent = Boolean(pendingHistory[assistantMessageIndex]?.content.trim());
+    const nextConversationHistory = hasStreamedAssistantContent
+      ? pendingHistory
+      : removeAssistantMessageAt(pendingHistory, assistantMessageIndex);
+
+    commitConversationHistory(nextConversationHistory);
+    showResponseLayer({
+      text: errorMessage,
+      tone: "error",
+      source: "text",
+      pulseKey
+    });
+    scheduleResponseLayerHide(ERROR_RESPONSE_HIDE_MS);
+    setVisualState("idle");
+  }, [commitConversationHistory, scheduleResponseLayerHide, showResponseLayer]);
+
   useMicrophoneVoiceActivity({
     onVisualStateChange: (nextVisualState) => {
       if (textExchangeActiveRef.current || isExpandedResponseOpen) {
@@ -158,7 +206,7 @@ export function VoidStage() {
     textExchangeActiveRef.current = true;
     window.clearTimeout(speakingTimeoutRef.current);
     showResponseLayer({
-      text: "正在思考。",
+      text: THINKING_TEXT,
       tone: "thinking",
       source: "text",
       pulseKey: "thinking"
@@ -166,57 +214,25 @@ export function VoidStage() {
     setVisualState("thinking");
 
     const previousHistory = conversationHistoryRef.current;
-    const assistantMessageIndex = previousHistory.length + 1;
-    const pendingConversationHistory: VoidConversationMessage[] = [
-      ...previousHistory,
-      { role: "user", content: message },
-      { role: "assistant", content: "" }
-    ];
+    const streamState = createPendingAssistantConversation(previousHistory, message);
+    let latestConversationHistory = streamState.history;
 
     try {
-      syncConversationHistory(pendingConversationHistory);
+      syncConversationHistory(latestConversationHistory);
 
       const syncStreamingAssistantMessage = (content: string) => {
-        const nextConversationHistory = [...pendingConversationHistory];
-        nextConversationHistory[assistantMessageIndex] = { role: "assistant", content };
-        syncConversationHistory(nextConversationHistory);
+        latestConversationHistory = applyAssistantStreamContent(streamState, content);
+        syncConversationHistory(latestConversationHistory);
       };
 
       const assistantResponse = await requestVoidResponse(message, previousHistory, syncStreamingAssistantMessage);
-      const finalConversationHistory = [...pendingConversationHistory];
-      finalConversationHistory[assistantMessageIndex] = { role: "assistant", content: assistantResponse.content };
+      const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
       commitConversationHistory(finalConversationHistory);
-
-      showResponseLayer({
-        text: assistantResponse.content,
-        tone: "quiet",
-        source: "text",
-        pulseKey: "complete"
-      });
-      scheduleResponseLayerHide();
-      setVisualState("speaking");
-      speakingTimeoutRef.current = window.setTimeout(() => {
-        if (textExchangeActiveRef.current) {
-          textExchangeActiveRef.current = false;
-          setVisualState("idle");
-        }
-      }, TEXT_SPEAKING_PREVIEW_MS);
+      completeTextResponse(assistantResponse.content, "complete");
     } catch (error) {
-      textExchangeActiveRef.current = false;
-      const errorMessage = error instanceof Error ? error.message : MODEL_CONNECTION_FALLBACK_ERROR;
-      const failedConversationHistory = [...pendingConversationHistory];
-      failedConversationHistory[assistantMessageIndex] = { role: "assistant", content: errorMessage };
-      commitConversationHistory(failedConversationHistory);
-      showResponseLayer({
-        text: errorMessage,
-        tone: "error",
-        source: "text",
-        pulseKey: "error"
-      });
-      scheduleResponseLayerHide(14000);
-      setVisualState("idle");
+      failTextResponse(error, "error", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [commitConversationHistory, requestVoidResponse, scheduleResponseLayerHide, showResponseLayer, syncConversationHistory]);
+  }, [commitConversationHistory, completeTextResponse, failTextResponse, requestVoidResponse, showResponseLayer, syncConversationHistory]);
 
   const handleRegenerateLatestUserMessage = useCallback(async (messageIndex: number, content: string) => {
     const currentHistory = conversationHistoryRef.current;
@@ -230,64 +246,33 @@ export function VoidStage() {
     window.clearTimeout(speakingTimeoutRef.current);
     setVisualState("thinking");
     showResponseLayer({
-      text: "正在重新思考。",
+      text: REGENERATING_TEXT,
       tone: "thinking",
       source: "text",
       pulseKey: "thinking-regenerate"
     });
 
     const historyBeforeEditedMessage = currentHistory.slice(0, messageIndex);
-    const assistantMessageIndex = historyBeforeEditedMessage.length + 1;
-    const pendingConversationHistory: VoidConversationMessage[] = [
-      ...historyBeforeEditedMessage,
-      { role: "user", content },
-      { role: "assistant", content: "" }
-    ];
+    const streamState = createPendingAssistantConversation(historyBeforeEditedMessage, content);
+    let latestConversationHistory = streamState.history;
 
     try {
-      syncConversationHistory(pendingConversationHistory);
+      syncConversationHistory(latestConversationHistory);
 
       const syncStreamingAssistantMessage = (streamedContent: string) => {
-        const nextConversationHistory = [...pendingConversationHistory];
-        nextConversationHistory[assistantMessageIndex] = { role: "assistant", content: streamedContent };
-        syncConversationHistory(nextConversationHistory);
+        latestConversationHistory = applyAssistantStreamContent(streamState, streamedContent);
+        syncConversationHistory(latestConversationHistory);
       };
 
       const assistantResponse = await requestVoidResponse(content, historyBeforeEditedMessage, syncStreamingAssistantMessage);
-      const finalConversationHistory = [...pendingConversationHistory];
-      finalConversationHistory[assistantMessageIndex] = { role: "assistant", content: assistantResponse.content };
+      const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
       commitConversationHistory(finalConversationHistory);
-
-      showResponseLayer({
-        text: assistantResponse.content,
-        tone: "quiet",
-        source: "text",
-        pulseKey: "complete-regenerate"
-      });
-      scheduleResponseLayerHide();
-      setVisualState("speaking");
-      speakingTimeoutRef.current = window.setTimeout(() => {
-        if (textExchangeActiveRef.current) {
-          textExchangeActiveRef.current = false;
-          setVisualState("idle");
-        }
-      }, TEXT_SPEAKING_PREVIEW_MS);
+      completeTextResponse(assistantResponse.content, "complete-regenerate");
     } catch (error) {
-      textExchangeActiveRef.current = false;
-      const errorMessage = error instanceof Error ? error.message : MODEL_CONNECTION_FALLBACK_ERROR;
-      const failedConversationHistory = [...pendingConversationHistory];
-      failedConversationHistory[assistantMessageIndex] = { role: "assistant", content: errorMessage };
-      commitConversationHistory(failedConversationHistory);
-      showResponseLayer({
-        text: errorMessage,
-        tone: "error",
-        source: "text",
-        pulseKey: "error-regenerate"
-      });
-      scheduleResponseLayerHide(14000);
-      setVisualState("idle");
+      failTextResponse(error, "error-regenerate", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [commitConversationHistory, requestVoidResponse, scheduleResponseLayerHide, showResponseLayer, syncConversationHistory]);
+  }, [commitConversationHistory, completeTextResponse, failTextResponse, requestVoidResponse, showResponseLayer, syncConversationHistory]);
+
   const handleOpenModelConfig = useCallback(() => {
     setIsModelSettingsOpen(true);
   }, []);
@@ -302,6 +287,7 @@ export function VoidStage() {
       if (!nextState || isExpandedResponseOpen) {
         return;
       }
+
       textExchangeActiveRef.current = false;
       window.clearTimeout(speakingTimeoutRef.current);
       if (nextState === "listening") {
@@ -324,9 +310,9 @@ export function VoidStage() {
       duration: 0.68,
       ease: "sine.inOut",
       overwrite: "auto",
-      onUpdate: () => setExpandedResponseProgress(expandedResponseProgressRef.current.value)
+      onUpdate: () => setExpandedProgress(expandedResponseProgressRef.current.value)
     });
-  }, [isExpandedResponseOpen]);
+  }, [isExpandedResponseOpen, setExpandedProgress]);
 
   useEffect(() => {
     return () => {

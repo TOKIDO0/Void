@@ -8,6 +8,11 @@ export type VoidConversationMessage = {
   content: string;
 };
 
+export type VoidAssistantStreamState = {
+  history: VoidConversationMessage[];
+  assistantMessageIndex: number;
+};
+
 const CURRENT_CONVERSATION_STORAGE_KEY = "void.currentConversation";
 const MAX_STORED_CONVERSATION_MESSAGES = 80;
 const MAX_STORED_MESSAGE_CHARACTERS = 24000;
@@ -37,6 +42,60 @@ export async function sendVoidMessage(
   } catch (error) {
     throw provider.mapError(error);
   }
+}
+
+export function createPendingAssistantConversation(
+  conversationHistory: VoidConversationMessage[],
+  userInput: string
+): VoidAssistantStreamState {
+  const nextHistory: VoidConversationMessage[] = [
+    ...conversationHistory,
+    { role: "user", content: userInput.trim() },
+    { role: "assistant", content: "" }
+  ];
+
+  return {
+    history: nextHistory,
+    assistantMessageIndex: nextHistory.length - 1
+  };
+}
+
+export function applyAssistantStreamContent(
+  streamState: VoidAssistantStreamState,
+  content: string
+): VoidConversationMessage[] {
+  const nextHistory = [...streamState.history];
+  nextHistory[streamState.assistantMessageIndex] = {
+    role: "assistant",
+    content: content.trimStart()
+  };
+
+  return nextHistory;
+}
+
+export function finalizeAssistantStreamContent(
+  streamState: VoidAssistantStreamState,
+  content: string
+): VoidConversationMessage[] {
+  const normalizedContent = content.trim();
+  if (!normalizedContent) {
+    return removeAssistantMessageAt(streamState.history, streamState.assistantMessageIndex);
+  }
+
+  const nextHistory = [...streamState.history];
+  nextHistory[streamState.assistantMessageIndex] = {
+    role: "assistant",
+    content: normalizedContent
+  };
+
+  return nextHistory;
+}
+
+export function removeAssistantMessageAt(
+  conversationHistory: VoidConversationMessage[],
+  assistantMessageIndex: number
+): VoidConversationMessage[] {
+  return conversationHistory.filter((_, index) => index !== assistantMessageIndex);
 }
 
 export function loadCurrentConversationHistory(): VoidConversationMessage[] {
