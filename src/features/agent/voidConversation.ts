@@ -13,7 +13,13 @@ export type VoidAssistantStreamState = {
   assistantMessageIndex: number;
 };
 
+type StoredConversationPayload = {
+  version: 1;
+  messages: VoidConversationMessage[];
+};
+
 const CURRENT_CONVERSATION_STORAGE_KEY = "void.currentConversation";
+const CURRENT_CONVERSATION_STORAGE_VERSION = 1;
 const MAX_STORED_CONVERSATION_MESSAGES = 80;
 const MAX_STORED_MESSAGE_CHARACTERS = 24000;
 const MAX_STORED_TOTAL_CHARACTERS = 120000;
@@ -98,6 +104,10 @@ export function removeAssistantMessageAt(
   return conversationHistory.filter((_, index) => index !== assistantMessageIndex);
 }
 
+export function clearCurrentConversationHistory() {
+  window.localStorage.removeItem(CURRENT_CONVERSATION_STORAGE_KEY);
+}
+
 export function loadCurrentConversationHistory(): VoidConversationMessage[] {
   const rawHistory = window.localStorage.getItem(CURRENT_CONVERSATION_STORAGE_KEY);
   if (!rawHistory) {
@@ -106,15 +116,18 @@ export function loadCurrentConversationHistory(): VoidConversationMessage[] {
 
   try {
     const parsedHistory = JSON.parse(rawHistory) as unknown;
-    if (!Array.isArray(parsedHistory)) {
+    const storedMessages = extractStoredConversationMessages(parsedHistory);
+    if (!storedMessages) {
+      clearCurrentConversationHistory();
       return [];
     }
 
-    return parsedHistory
+    return storedMessages
       .filter(isVoidConversationMessage)
       .map(normalizeStoredConversationMessage)
       .filter((message) => message.content);
   } catch {
+    clearCurrentConversationHistory();
     return [];
   }
 }
@@ -125,9 +138,36 @@ export function saveCurrentConversationHistory(conversationHistory: VoidConversa
     .map(normalizeStoredConversationMessage)
     .filter((message) => message.content)
     .slice(-MAX_STORED_CONVERSATION_MESSAGES);
-  const storedHistory = clipConversationByTotalCharacters(normalizedHistory, MAX_STORED_TOTAL_CHARACTERS);
 
-  window.localStorage.setItem(CURRENT_CONVERSATION_STORAGE_KEY, JSON.stringify(storedHistory));
+  if (!normalizedHistory.length) {
+    clearCurrentConversationHistory();
+    return;
+  }
+
+  const storedHistory = clipConversationByTotalCharacters(normalizedHistory, MAX_STORED_TOTAL_CHARACTERS);
+  const payload: StoredConversationPayload = {
+    version: CURRENT_CONVERSATION_STORAGE_VERSION,
+    messages: storedHistory
+  };
+
+  window.localStorage.setItem(CURRENT_CONVERSATION_STORAGE_KEY, JSON.stringify(payload));
+}
+
+function extractStoredConversationMessages(value: unknown) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const payload = value as Partial<StoredConversationPayload>;
+  if (payload.version !== CURRENT_CONVERSATION_STORAGE_VERSION || !Array.isArray(payload.messages)) {
+    return null;
+  }
+
+  return payload.messages;
 }
 
 function isVoidConversationMessage(value: unknown): value is VoidConversationMessage {
@@ -211,5 +251,6 @@ function shouldSkipRequestHistoryMessage(role: VoidConversationMessage["role"], 
     content.startsWith("模型请求失败：")
     || content.startsWith("模型网络请求失败。")
     || content.startsWith("模型连接失败")
+    || content.startsWith("正式模型代理不可用")
   );
 }

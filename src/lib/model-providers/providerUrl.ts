@@ -1,11 +1,15 @@
+import type { ModelRequestMode } from "../../features/settings/modelConfig";
 import { createNetworkError, createProxyUnavailableError } from "./providerErrors";
 
 type ProviderFetchTarget = {
   url: string;
   directUrl: string;
   headers: Record<string, string>;
-  usesDevelopmentProxy: boolean;
+  mode: ModelRequestMode;
 };
+
+const DEVELOPMENT_PROXY_PATH = "/void-model-proxy";
+const PRODUCTION_PROXY_PATH = "/api/model";
 
 export function normalizeEndpointBaseUrl(baseUrl: string, terminalPath: string) {
   const trimmedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
@@ -23,23 +27,36 @@ export function buildProviderEndpointUrl(baseUrl: string, terminalPath: string) 
   return `${endpointBaseUrl}/${terminalPath.replace(/^\/+/, "")}`;
 }
 
-export function buildFetchTarget(endpointUrl: string) {
+export function buildFetchTarget(endpointUrl: string, requestMode: ModelRequestMode) {
+  if (requestMode === "production-proxy") {
+    return {
+      url: PRODUCTION_PROXY_PATH,
+      directUrl: endpointUrl,
+      mode: "production-proxy",
+      headers: {
+        "X-VOID-Target-URL": endpointUrl
+      }
+    } satisfies ProviderFetchTarget;
+  }
+
   if (!import.meta.env.DEV) {
     return {
-      url: endpointUrl,
+      url: PRODUCTION_PROXY_PATH,
       directUrl: endpointUrl,
-      usesDevelopmentProxy: false,
-      headers: {} as Record<string, string>
+      mode: "production-proxy",
+      headers: {
+        "X-VOID-Target-URL": endpointUrl
+      }
     } satisfies ProviderFetchTarget;
   }
 
   return {
-    url: "/void-model-proxy",
+    url: DEVELOPMENT_PROXY_PATH,
     directUrl: endpointUrl,
-    usesDevelopmentProxy: true,
+    mode: "development-proxy",
     headers: {
       "X-VOID-Target-URL": endpointUrl
-    } as Record<string, string>
+    }
   } satisfies ProviderFetchTarget;
 }
 
@@ -53,15 +70,15 @@ export async function fetchWithProxyFallback(fetchTarget: ProviderFetchTarget, i
       }
     });
   } catch (proxyError) {
-    if (!(proxyError instanceof TypeError) || !fetchTarget.usesDevelopmentProxy) {
-      if (proxyError instanceof TypeError) {
-        throw createNetworkError(
-          "模型网络请求失败，请检查 Base URL、网络连通性或目标接口的 CORS 配置。",
-          fetchTarget.directUrl,
-          proxyError
-        );
-      }
+    if (fetchTarget.mode === "production-proxy") {
+      throw createProxyUnavailableError(
+        "正式模型代理不可用，请检查服务端代理链路或部署配置。",
+        fetchTarget.directUrl,
+        proxyError
+      );
+    }
 
+    if (!(proxyError instanceof TypeError)) {
       throw proxyError;
     }
 
@@ -82,4 +99,16 @@ export async function fetchWithProxyFallback(fetchTarget: ProviderFetchTarget, i
       );
     }
   }
+}
+
+export function buildProxyMissingMessage(mode: ModelRequestMode) {
+  if (mode === "production-proxy") {
+    return "正式模型代理不可用，请检查服务端 /api/model 是否已部署并可访问。";
+  }
+
+  return "开发代理 /void-model-proxy 不可用，请确认本地开发服务正在运行。";
+}
+
+export function createProxyNetworkError(message: string, endpointUrl: string, cause?: unknown) {
+  return createNetworkError(message, endpointUrl, cause);
 }

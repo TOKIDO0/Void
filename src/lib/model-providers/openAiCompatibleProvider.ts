@@ -51,13 +51,13 @@ export const openAiCompatibleProvider: ModelProvider = {
     }
 
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
-    const fetchTarget = buildFetchTarget(endpointUrl);
+    const fetchTarget = buildFetchTarget(endpointUrl, config.requestMode);
     logOpenAiCompatibleRequest("send", endpointUrl, config);
     const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: buildBearerToken(config.apiKey),
+        Authorization: buildBearerToken(config.apiKey)
       },
       body: JSON.stringify({
         model: config.modelName,
@@ -88,13 +88,13 @@ export const openAiCompatibleProvider: ModelProvider = {
     }
 
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
-    const fetchTarget = buildFetchTarget(endpointUrl);
+    const fetchTarget = buildFetchTarget(endpointUrl, config.requestMode);
     logOpenAiCompatibleRequest("stream", endpointUrl, config);
     const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: buildBearerToken(config.apiKey),
+        Authorization: buildBearerToken(config.apiKey)
       },
       body: JSON.stringify({
         model: config.modelName,
@@ -186,15 +186,16 @@ function mapModelStrengthToReasoningEffort(strength: ModelConfig["modelStrength"
 
 function buildOpenAiCompatibleErrorMessage(error: ProviderRequestError) {
   if (error.kind === "proxy-unavailable") {
-    return "模型请求失败：开发代理不可用，且浏览器直连目标接口也失败了。请确认 Vite 开发服务正常运行，并检查目标接口是否允许当前来源访问。";
+    return error.message;
   }
 
   if (error.kind === "network") {
-    return "模型网络请求失败。请检查 Base URL、网络连通性或目标接口的 CORS 配置。";
+    return "模型网络请求失败。请检查 Base URL、网络连通性或目标接口配置。";
   }
 
   const status = error.status ?? 0;
   const errorMessage = error.serviceMessage;
+
   if (status === 401 || status === 403) {
     return `模型请求失败：${status} 鉴权失败。请确认 API Key 可用且请求头格式正确。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
   }
@@ -226,7 +227,7 @@ function buildOpenAiCompatibleServiceMessage(status: number, errorMessage: strin
   if (status === 401 && isVolcengineArkConfig(config)) {
     return [
       "豆包 Ark 鉴权失败。",
-      "请确认 API Key 填的是“API Key Secret”，不是 API Key ID、Access Key ID、Secret Access Key 或火山 AK/SK。",
+      "请确认 API Key 填的是 API Key Secret，不是 API Key ID、Access Key ID、Secret Access Key 或火山 AK/SK。",
       errorMessage
     ].filter(Boolean).join(" ");
   }
@@ -245,6 +246,7 @@ function logOpenAiCompatibleRequest(mode: "send" | "stream", endpointUrl: string
     endpointUrl,
     modelName: config.modelName,
     provider: config.provider,
+    requestMode: config.requestMode,
     apiKeyLength: normalizedApiKey.length,
     apiKeyLooksLikeArkSecret: normalizedApiKey.startsWith("V"),
     apiKeyLooksLikeArkId: normalizedApiKey.startsWith("ee"),

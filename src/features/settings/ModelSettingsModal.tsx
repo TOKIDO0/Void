@@ -3,15 +3,19 @@ import gsap from "gsap";
 import { ChangeEvent, CSSProperties, FormEvent, MutableRefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   MAX_OUTPUT_LEVELS,
-  MODEL_OPTIONS_BY_PRESET,
   MODEL_PRESETS,
   MODEL_STRENGTH_LABELS,
   TEMPERATURE_LEVELS,
+  getModelOptionsForPreset,
+  findModelPresetById,
+  findPresetByProvider,
+  findPresetIdForModelConfig,
   loadModelConfig,
   saveModelConfig,
   type LevelOption,
   type ModelConfig,
   type ModelProviderType,
+  type ModelRequestMode,
   type ModelStrength
 } from "./modelConfig";
 import {
@@ -26,6 +30,21 @@ gsap.registerPlugin(useGSAP);
 type ModelSettingsModalProps = {
   isOpen: boolean;
   onClose: () => void;
+};
+
+type TrailParticle = {
+  id: number;
+  element: HTMLSpanElement;
+  position: number;
+  offsetY: number;
+  driftX: number;
+  driftY: number;
+  size: number;
+  blur: number;
+  breatheSpeed: number;
+  twinklePhase: number;
+  alpha: number;
+  bornAt: number;
 };
 
 const MODEL_STRENGTH_ORDER: ModelStrength[] = ["low", "middle", "high", "max"];
@@ -66,31 +85,15 @@ const PLANET_COLOR_STOPS = [
   }
 ] as const;
 
-type TrailParticle = {
-  id: number;
-  element: HTMLSpanElement;
-  position: number;
-  offsetY: number;
-  driftX: number;
-  driftY: number;
-  size: number;
-  blur: number;
-  breatheSpeed: number;
-  twinklePhase: number;
-  alpha: number;
-  bornAt: number;
-};
-
 export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps) {
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
   const [selectedPresetId, setSelectedPresetId] = useState(() => findPresetId(loadModelConfig()));
   const [isAdvancedModelOpen, setIsAdvancedModelOpen] = useState(false);
   const copy = SETTINGS_COPY[language];
-  const modelOptions = useMemo(() => MODEL_OPTIONS_BY_PRESET[selectedPresetId] ?? [], [selectedPresetId]);
-  const availableStrengths = useMemo(() => {
-    return MODEL_STRENGTH_ORDER;
-  }, []);
+  const modelOptions = useMemo(() => getModelOptionsForPreset(selectedPresetId), [selectedPresetId]);
+  const availableStrengths = useMemo(() => MODEL_STRENGTH_ORDER, []);
+  const advancedContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -99,11 +102,11 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
 
     const storedConfig = loadModelConfig();
     const storedPresetId = findPresetId(storedConfig);
-    const storedModelOptions = MODEL_OPTIONS_BY_PRESET[storedPresetId] ?? [];
+    const storedModelOptions = getModelOptionsForPreset(storedPresetId);
 
     setDraftConfig(storedConfig);
     setSelectedPresetId(storedPresetId);
-    setIsAdvancedModelOpen(!storedModelOptions.some((option) => option.modelName === storedConfig.modelName));
+    setIsAdvancedModelOpen(!storedModelOptions.some((option: { modelName: string }) => option.modelName === storedConfig.modelName));
   }, [isOpen]);
 
   useEffect(() => {
@@ -123,9 +126,10 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
 
   const updateTextField = (fieldName: "apiKey" | "baseUrl" | "modelName") => {
     return (event: ChangeEvent<HTMLInputElement>) => {
+      const nextValue = event.target.value;
       setDraftConfig((currentConfig) => ({
         ...currentConfig,
-        [fieldName]: event.target.value
+        [fieldName]: nextValue
       }));
     };
   };
@@ -134,6 +138,8 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     const nextProvider = event.target.value as ModelProviderType;
     const nextPreset = findDefaultPresetForProvider(nextProvider);
     const nextPresetId = nextPreset?.id ?? "";
+    const nextModelOptions = getModelOptionsForPreset(nextPresetId);
+    const nextModelName = nextPreset?.modelName ?? "";
 
     setSelectedPresetId(nextPresetId);
     setIsAdvancedModelOpen(false);
@@ -142,8 +148,9 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       provider: nextProvider,
       presetId: nextPresetId,
       baseUrl: nextPreset?.baseUrl ?? currentConfig.baseUrl,
-      modelName: nextPreset?.modelName ?? currentConfig.modelName,
-      modelStrength: nextPreset ? findModelStrength(nextPreset.id, nextPreset.modelName) ?? currentConfig.modelStrength : currentConfig.modelStrength
+      modelName: nextModelName || currentConfig.modelName,
+      modelStrength: nextModelOptions.find((option: { modelName: string; strength: ModelStrength }) => option.modelName === nextModelName)?.strength ?? currentConfig.modelStrength,
+      streamEnabled: nextProvider === "openai-compatible" && currentConfig.streamEnabled
     }));
   };
 
@@ -154,11 +161,12 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   };
 
   const handlePresetChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const preset = MODEL_PRESETS.find((currentPreset) => currentPreset.id === event.target.value);
+    const preset = findModelPresetById(event.target.value);
     if (!preset) {
       return;
     }
 
+    const nextModelOptions = getModelOptionsForPreset(preset.id);
     setSelectedPresetId(preset.id);
     setIsAdvancedModelOpen(false);
     setDraftConfig((currentConfig) => ({
@@ -167,15 +175,19 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       provider: preset.provider,
       baseUrl: preset.baseUrl,
       modelName: preset.modelName,
-      modelStrength: findModelStrength(preset.id, preset.modelName) ?? currentConfig.modelStrength
+      modelStrength: nextModelOptions.find((option: { modelName: string; strength: ModelStrength }) => option.modelName === preset.modelName)?.strength ?? currentConfig.modelStrength,
+      streamEnabled: preset.provider === "openai-compatible" && currentConfig.streamEnabled
     }));
   };
 
   const handleModelOptionChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextModelName = event.target.value;
+    const matchedOption = modelOptions.find((option: { modelName: string; strength: ModelStrength }) => option.modelName === nextModelName);
+
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
-      modelName: event.target.value,
-      modelStrength: findModelStrength(selectedPresetId, event.target.value) ?? currentConfig.modelStrength
+      modelName: nextModelName,
+      modelStrength: matchedOption?.strength ?? currentConfig.modelStrength
     }));
   };
 
@@ -217,6 +229,13 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     }));
   };
 
+  const handleRequestModeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setDraftConfig((currentConfig) => ({
+      ...currentConfig,
+      requestMode: event.target.value as ModelRequestMode
+    }));
+  };
+
   const handleAdvancedModelToggle = () => {
     setIsAdvancedModelOpen((currentIsOpen) => !currentIsOpen);
   };
@@ -233,11 +252,10 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
 
   const selectedTemperatureIndex = findClosestLevelIndex(TEMPERATURE_LEVELS, draftConfig.temperature);
   const selectedMaxOutputIndex = findClosestLevelIndex(MAX_OUTPUT_LEVELS, draftConfig.maxOutputTokens);
-  const selectedModel = modelOptions.find((option) => option.modelName === draftConfig.modelName);
+  const selectedModel = modelOptions.find((option: { modelName: string }) => option.modelName === draftConfig.modelName);
   const selectedStrength = draftConfig.modelStrength;
   const modelSelectValue = selectedModel ? draftConfig.modelName : "";
   const canStream = draftConfig.provider === "openai-compatible";
-  const advancedContentRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     if (!isOpen) {
@@ -358,6 +376,16 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
             <label className="model-settings-modal__field">
               <span>{copy.baseUrl}</span>
               <input type="url" value={draftConfig.baseUrl} onChange={updateTextField("baseUrl")} />
+              <small>{copy.baseUrlHint}</small>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.requestMode}</span>
+              <select value={draftConfig.requestMode} onChange={handleRequestModeChange}>
+                <option value="development-proxy">{copy.requestModeDevelopment}</option>
+                <option value="production-proxy">{copy.requestModeProduction}</option>
+              </select>
+              <small>{copy.requestModeHint}</small>
             </label>
           </section>
 
@@ -369,8 +397,8 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
                   {copy.modelName}
                 </option>
                 {modelOptions
-                  .filter((option) => option.modelName)
-                  .map((option) => (
+                  .filter((option: { modelName: string }) => option.modelName)
+                  .map((option: { modelName: string; label: string }) => (
                     <option key={option.modelName} value={option.modelName}>
                       {option.label}
                     </option>
@@ -661,24 +689,11 @@ function LevelSlider({
 }
 
 function findPresetId(config: ModelConfig) {
-  if (MODEL_PRESETS.some((preset) => preset.id === config.presetId && preset.provider === config.provider)) {
-    return config.presetId;
-  }
-
-  return MODEL_PRESETS.find((preset) => preset.baseUrl === config.baseUrl && preset.provider === config.provider)?.id
-    ?? findDefaultPresetIdForProvider(config.provider);
-}
-
-function findModelStrength(presetId: string, modelName: string) {
-  return MODEL_OPTIONS_BY_PRESET[presetId]?.find((option) => option.modelName === modelName)?.strength;
-}
-
-function findDefaultPresetIdForProvider(provider: ModelProviderType) {
-  return findDefaultPresetForProvider(provider)?.id ?? "";
+  return findPresetIdForModelConfig(config);
 }
 
 function findDefaultPresetForProvider(provider: ModelProviderType) {
-  return MODEL_PRESETS.find((preset) => preset.provider === provider);
+  return findPresetByProvider(provider);
 }
 
 function findClosestLevelIndex(levels: readonly LevelOption[], value: number) {

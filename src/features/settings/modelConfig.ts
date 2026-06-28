@@ -1,6 +1,6 @@
 export type ModelProviderType = "openai-compatible" | "anthropic";
 
-export type ModelRequestMode = "development-proxy";
+export type ModelRequestMode = "development-proxy" | "production-proxy";
 
 export type ModelStrength = "low" | "middle" | "high" | "max";
 
@@ -36,10 +36,10 @@ export type LevelOption = {
   value: number;
 };
 
+type StoredModelConfig = Omit<ModelConfig, "apiKey">;
+
 const MODEL_CONFIG_STORAGE_KEY = "void.modelConfig";
 const MODEL_API_KEY_STORAGE_KEY = "void.modelApiKey";
-
-type StoredModelConfig = Omit<ModelConfig, "apiKey">;
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   provider: "openai-compatible",
@@ -145,11 +145,11 @@ export const MODEL_STRENGTH_LABELS: Record<ModelStrength, string> = {
 export const TEMPERATURE_LEVELS: readonly LevelOption[] = [
   { label: "稳定克制", value: 0.25 },
   { label: "自然平衡", value: 0.7 },
-  { label: "发散创造", value: 0.95 }
+  { label: "发散创意", value: 0.95 }
 ];
 
 export const MAX_OUTPUT_LEVELS: readonly LevelOption[] = [
-  { label: "简短回应", value: 800 },
+  { label: "简短回答", value: 800 },
   { label: "常规任务", value: 2000 },
   { label: "长文/代码", value: 6000 },
   { label: "档案级输出", value: 16000 }
@@ -158,46 +158,59 @@ export const MAX_OUTPUT_LEVELS: readonly LevelOption[] = [
 export function loadModelConfig(): ModelConfig {
   const rawConfig = window.localStorage.getItem(MODEL_CONFIG_STORAGE_KEY);
   const sessionApiKey = window.sessionStorage.getItem(MODEL_API_KEY_STORAGE_KEY) ?? "";
+
   if (!rawConfig) {
     return {
       ...DEFAULT_MODEL_CONFIG,
-      apiKey: sessionApiKey
+      apiKey: sessionApiKey,
+      requestMode: resolveDefaultRequestMode()
     };
   }
 
   try {
     const parsedConfig = JSON.parse(rawConfig) as Partial<StoredModelConfig>;
+    const provider = isModelProviderType(parsedConfig.provider)
+      ? parsedConfig.provider
+      : DEFAULT_MODEL_CONFIG.provider;
+    const presetId = normalizePresetId(parsedConfig.presetId, provider);
+    const modelName = typeof parsedConfig.modelName === "string" && parsedConfig.modelName.trim()
+      ? parsedConfig.modelName.trim()
+      : getDefaultPresetForProvider(provider)?.modelName ?? DEFAULT_MODEL_CONFIG.modelName;
+
     return {
-      provider: isModelProviderType(parsedConfig.provider) ? parsedConfig.provider : DEFAULT_MODEL_CONFIG.provider,
-      presetId: normalizePresetId(parsedConfig.presetId),
+      provider,
+      presetId,
       apiKey: sessionApiKey,
-      baseUrl: parsedConfig.baseUrl ?? DEFAULT_MODEL_CONFIG.baseUrl,
-      modelName: parsedConfig.modelName ?? DEFAULT_MODEL_CONFIG.modelName,
+      baseUrl: normalizeBaseUrl(parsedConfig.baseUrl, provider),
+      modelName,
       modelStrength: normalizeModelStrength(parsedConfig.modelStrength),
       temperature: normalizeTemperature(parsedConfig.temperature),
       maxOutputTokens: normalizeMaxOutputTokens(parsedConfig.maxOutputTokens),
-      streamEnabled: parsedConfig.streamEnabled ?? DEFAULT_MODEL_CONFIG.streamEnabled,
-      requestMode: "development-proxy"
+      streamEnabled: provider === "openai-compatible" && Boolean(parsedConfig.streamEnabled),
+      requestMode: normalizeRequestMode(parsedConfig.requestMode)
     };
   } catch {
     return {
       ...DEFAULT_MODEL_CONFIG,
-      apiKey: sessionApiKey
+      apiKey: sessionApiKey,
+      requestMode: resolveDefaultRequestMode()
     };
   }
 }
 
 export function saveModelConfig(modelConfig: ModelConfig) {
+  const provider = modelConfig.provider;
+  const normalizedPresetId = normalizePresetId(modelConfig.presetId, provider);
   const storedConfig: StoredModelConfig = {
-    provider: modelConfig.provider,
-    presetId: normalizePresetId(modelConfig.presetId),
-    baseUrl: modelConfig.baseUrl,
-    modelName: modelConfig.modelName,
-    modelStrength: modelConfig.modelStrength,
+    provider,
+    presetId: normalizedPresetId,
+    baseUrl: normalizeBaseUrl(modelConfig.baseUrl, provider),
+    modelName: modelConfig.modelName.trim(),
+    modelStrength: normalizeModelStrength(modelConfig.modelStrength),
     temperature: normalizeTemperature(modelConfig.temperature),
     maxOutputTokens: normalizeMaxOutputTokens(modelConfig.maxOutputTokens),
-    streamEnabled: modelConfig.streamEnabled,
-    requestMode: "development-proxy"
+    streamEnabled: provider === "openai-compatible" && modelConfig.streamEnabled,
+    requestMode: normalizeRequestMode(modelConfig.requestMode)
   };
 
   window.localStorage.setItem(MODEL_CONFIG_STORAGE_KEY, JSON.stringify(storedConfig));
@@ -206,6 +219,51 @@ export function saveModelConfig(modelConfig: ModelConfig) {
   } else {
     window.sessionStorage.removeItem(MODEL_API_KEY_STORAGE_KEY);
   }
+}
+
+export function getModelOptionsForConfig(config: Pick<ModelConfig, "presetId" | "provider">) {
+  return MODEL_OPTIONS_BY_PRESET[resolvePresetIdForProvider(config.presetId, config.provider)] ?? [];
+}
+
+export function getModelOptionsForPreset(presetId: string) {
+  return MODEL_OPTIONS_BY_PRESET[presetId] ?? [];
+}
+
+export function findModelStrengthForPreset(presetId: string, modelName: string) {
+  return MODEL_OPTIONS_BY_PRESET[presetId]?.find((option) => option.modelName === modelName)?.strength;
+}
+
+export function findModelPresetById(presetId: string) {
+  return MODEL_PRESETS.find((preset) => preset.id === presetId) ?? null;
+}
+
+export function findPresetByProvider(provider: ModelProviderType) {
+  return MODEL_PRESETS.find((preset) => preset.provider === provider) ?? null;
+}
+
+export function findPresetIdForModelConfig(config: Pick<ModelConfig, "provider" | "presetId">) {
+  return resolvePresetIdForProvider(config.presetId, config.provider);
+}
+
+function resolvePresetIdForProvider(presetId: string, provider: ModelProviderType) {
+  const directMatch = MODEL_PRESETS.find((preset) => preset.id === presetId && preset.provider === provider);
+  if (directMatch) {
+    return directMatch.id;
+  }
+
+  return getDefaultPresetForProvider(provider)?.id ?? DEFAULT_MODEL_CONFIG.presetId;
+}
+
+function getDefaultPresetForProvider(provider: ModelProviderType) {
+  return MODEL_PRESETS.find((preset) => preset.provider === provider) ?? null;
+}
+
+function normalizeBaseUrl(value: unknown, provider: ModelProviderType) {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  return getDefaultPresetForProvider(provider)?.baseUrl ?? DEFAULT_MODEL_CONFIG.baseUrl;
 }
 
 function normalizeTemperature(value: unknown) {
@@ -232,14 +290,26 @@ function normalizeModelStrength(value: unknown): ModelStrength {
   return DEFAULT_MODEL_CONFIG.modelStrength;
 }
 
+function normalizePresetId(value: unknown, provider: ModelProviderType) {
+  if (typeof value === "string") {
+    return resolvePresetIdForProvider(value, provider);
+  }
+
+  return getDefaultPresetForProvider(provider)?.id ?? DEFAULT_MODEL_CONFIG.presetId;
+}
+
 function isModelProviderType(value: unknown): value is ModelProviderType {
   return value === "openai-compatible" || value === "anthropic";
 }
 
-function normalizePresetId(value: unknown) {
-  if (typeof value === "string" && MODEL_PRESETS.some((preset) => preset.id === value)) {
+function normalizeRequestMode(value: unknown): ModelRequestMode {
+  if (value === "development-proxy" || value === "production-proxy") {
     return value;
   }
 
-  return DEFAULT_MODEL_CONFIG.presetId;
+  return resolveDefaultRequestMode();
+}
+
+function resolveDefaultRequestMode(): ModelRequestMode {
+  return import.meta.env.DEV ? "development-proxy" : "production-proxy";
 }

@@ -49,14 +49,14 @@ export const anthropicProvider: ModelProvider = {
 
     const systemPrompt = request.messages.find((message) => message.role === "system")?.content;
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "messages");
-    const fetchTarget = buildFetchTarget(endpointUrl);
+    const fetchTarget = buildFetchTarget(endpointUrl, config.requestMode);
     const requestBody = buildAnthropicRequestBody(request, config, systemPrompt);
     const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": config.apiKey,
-        "anthropic-version": "2023-06-01",
+        "anthropic-version": "2023-06-01"
       },
       body: JSON.stringify(requestBody)
     });
@@ -175,11 +175,11 @@ async function readErrorMessage(response: Response) {
 
 function buildAnthropicErrorMessage(error: ProviderRequestError) {
   if (error.kind === "proxy-unavailable") {
-    return "模型请求失败：开发代理不可用，且浏览器直连目标接口也失败了。请确认 Vite 开发服务正常运行，并检查目标接口是否允许当前来源访问。";
+    return error.message;
   }
 
   if (error.kind === "network") {
-    return "模型网络请求失败。请检查 Base URL、网络连通性或目标接口的 CORS 配置。";
+    return "模型网络请求失败。请检查 Base URL、网络连通性或目标接口配置。";
   }
 
   const status = error.status ?? 0;
