@@ -36,6 +36,7 @@ export function ExpandedDialogueLine({
   const isEditing = editingMessageIndex === index;
   const isPendingAssistantMessage = message.role === "assistant" && !message.content.trim();
   const canCopyMessage = Boolean(message.content.trim());
+  const attachments = message.attachments ?? [];
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -94,9 +95,20 @@ export function ExpandedDialogueLine({
           </div>
         </form>
       ) : (
-        <p className={isPendingAssistantMessage ? "expanded-dialogue-line__pending" : undefined}>
-          {isPendingAssistantMessage ? "..." : message.content}
-        </p>
+        <>
+          <p className={isPendingAssistantMessage ? "expanded-dialogue-line__pending" : undefined}>
+            {isPendingAssistantMessage ? "..." : message.content}
+          </p>
+          {attachments.length ? (
+            <div className="expanded-dialogue-line__attachments">
+              {attachments.map((attachment) => (
+                <span key={attachment.id} className="expanded-dialogue-line__attachment-pill">
+                  {attachment.name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </>
       )}
     </article>
   );

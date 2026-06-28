@@ -14,12 +14,15 @@ import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { NormalBlending, ShaderMaterial } from "three";
 import { luminousCapsuleFragmentShader, luminousCapsuleVertexShader } from "./luminousCapsuleShader";
+import type { VoidConversationAttachment } from "../agent/voidConversation";
 
 gsap.registerPlugin(useGSAP);
 
 type LuminousTextEntryProps = {
   disabled?: boolean;
-  onSend: (message: string) => void | Promise<void>;
+  thinkingModeEnabled: boolean;
+  onSend: (message: string, attachments: VoidConversationAttachment[]) => void | Promise<void>;
+  onThinkingModeChange: (thinkingModeEnabled: boolean) => void;
   onOpenModelConfig: () => void;
   onOpenConversationHistory: () => void;
 };
@@ -40,6 +43,28 @@ const MIN_ENTRY_HEIGHT = 64;
 const MAX_ENTRY_HEIGHT = 132;
 const TEXT_LINE_HEIGHT = 20;
 const MAX_VISIBLE_TEXT_LINES = 5;
+const MAX_ATTACHMENT_COUNT = 4;
+const MAX_ATTACHMENT_SIZE_BYTES = 64 * 1024;
+const MAX_ATTACHMENT_TOTAL_CHARACTERS = 32000;
+const SUPPORTED_TEXT_FILE_EXTENSIONS = new Set([
+  ".txt",
+  ".md",
+  ".js",
+  ".ts",
+  ".tsx",
+  ".jsx",
+  ".json",
+  ".css",
+  ".scss",
+  ".html",
+  ".py",
+  ".java",
+  ".go",
+  ".rs",
+  ".sh",
+  ".yaml",
+  ".yml"
+]);
 
 function clamp01(value: number) {
   return Math.min(Math.max(value, 0), 1);
@@ -115,7 +140,9 @@ function LuminousCapsule({
 
 export function LuminousTextEntry({
   disabled = false,
+  thinkingModeEnabled,
   onSend,
+  onThinkingModeChange,
   onOpenModelConfig,
   onOpenConversationHistory
 }: LuminousTextEntryProps) {
@@ -138,6 +165,9 @@ export function LuminousTextEntry({
   const lastPointerYRef = useRef<number | null>(null);
   const isSendingRef = useRef(false);
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
+  const [attachments, setAttachments] = useState<VoidConversationAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const animatePresence = useCallback((targetReveal: number, targetFocus: number) => {
     gsap.to(revealRef, {
@@ -297,11 +327,13 @@ export function LuminousTextEntry({
     inputValueRef.current = "";
     setInputValue("");
     hasMessageRef.current = 0;
+    setAttachments([]);
+    setAttachmentError("");
   }, []);
 
   const submitMessage = useCallback(async () => {
     const trimmedMessage = inputValue.trim();
-    if (!trimmedMessage || disabled || isSendingRef.current) {
+    if ((!trimmedMessage && !attachments.length) || disabled || isSendingRef.current) {
       return;
     }
 
@@ -321,11 +353,11 @@ export function LuminousTextEntry({
       }
     );
     try {
-      await onSend(trimmedMessage);
+      await onSend(trimmedMessage, attachments);
     } finally {
       isSendingRef.current = false;
     }
-  }, [disabled, inputValue, onSend, resetEntryContent]);
+  }, [attachments, disabled, inputValue, onSend, resetEntryContent]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -379,6 +411,11 @@ export function LuminousTextEntry({
 
   const handleAgentActionClick = (action: "thinking" | "upload" | "history" | "settings") => {
     pinOpen();
+    if (action === "thinking") {
+      onThinkingModeChange(!thinkingModeEnabled);
+      return;
+    }
+
     if (action === "history") {
       setIsAgentMenuOpen(false);
       onOpenConversationHistory();
@@ -388,6 +425,86 @@ export function LuminousTextEntry({
       setIsAgentMenuOpen(false);
       onOpenModelConfig();
     }
+
+    if (action === "upload") {
+      setIsAgentMenuOpen(false);
+      fileInputRef.current?.click();
+    }
+  };
+
+  const removeAttachment = useCallback((attachmentId: string) => {
+    setAttachments((currentAttachments) => currentAttachments.filter((attachment) => attachment.id !== attachmentId));
+  }, []);
+
+  const appendFiles = useCallback(async (incomingFiles: FileList | File[]) => {
+    const selectedFiles = Array.from(incomingFiles);
+    if (!selectedFiles.length) {
+      return;
+    }
+
+    const nextAttachments: VoidConversationAttachment[] = [];
+    let totalCharacters = attachments.reduce((sum, attachment) => sum + attachment.content.length, 0);
+
+    for (const file of selectedFiles) {
+      if (attachments.length + nextAttachments.length >= MAX_ATTACHMENT_COUNT) {
+        setAttachmentError(`最多只能附加 ${MAX_ATTACHMENT_COUNT} 个文件。`);
+        break;
+      }
+
+      const extension = resolveFileExtension(file.name);
+      if (!SUPPORTED_TEXT_FILE_EXTENSIONS.has(extension)) {
+        setAttachmentError("当前阶段只支持文本类文件。");
+        continue;
+      }
+
+      if (file.size <= 0) {
+        setAttachmentError("不能附加空文件。");
+        continue;
+      }
+
+      if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
+        setAttachmentError("单个文件过大，当前阶段请控制在 64KB 以内。");
+        continue;
+      }
+
+      try {
+        const content = (await file.text()).trim();
+        if (!content) {
+          setAttachmentError("不能附加空文件。");
+          continue;
+        }
+
+        totalCharacters += content.length;
+        if (totalCharacters > MAX_ATTACHMENT_TOTAL_CHARACTERS) {
+          setAttachmentError("本轮附加文件总内容过长，请减少文件数量或内容长度。");
+          break;
+        }
+
+        nextAttachments.push({
+          id: buildAttachmentId(file),
+          name: file.name,
+          mimeType: file.type || "text/plain",
+          content
+        });
+      } catch {
+        setAttachmentError("文件读取失败，请重新选择文件。");
+      }
+    }
+
+    if (nextAttachments.length) {
+      setAttachmentError("");
+      setAttachments((currentAttachments) => [...currentAttachments, ...nextAttachments]);
+    }
+  }, [attachments]);
+
+  const handleFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = event.target.files;
+    if (!selectedFiles?.length) {
+      return;
+    }
+
+    await appendFiles(selectedFiles);
+    event.target.value = "";
   };
 
   useEffect(() => {
@@ -417,7 +534,22 @@ export function LuminousTextEntry({
       onSubmit={handleSubmit}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onDragOver={(event) => {
+        event.preventDefault();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        void appendFiles(event.dataTransfer.files);
+      }}
     >
+      <input
+        ref={fileInputRef}
+        type="file"
+        hidden
+        multiple
+        accept={Array.from(SUPPORTED_TEXT_FILE_EXTENSIONS).join(",")}
+        onChange={handleFileInputChange}
+      />
       <div ref={opticsRef} className="luminous-text-entry__optics" aria-hidden="true">
         <Canvas
           camera={{ position: [0, 0, 2.2], fov: 34, near: 0.1, far: 10 }}
@@ -451,8 +583,13 @@ export function LuminousTextEntry({
         />
         {isAgentMenuOpen ? (
           <div className="luminous-text-entry__agent-menu" onMouseDown={(event) => event.preventDefault()}>
-            <button type="button" onClick={() => handleAgentActionClick("thinking")}>
-              Think mode
+            <button
+              type="button"
+              className={thinkingModeEnabled ? "is-active" : undefined}
+              aria-pressed={thinkingModeEnabled}
+              onClick={() => handleAgentActionClick("thinking")}
+            >
+              {thinkingModeEnabled ? "Thinking on" : "Thinking off"}
             </button>
             <button type="button" onClick={() => handleAgentActionClick("upload")}>
               Upload file
@@ -465,6 +602,21 @@ export function LuminousTextEntry({
             </button>
           </div>
         ) : null}
+        {attachments.length ? (
+          <div className="luminous-text-entry__attachments">
+            {attachments.map((attachment) => (
+              <button
+                key={attachment.id}
+                type="button"
+                className="luminous-text-entry__attachment-pill"
+                onClick={() => removeAttachment(attachment.id)}
+              >
+                {attachment.name}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {attachmentError ? <div className="luminous-text-entry__attachment-error">{attachmentError}</div> : null}
         <textarea
           ref={textAreaRef}
           className="luminous-text-entry__input"
@@ -484,11 +636,24 @@ export function LuminousTextEntry({
           className="luminous-text-entry__send"
           type="submit"
           aria-label="Send message"
-          disabled={disabled || !inputValue.trim()}
+          disabled={disabled || (!inputValue.trim() && !attachments.length)}
           onFocus={handleFocus}
           onBlur={handleBlur}
         />
       </div>
     </form>
   );
+}
+
+function resolveFileExtension(fileName: string) {
+  const lastDotIndex = fileName.lastIndexOf(".");
+  if (lastDotIndex < 0) {
+    return "";
+  }
+
+  return fileName.slice(lastDotIndex).toLowerCase();
+}
+
+function buildAttachmentId(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
 }

@@ -11,6 +11,7 @@ export type ModelConfig = {
   baseUrl: string;
   modelName: string;
   modelStrength: ModelStrength;
+  thinkingModeEnabled: boolean;
   temperature: number;
   maxOutputTokens: number;
   streamEnabled: boolean;
@@ -48,6 +49,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   baseUrl: "https://api.openai.com/v1",
   modelName: "gpt-5.5",
   modelStrength: "middle",
+  thinkingModeEnabled: false,
   temperature: 0.7,
   maxOutputTokens: 2000,
   streamEnabled: false,
@@ -184,6 +186,7 @@ export function loadModelConfig(): ModelConfig {
       baseUrl: normalizeBaseUrl(parsedConfig.baseUrl, provider),
       modelName,
       modelStrength: normalizeModelStrength(parsedConfig.modelStrength),
+      thinkingModeEnabled: Boolean(parsedConfig.thinkingModeEnabled),
       temperature: normalizeTemperature(parsedConfig.temperature),
       maxOutputTokens: normalizeMaxOutputTokens(parsedConfig.maxOutputTokens),
       streamEnabled: provider === "openai-compatible" && Boolean(parsedConfig.streamEnabled),
@@ -207,6 +210,7 @@ export function saveModelConfig(modelConfig: ModelConfig) {
     baseUrl: normalizeBaseUrl(modelConfig.baseUrl, provider),
     modelName: modelConfig.modelName.trim(),
     modelStrength: normalizeModelStrength(modelConfig.modelStrength),
+    thinkingModeEnabled: Boolean(modelConfig.thinkingModeEnabled),
     temperature: normalizeTemperature(modelConfig.temperature),
     maxOutputTokens: normalizeMaxOutputTokens(modelConfig.maxOutputTokens),
     streamEnabled: provider === "openai-compatible" && modelConfig.streamEnabled,
@@ -219,6 +223,14 @@ export function saveModelConfig(modelConfig: ModelConfig) {
   } else {
     window.sessionStorage.removeItem(MODEL_API_KEY_STORAGE_KEY);
   }
+}
+
+export function updateThinkingModeEnabled(thinkingModeEnabled: boolean) {
+  const currentConfig = loadModelConfig();
+  saveModelConfig({
+    ...currentConfig,
+    thinkingModeEnabled
+  });
 }
 
 export function getModelOptionsForConfig(config: Pick<ModelConfig, "presetId" | "provider">) {

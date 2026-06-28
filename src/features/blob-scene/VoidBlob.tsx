@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Mesh, ShaderMaterial } from "three";
 import { blobFragmentShader, blobVertexShader, createBlobUniforms } from "./blobShader";
@@ -9,16 +9,39 @@ type VoidBlobProps = {
   visualState: VoidVisualState;
   expandedResponseProgress: number;
   isExpandedResponseClosing: boolean;
+  thinkingModePulseEventId: number;
+  thinkingModePulseDirection: "on" | "off";
 };
 
-export function VoidBlob({ visualState, expandedResponseProgress, isExpandedResponseClosing }: VoidBlobProps) {
+const THINKING_MODE_PULSE_DURATION_MS = 860;
+
+export function VoidBlob({
+  visualState,
+  expandedResponseProgress,
+  isExpandedResponseClosing,
+  thinkingModePulseEventId,
+  thinkingModePulseDirection
+}: VoidBlobProps) {
   const meshRef = useRef<Mesh | null>(null);
   const materialRef = useRef<ShaderMaterial | null>(null);
   const baseScaleRef = useRef(0.9);
   const closingSuppressionRef = useRef(0);
+  const pulseStartTimeRef = useRef(0);
+  const pulseProgressRef = useRef(1);
+  const pulseDirectionRef = useRef<0 | 1>(0);
   const uniforms = useMemo(() => createBlobUniforms(), []);
   const { camera } = useThree();
   const { animatedValuesRef, baseColor, edgeColor } = useBlobStateAnimation(visualState);
+
+  useEffect(() => {
+    if (!thinkingModePulseEventId) {
+      return;
+    }
+
+    pulseStartTimeRef.current = performance.now();
+    pulseProgressRef.current = 0;
+    pulseDirectionRef.current = thinkingModePulseDirection === "on" ? 1 : 0;
+  }, [thinkingModePulseDirection, thinkingModePulseEventId]);
 
   useFrame(({ clock }, delta) => {
     const material = materialRef.current;
@@ -35,6 +58,14 @@ export function VoidBlob({ visualState, expandedResponseProgress, isExpandedResp
     const speakingLift = animatedValues.audioLevel * 0.42;
     const breath = Math.sin(clock.elapsedTime * ((Math.PI * 2) / 3)) * 0.018;
     const transitionLift = animatedValues.transitionEnergy * 0.006;
+    const pulseElapsed = performance.now() - pulseStartTimeRef.current;
+    const rawPulseProgress = Math.min(Math.max(pulseElapsed / THINKING_MODE_PULSE_DURATION_MS, 0), 1);
+    const pulseVisibility = Math.sin(rawPulseProgress * Math.PI);
+    const expandedPulseSuppression = expandedResponseProgress > 0.08
+      ? Math.max(0.22, 1 - expandedResponseProgress * 1.35)
+      : 1;
+    const pulseStrength = pulseVisibility * expandedPulseSuppression;
+    pulseProgressRef.current = rawPulseProgress;
     const targetScale = animatedValues.scale + breath + animatedValues.audioLevel * 0.025 + transitionLift;
     const nextScale = baseScaleRef.current + (targetScale - baseScaleRef.current) * Math.min(delta * 4, 1);
 
@@ -57,6 +88,9 @@ export function VoidBlob({ visualState, expandedResponseProgress, isExpandedResp
     material.uniforms.uTransitionEnergy.value = animatedValues.transitionEnergy;
     material.uniforms.uExpandedResponse.value = expandedResponseProgress;
     material.uniforms.uExpandedResponseClosing.value = closingSuppressionRef.current;
+    material.uniforms.uThinkingModePulseProgress.value = pulseProgressRef.current;
+    material.uniforms.uThinkingModePulseStrength.value = pulseStrength;
+    material.uniforms.uThinkingModePulseDirection.value = pulseDirectionRef.current;
     material.uniforms.uBaseColor.value.copy(baseColor);
     material.uniforms.uEdgeColor.value.copy(edgeColor);
     material.uniforms.uViewPosition.value.copy(camera.position);

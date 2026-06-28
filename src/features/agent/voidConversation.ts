@@ -3,9 +3,17 @@ import type { ProviderMessage } from "../../lib/model-providers/providerContract
 import { getModelProvider } from "../../lib/model-providers/providerRegistry";
 import { VOID_SYSTEM_PROMPT } from "./voidSystemPrompt";
 
+export type VoidConversationAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  content: string;
+};
+
 export type VoidConversationMessage = {
   role: "user" | "assistant";
   content: string;
+  attachments?: VoidConversationAttachment[];
 };
 
 export type VoidAssistantStreamState = {
@@ -25,18 +33,27 @@ const MAX_STORED_MESSAGE_CHARACTERS = 24000;
 const MAX_STORED_TOTAL_CHARACTERS = 120000;
 const MAX_REQUEST_HISTORY_MESSAGES = 20;
 const MAX_REQUEST_HISTORY_CHARACTERS = 18000;
+const MAX_ATTACHMENT_CONTENT_CHARACTERS = 18000;
+const THINKING_MODE_SYSTEM_SUFFIX = [
+  "当前处于思考模式。",
+  "请先在内部理清问题结构，再给出结论。",
+  "回复要更审慎、更结构化，优先明确前提、步骤和结论。",
+  "不要为了显得有思考感而故意拖慢表达。"
+].join("");
 
 export async function sendVoidMessage(
   userInput: string,
   conversationHistory: VoidConversationMessage[],
   modelConfig: ModelConfig,
+  attachments: VoidConversationAttachment[] = [],
   onToken?: (token: string) => void
 ) {
   const provider = getModelProvider(modelConfig.provider);
+  const normalizedUserInput = buildUserInputWithAttachments(userInput, attachments);
   const messages: ProviderMessage[] = [
-    { role: "system", content: VOID_SYSTEM_PROMPT },
+    { role: "system", content: buildSystemPrompt(modelConfig) },
     ...buildRequestConversationHistory(conversationHistory),
-    { role: "user", content: userInput }
+    { role: "user", content: normalizedUserInput }
   ];
 
   try {
@@ -50,13 +67,26 @@ export async function sendVoidMessage(
   }
 }
 
+function buildSystemPrompt(modelConfig: ModelConfig) {
+  if (!modelConfig.thinkingModeEnabled) {
+    return VOID_SYSTEM_PROMPT;
+  }
+
+  return `${VOID_SYSTEM_PROMPT}\n\n${THINKING_MODE_SYSTEM_SUFFIX}`;
+}
+
 export function createPendingAssistantConversation(
   conversationHistory: VoidConversationMessage[],
-  userInput: string
+  userInput: string,
+  attachments: VoidConversationAttachment[] = []
 ): VoidAssistantStreamState {
   const nextHistory: VoidConversationMessage[] = [
     ...conversationHistory,
-    { role: "user", content: userInput.trim() },
+    {
+      role: "user",
+      content: userInput.trim(),
+      attachments: normalizeAttachments(attachments)
+    },
     { role: "assistant", content: "" }
   ];
 
@@ -181,12 +211,14 @@ function isVoidConversationMessage(value: unknown): value is VoidConversationMes
 
 function normalizeStoredConversationMessage(message: VoidConversationMessage): VoidConversationMessage {
   const content = message.content.trim();
+  const attachments = normalizeAttachments(message.attachments);
 
   return {
     role: message.role,
     content: content.length > MAX_STORED_MESSAGE_CHARACTERS
       ? content.slice(content.length - MAX_STORED_MESSAGE_CHARACTERS)
-      : content
+      : content,
+    attachments
   };
 }
 
@@ -210,7 +242,9 @@ function buildRequestConversationHistory(conversationHistory: VoidConversationMe
 
     requestMessages.unshift({
       role: message.role,
-      content: clippedContent
+      content: message.role === "user"
+        ? buildUserInputWithAttachments(clippedContent, normalizeAttachments(message.attachments))
+        : clippedContent
     });
     remainingCharacters -= clippedContent.length;
   }
@@ -234,7 +268,8 @@ function clipConversationByTotalCharacters(conversationHistory: VoidConversation
 
     clippedHistory.unshift({
       role: message.role,
-      content: clippedContent
+      content: clippedContent,
+      attachments: normalizeAttachments(message.attachments)
     });
     totalCharacters += clippedContent.length;
   }
@@ -253,4 +288,46 @@ function shouldSkipRequestHistoryMessage(role: VoidConversationMessage["role"], 
     || content.startsWith("模型连接失败")
     || content.startsWith("正式模型代理不可用")
   );
+}
+
+function buildUserInputWithAttachments(userInput: string, attachments?: VoidConversationAttachment[]) {
+  const trimmedInput = userInput.trim();
+  const normalizedAttachments = normalizeAttachments(attachments) ?? [];
+  if (!normalizedAttachments.length) {
+    return trimmedInput;
+  }
+
+  const attachmentBlock = normalizedAttachments.map((attachment) => {
+    const clippedContent = attachment.content.length > MAX_ATTACHMENT_CONTENT_CHARACTERS
+      ? attachment.content.slice(0, MAX_ATTACHMENT_CONTENT_CHARACTERS)
+      : attachment.content;
+
+    return [
+      `文件名：${attachment.name}`,
+      `文件类型：${attachment.mimeType || "text/plain"}`,
+      "文件内容：",
+      clippedContent
+    ].join("\n");
+  }).join("\n\n---\n\n");
+
+  if (!trimmedInput) {
+    return `以下是本轮附加文件内容，请结合文件内容回答：\n\n${attachmentBlock}`;
+  }
+
+  return `${trimmedInput}\n\n以下是本轮附加文件内容，请结合文件内容回答：\n\n${attachmentBlock}`;
+}
+
+function normalizeAttachments(attachments: VoidConversationAttachment[] | undefined) {
+  if (!attachments?.length) {
+    return undefined;
+  }
+
+  return attachments
+    .filter((attachment) => attachment.name.trim() && attachment.content.trim())
+    .map((attachment) => ({
+      id: attachment.id,
+      name: attachment.name.trim(),
+      mimeType: attachment.mimeType.trim(),
+      content: attachment.content.trim()
+    }));
 }

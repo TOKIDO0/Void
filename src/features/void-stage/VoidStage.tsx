@@ -9,10 +9,11 @@ import {
   removeAssistantMessageAt,
   saveCurrentConversationHistory,
   sendVoidMessage,
+  type VoidConversationAttachment,
   type VoidConversationMessage
 } from "../agent/voidConversation";
 import { ExpandedResponseOverlay } from "../expanded-response/ExpandedResponseOverlay";
-import { loadModelConfig } from "../settings/modelConfig";
+import { loadModelConfig, updateThinkingModeEnabled } from "../settings/modelConfig";
 import { ModelSettingsModal } from "../settings/ModelSettingsModal";
 import { VoidResponseLayer } from "../response-layer/VoidResponseLayer";
 import { LuminousTextEntry } from "../text-entry/LuminousTextEntry";
@@ -36,6 +37,7 @@ const ERROR_RESPONSE_HIDE_MS = 14000;
 const THINKING_TEXT = "正在思考...";
 const REGENERATING_TEXT = "正在重新思考...";
 const MODEL_CONNECTION_FALLBACK_ERROR = "模型连接失败，请检查配置。";
+type ThinkingModePulseDirection = "on" | "off";
 
 export function VoidStage() {
   const [visualState, setVisualState] = useState<VoidVisualState>("idle");
@@ -43,6 +45,9 @@ export function VoidStage() {
   const [isExpandedResponseOpen, setIsExpandedResponseOpen] = useState(false);
   const [isExpandedResponseClosing, setIsExpandedResponseClosing] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<VoidConversationMessage[]>(() => loadCurrentConversationHistory());
+  const [thinkingModeEnabled, setThinkingModeEnabled] = useState(() => loadModelConfig().thinkingModeEnabled);
+  const [thinkingModePulseEventId, setThinkingModePulseEventId] = useState(0);
+  const [thinkingModePulseDirection, setThinkingModePulseDirection] = useState<ThinkingModePulseDirection>("on");
   const [expandedResponseProgress, setExpandedResponseProgress] = useState(0);
   const [responseLayer, setResponseLayer] = useState<ResponseLayerState>({
     isVisible: false,
@@ -113,9 +118,13 @@ export function VoidStage() {
   const requestVoidResponse = useCallback((
     message: string,
     history: VoidConversationMessage[],
+    attachments: VoidConversationAttachment[] = [],
     onStreamContent?: (content: string) => void
   ) => {
-    const modelConfig = loadModelConfig();
+    const modelConfig = {
+      ...loadModelConfig(),
+      thinkingModeEnabled
+    };
     const canStream = modelConfig.streamEnabled && modelConfig.provider === "openai-compatible";
     let streamedContent = "";
     let didStartStreaming = false;
@@ -123,7 +132,7 @@ export function VoidStage() {
     return sendVoidMessage(message, history, {
       ...modelConfig,
       streamEnabled: canStream
-    }, canStream
+    }, attachments, canStream
       ? (token) => {
         streamedContent += token;
         onStreamContent?.(streamedContent);
@@ -136,7 +145,14 @@ export function VoidStage() {
         didStartStreaming = true;
       }
       : undefined);
-  }, [showResponseLayer]);
+  }, [showResponseLayer, thinkingModeEnabled]);
+
+  const handleThinkingModeChange = useCallback((nextThinkingModeEnabled: boolean) => {
+    setThinkingModeEnabled(nextThinkingModeEnabled);
+    setThinkingModePulseDirection(nextThinkingModeEnabled ? "on" : "off");
+    setThinkingModePulseEventId((currentEventId) => currentEventId + 1);
+    updateThinkingModeEnabled(nextThinkingModeEnabled);
+  }, []);
 
   const completeTextResponse = useCallback((responseText: string, pulseKey: string) => {
     showResponseLayer({
@@ -202,7 +218,7 @@ export function VoidStage() {
     setIsExpandedResponseOpen(true);
   }, [clearResponseLayerHideTimer]);
 
-  const handleTextMessage = useCallback(async (message: string) => {
+  const handleTextMessage = useCallback(async (message: string, attachments: VoidConversationAttachment[]) => {
     textExchangeActiveRef.current = true;
     window.clearTimeout(speakingTimeoutRef.current);
     showResponseLayer({
@@ -214,7 +230,7 @@ export function VoidStage() {
     setVisualState("thinking");
 
     const previousHistory = conversationHistoryRef.current;
-    const streamState = createPendingAssistantConversation(previousHistory, message);
+    const streamState = createPendingAssistantConversation(previousHistory, message, attachments);
     let latestConversationHistory = streamState.history;
 
     try {
@@ -225,7 +241,7 @@ export function VoidStage() {
         syncConversationHistory(latestConversationHistory);
       };
 
-      const assistantResponse = await requestVoidResponse(message, previousHistory, syncStreamingAssistantMessage);
+      const assistantResponse = await requestVoidResponse(message, previousHistory, attachments, syncStreamingAssistantMessage);
       const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
       commitConversationHistory(finalConversationHistory);
       completeTextResponse(assistantResponse.content, "complete");
@@ -264,7 +280,12 @@ export function VoidStage() {
         syncConversationHistory(latestConversationHistory);
       };
 
-      const assistantResponse = await requestVoidResponse(content, historyBeforeEditedMessage, syncStreamingAssistantMessage);
+      const assistantResponse = await requestVoidResponse(
+        content,
+        historyBeforeEditedMessage,
+        targetMessage.attachments ?? [],
+        syncStreamingAssistantMessage
+      );
       const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
       commitConversationHistory(finalConversationHistory);
       completeTextResponse(assistantResponse.content, "complete-regenerate");
@@ -328,6 +349,8 @@ export function VoidStage() {
         visualState={visualState}
         expandedResponseProgress={expandedResponseProgress}
         isExpandedResponseClosing={isExpandedResponseClosing}
+        thinkingModePulseEventId={thinkingModePulseEventId}
+        thinkingModePulseDirection={thinkingModePulseDirection}
       />
       <VoidResponseLayer
         isVisible={responseLayer.isVisible}
@@ -337,7 +360,9 @@ export function VoidStage() {
         onExpand={openExpandedResponse}
       />
       <LuminousTextEntry
+        thinkingModeEnabled={thinkingModeEnabled}
         onSend={handleTextMessage}
+        onThinkingModeChange={handleThinkingModeChange}
         onOpenModelConfig={handleOpenModelConfig}
         onOpenConversationHistory={openExpandedResponse}
       />

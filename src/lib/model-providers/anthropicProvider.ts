@@ -109,7 +109,7 @@ function buildAnthropicMessages(messages: ProviderMessage[]) {
 }
 
 function buildAnthropicRequestBody(request: ProviderRequest, config: ModelConfig, systemPrompt?: string) {
-  const thinkingBudgetTokens = mapModelStrengthToThinkingBudget(config);
+  const thinkingBudgetTokens = mapThinkingModeToBudgetTokens(config);
   const baseBody = {
     model: config.modelName,
     system: systemPrompt,
@@ -134,8 +134,8 @@ function buildAnthropicRequestBody(request: ProviderRequest, config: ModelConfig
   };
 }
 
-function mapModelStrengthToThinkingBudget(config: ModelConfig) {
-  if (config.maxOutputTokens <= 1024) {
+function mapThinkingModeToBudgetTokens(config: ModelConfig) {
+  if (!config.thinkingModeEnabled || config.maxOutputTokens <= 1024) {
     return 0;
   }
 

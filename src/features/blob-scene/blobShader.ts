@@ -20,6 +20,9 @@ export const createBlobUniforms = () => ({
   uTransitionEnergy: { value: 0 },
   uExpandedResponse: { value: 0 },
   uExpandedResponseClosing: { value: 0 },
+  uThinkingModePulseProgress: { value: 1 },
+  uThinkingModePulseStrength: { value: 0 },
+  uThinkingModePulseDirection: { value: 1 },
   uViewPosition: { value: new Vector3(0, 0, 5) }
 });
 
@@ -101,6 +104,9 @@ uniform float uIrregularity;
 uniform float uTransitionEnergy;
 uniform float uExpandedResponse;
 uniform float uExpandedResponseClosing;
+uniform float uThinkingModePulseProgress;
+uniform float uThinkingModePulseStrength;
+uniform float uThinkingModePulseDirection;
 
 varying vec3 vNormal;
 varying vec3 vWorldPosition;
@@ -109,6 +115,7 @@ varying float vDisplacement;
 varying float vRingMask;
 varying float vInnerEdge;
 varying float vInkMask;
+varying float vThinkingPulseMask;
 
 ${simplexNoise3d}
 
@@ -132,6 +139,12 @@ void main() {
   float closing = smoothstep(0.0, 1.0, uExpandedResponseClosing);
   float radial = length(position.xy);
   float ringAngle = atan(position.y, position.x);
+  float thinkingPulseNoise = snoise(vec3(position.xy * 3.1, uTime * 0.28)) * 0.028;
+  float thinkingPulseFineNoise = snoise(vec3(position.xy * 6.8, -uTime * 0.21)) * 0.012;
+  float thinkingPulseRadius = mix(0.02, 1.22, smoothstep(0.0, 1.0, uThinkingModePulseProgress));
+  float thinkingPulseBand = 1.0 - smoothstep(0.0, 0.16, abs(radial - (thinkingPulseRadius + thinkingPulseNoise + thinkingPulseFineNoise)));
+  float thinkingPulseTail = smoothstep(thinkingPulseRadius - 0.26, thinkingPulseRadius + 0.06, radial);
+  float thinkingPulseMask = thinkingPulseBand * (1.0 - thinkingPulseTail) * uThinkingModePulseStrength;
   float inkNoise = snoise(vec3(position.xy * 2.15, uTime * 0.16)) * 0.08;
   float fineInkNoise = snoise(vec3(position.xy * 5.2, -uTime * 0.11)) * 0.035;
   float inkReveal = smoothstep(0.08, 0.2, expanded);
@@ -159,6 +172,7 @@ void main() {
   vRingMask = ringMask;
   vInnerEdge = innerEdge;
   vInkMask = inkMask;
+  vThinkingPulseMask = thinkingPulseMask;
 
   gl_Position = projectionMatrix * viewMatrix * worldPosition;
 }
@@ -174,6 +188,9 @@ uniform float uInternalFlow;
 uniform float uTransitionEnergy;
 uniform float uExpandedResponse;
 uniform float uExpandedResponseClosing;
+uniform float uThinkingModePulseProgress;
+uniform float uThinkingModePulseStrength;
+uniform float uThinkingModePulseDirection;
 uniform vec3 uViewPosition;
 
 varying vec3 vNormal;
@@ -183,6 +200,7 @@ varying float vDisplacement;
 varying float vRingMask;
 varying float vInnerEdge;
 varying float vInkMask;
+varying float vThinkingPulseMask;
 
 ${simplexNoise3d}
 
@@ -203,6 +221,9 @@ void main() {
 
   vec3 activeBaseColor = vec3(1.0, 0.08, 0.58);
   vec3 activeEdgeColor = vec3(1.0, 0.74, 0.95);
+  vec3 thinkingPulseOnColor = vec3(0.62, 1.0, 0.56);
+  vec3 thinkingPulseOffColor = vec3(1.0, 0.77, 0.9);
+  vec3 thinkingPulseColor = mix(thinkingPulseOffColor, thinkingPulseOnColor, uThinkingModePulseDirection);
   vec3 deepInnerColor = vec3(0.2, 0.0, 0.13);
   float inkColorMask = clamp(vInkMask, 0.0, 1.0);
   vec3 baseColor = mix(uBaseColor, activeBaseColor, inkColorMask);
@@ -213,8 +234,11 @@ void main() {
   vec3 innerColor = mix(baseColor * (surfaceShade + coreGlow), deepInnerColor, innerDepth * 0.74);
   vec3 rimColor = edgeColor * fresnel * (2.05 * uEdgeBoost + expanded * 0.72);
   vec3 innerRimColor = activeEdgeColor * activeEdge * 1.28;
+  float pulseCore = vThinkingPulseMask * (0.62 + fresnel * 0.78);
+  vec3 thinkingPulseGlow = thinkingPulseColor * pulseCore * (1.18 + uEdgeBoost * 0.32);
   vec3 glowColor = innerColor + rimColor;
   glowColor += innerRimColor;
+  glowColor += thinkingPulseGlow;
   glowColor *= 0.72 + hollowFade * 0.36;
 
   float alpha = mix(1.0, clamp(hollowFade + activeEdge * 0.22, 0.035, 1.0), hollowStructure);

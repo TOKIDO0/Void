@@ -155,12 +155,12 @@ function buildBearerToken(apiKey: string) {
 }
 
 function buildOpenAiCompatibleReasoningOptions(config: ModelConfig) {
-  if (!isOpenAiConfig(config)) {
+  if (!config.thinkingModeEnabled || !isOpenAiConfig(config)) {
     return {};
   }
 
   return {
-    reasoning_effort: mapModelStrengthToReasoningEffort(config.modelStrength)
+    reasoning_effort: mapThinkingModeToReasoningEffort(config.modelStrength)
   };
 }
 
@@ -172,7 +172,7 @@ function isOpenAiConfig(config: ModelConfig) {
   }
 }
 
-function mapModelStrengthToReasoningEffort(strength: ModelConfig["modelStrength"]) {
+function mapThinkingModeToReasoningEffort(strength: ModelConfig["modelStrength"]) {
   if (strength === "low") {
     return "low";
   }

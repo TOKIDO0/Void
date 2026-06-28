@@ -9,9 +9,17 @@ type BlobSceneProps = {
   visualState: VoidVisualState;
   expandedResponseProgress: number;
   isExpandedResponseClosing: boolean;
+  thinkingModePulseEventId: number;
+  thinkingModePulseDirection: "on" | "off";
 };
 
-export function BlobScene({ visualState, expandedResponseProgress, isExpandedResponseClosing }: BlobSceneProps) {
+export function BlobScene({
+  visualState,
+  expandedResponseProgress,
+  isExpandedResponseClosing,
+  thinkingModePulseEventId,
+  thinkingModePulseDirection
+}: BlobSceneProps) {
   const bloomIntensity = BLOB_VISUAL_PROFILES[visualState].bloomIntensity;
   const expandedBloomLift = expandedResponseProgress * 1.15;
 
@@ -29,6 +37,8 @@ export function BlobScene({ visualState, expandedResponseProgress, isExpandedRes
               visualState={visualState}
               expandedResponseProgress={expandedResponseProgress}
               isExpandedResponseClosing={isExpandedResponseClosing}
+              thinkingModePulseEventId={thinkingModePulseEventId}
+              thinkingModePulseDirection={thinkingModePulseDirection}
             />
           </group>
           <EffectComposer multisampling={0}>
