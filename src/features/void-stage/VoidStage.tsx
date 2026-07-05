@@ -146,16 +146,6 @@ export function VoidStage() {
     scheduleResponseLayerHide(ERROR_RESPONSE_HIDE_MS);
   }, [scheduleResponseLayerHide, showResponseLayer]);
 
-  const handleVoiceFinalTranscript = useCallback((text: string) => {
-    setVoiceTranscriptPreview("");
-    showResponseLayer({
-      text,
-      tone: "quiet",
-      source: "voice-transcript",
-      pulseKey: "voice-final"
-    });
-  }, [showResponseLayer]);
-
   const resetVoiceOutputState = useCallback((nextVisualState: VoidVisualState = "idle") => {
     setVoiceState((currentState) => ({
       ...currentState,
@@ -430,10 +420,8 @@ export function VoidStage() {
         hideResponseLayer();
       }
 
-      if (nextVisualState === "thinking" && voiceTranscriptPreview.trim()) {
-        handleVoiceFinalTranscript(voiceTranscriptPreview);
-      }
-
+      // 说完话的「发送」由豆包服务端 VAD 的 definite final 驱动（onFinalTranscript → handleTextMessage），
+      // 此处 VAD 的 thinking 仅作等待识别定稿的视觉过渡，不再伪触发发送。
       setVisualState(nextVisualState);
     }
   });
@@ -610,6 +598,7 @@ export function VoidStage() {
           }
         },
         onFinalTranscript: (text) => {
+          setVoiceTranscriptPreview("");
           void handleTextMessage(text, []);
         },
         onError: handleVoiceSessionError

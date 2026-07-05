@@ -59,6 +59,9 @@ function handleBrowserConnection(browserSocket: WebSocket) {
   let hasSentFinal = false;
   // 上游就绪前浏览器已推来的音频，先缓存，就绪后按序补发
   const pendingAudioChunks: Buffer[] = [];
+  // 已定稿（definite）句子的去重键集合。豆包每帧会回传历史全部定稿句，
+  // 不去重会把同一句反复当 final 发出，导致 AI 重复收到并重复回复。
+  const seenDefiniteKeys = new Set<string>();
 
   const sendToBrowser = (event: Record<string, unknown>) => {
     if (browserSocket.readyState === WebSocket.OPEN) {
@@ -108,18 +111,27 @@ function handleBrowserConnection(browserSocket: WebSocket) {
       flushPendingAudio();
     }
 
-    const recognizedText = extractRecognizedText(decoded.payload);
-    if (recognizedText === null) {
-      return;
-    }
+    const { finals, partial } = extractUtteranceResults(decoded.payload, seenDefiniteKeys);
 
-    if (decoded.isLastPacket) {
+    // 服务端 VAD 判定某句说完（definite:true）即逐句发 final，驱动前端自动发送给 AI；
+    // 连接保持不关，继续听下一句，实现单连接连续多轮。
+    for (const finalText of finals) {
       hasSentFinal = true;
-      sendToBrowser({ type: "final", text: recognizedText });
+      sendToBrowser({ type: "final", text: finalText });
+    }
+
+    // 关麦末包：把仍未定稿的尾句补发为 final，避免最后一句因未触发 VAD 而丢失。
+    if (decoded.isLastPacket) {
+      if (partial) {
+        hasSentFinal = true;
+        sendToBrowser({ type: "final", text: partial });
+      }
       return;
     }
 
-    sendToBrowser({ type: "partial", text: recognizedText, isInterim: true });
+    if (partial) {
+      sendToBrowser({ type: "partial", text: partial, isInterim: true });
+    }
   };
 
   const startUpstream = (startEvent: StartEvent) => {
@@ -240,23 +252,66 @@ function buildRecognitionConfig(startEvent: StartEvent) {
   };
 }
 
+/** 单帧解析结果：本帧新定稿的完整句 + 当前未定稿的尾句 */
+type UtteranceExtraction = {
+  /** 本帧新出现（去重后）的 definite 定稿句，逐句作为 final */
+  finals: string[];
+  /** 当前仍在累积、未定稿的尾句，作为 partial 实时预览；无则为 null */
+  partial: string | null;
+};
+
 /**
- * 从响应 payload 中取识别文本。
- * 官方 result 既可能是对象（含 text/utterances），也可能是数组，这里都兼容。
- * 返回 null 表示本帧无有效文本（忽略）。
+ * 从 full server response 的 payload 中解析定稿句与未定稿尾句。
+ *
+ * 官方结构：`{ result: { text: "累积文本", utterances: [{ definite, start_time, end_time, text, words }] } }`。
+ * `definite:true` 表示服务端 VAD 判定该句已说完（正道分句信号）。
+ * result 既可能是对象也可能是数组，两种都兼容；无 utterances 时回退用累积 text 作为 partial。
+ *
+ * @param seenDefiniteKeys 跨帧去重集合（豆包每帧回传历史全部定稿句，须去重）
  */
-function extractRecognizedText(payload: Record<string, unknown>): string | null {
+function extractUtteranceResults(
+  payload: Record<string, unknown>,
+  seenDefiniteKeys: Set<string>
+): UtteranceExtraction {
   const result = payload.result;
   const resultRecord = Array.isArray(result)
     ? (result[0] as Record<string, unknown> | undefined)
     : (result as Record<string, unknown> | undefined);
 
   if (!resultRecord) {
-    return null;
+    return { finals: [], partial: null };
   }
 
-  const text = resultRecord.text;
-  return typeof text === "string" ? text : null;
+  const utterances = resultRecord.utterances;
+  if (!Array.isArray(utterances)) {
+    // 兜底：无分句信息时，用累积 text 作为 partial 预览（不作为 final，避免整段误发）
+    const text = resultRecord.text;
+    return { finals: [], partial: typeof text === "string" && text.trim() ? text : null };
+  }
+
+  const finals: string[] = [];
+  let partial: string | null = null;
+
+  for (const item of utterances) {
+    const utterance = item as Record<string, unknown>;
+    const text = typeof utterance.text === "string" ? utterance.text.trim() : "";
+    if (!text) {
+      continue;
+    }
+
+    if (utterance.definite === true) {
+      const deduplicationKey = `${utterance.start_time ?? ""}-${utterance.end_time ?? ""}-${text}`;
+      if (!seenDefiniteKeys.has(deduplicationKey)) {
+        seenDefiniteKeys.add(deduplicationKey);
+        finals.push(text);
+      }
+    } else {
+      // 未定稿尾句：只保留最后一个作为当前预览
+      partial = text;
+    }
+  }
+
+  return { finals, partial };
 }
 
 /** 兼容 ws message 可能给出的 Buffer / ArrayBuffer / 分片数组 */
