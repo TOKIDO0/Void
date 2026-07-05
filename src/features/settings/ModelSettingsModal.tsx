@@ -24,6 +24,7 @@ import {
   saveSettingsLanguage,
   type SettingsLanguage
 } from "./settingsI18n";
+import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
 
 gsap.registerPlugin(useGSAP);
 
@@ -87,6 +88,7 @@ const PLANET_COLOR_STOPS = [
 
 export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps) {
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
+  const [voiceRuntimeConfig, setVoiceRuntimeConfig] = useState(() => loadVoiceRuntimeConfig());
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
   const [selectedPresetId, setSelectedPresetId] = useState(() => findPresetId(loadModelConfig()));
   const [isAdvancedModelOpen, setIsAdvancedModelOpen] = useState(false);
@@ -94,6 +96,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   const modelOptions = useMemo(() => getModelOptionsForPreset(selectedPresetId), [selectedPresetId]);
   const availableStrengths = useMemo(() => MODEL_STRENGTH_ORDER, []);
   const advancedContentRef = useRef<HTMLDivElement>(null);
+  const shouldAnimateAdvancedPanelRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -101,10 +104,12 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     }
 
     const storedConfig = loadModelConfig();
+    const storedVoiceRuntimeConfig = loadVoiceRuntimeConfig();
     const storedPresetId = findPresetId(storedConfig);
     const storedModelOptions = getModelOptionsForPreset(storedPresetId);
 
     setDraftConfig(storedConfig);
+    setVoiceRuntimeConfig(storedVoiceRuntimeConfig);
     setSelectedPresetId(storedPresetId);
     setIsAdvancedModelOpen(!storedModelOptions.some((option: { modelName: string }) => option.modelName === storedConfig.modelName));
   }, [isOpen]);
@@ -128,6 +133,16 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     return (event: ChangeEvent<HTMLInputElement>) => {
       const nextValue = event.target.value;
       setDraftConfig((currentConfig) => ({
+        ...currentConfig,
+        [fieldName]: nextValue
+      }));
+    };
+  };
+
+  const updateVoiceRuntimeField = (fieldName: "doubaoApiKey" | "doubaoSpeakerId" | "doubaoResourceId" | "fishAudioApiKey" | "fishAudioVoiceId" | "fishAudioModel" | "minimaxApiKey" | "minimaxGroupId") => {
+    return (event: ChangeEvent<HTMLInputElement>) => {
+      const nextValue = event.target.value;
+      setVoiceRuntimeConfig((currentConfig) => ({
         ...currentConfig,
         [fieldName]: nextValue
       }));
@@ -247,6 +262,16 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       presetId: selectedPresetId,
       streamEnabled: draftConfig.provider === "openai-compatible" && draftConfig.streamEnabled
     });
+    saveVoiceRuntimeConfig({
+      doubaoApiKey: voiceRuntimeConfig.doubaoApiKey,
+      doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId,
+      doubaoResourceId: voiceRuntimeConfig.doubaoResourceId,
+      fishAudioApiKey: voiceRuntimeConfig.fishAudioApiKey,
+      fishAudioVoiceId: voiceRuntimeConfig.fishAudioVoiceId,
+      fishAudioModel: voiceRuntimeConfig.fishAudioModel,
+      minimaxApiKey: voiceRuntimeConfig.minimaxApiKey,
+      minimaxGroupId: voiceRuntimeConfig.minimaxGroupId
+    });
     onClose();
   };
 
@@ -259,6 +284,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
 
   useLayoutEffect(() => {
     if (!isOpen) {
+      shouldAnimateAdvancedPanelRef.current = false;
       return;
     }
 
@@ -270,6 +296,15 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     gsap.killTweensOf(contentElement);
     gsap.set(contentElement, { height: "auto" });
     const expandedHeight = contentElement.offsetHeight;
+    const shouldAnimate = shouldAnimateAdvancedPanelRef.current;
+
+    if (!shouldAnimate) {
+      gsap.set(contentElement, isAdvancedModelOpen
+        ? { height: "auto", autoAlpha: 1, y: 0 }
+        : { height: 0, autoAlpha: 0, y: -10 });
+      shouldAnimateAdvancedPanelRef.current = true;
+      return;
+    }
 
     if (isAdvancedModelOpen) {
       gsap.fromTo(
@@ -386,6 +421,102 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
                 <option value="production-proxy">{copy.requestModeProduction}</option>
               </select>
               <small>{copy.requestModeHint}</small>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.doubaoVoiceApiKey}</span>
+              <input
+                type="password"
+                value={voiceRuntimeConfig.doubaoApiKey}
+                autoComplete="off"
+                placeholder={copy.doubaoVoiceApiKeyHint}
+                onChange={updateVoiceRuntimeField("doubaoApiKey")}
+              />
+              <small>{copy.doubaoVoiceApiKeyHint}</small>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.doubaoSpeakerId}</span>
+              <input
+                type="text"
+                value={voiceRuntimeConfig.doubaoSpeakerId}
+                autoComplete="off"
+                placeholder={copy.doubaoSpeakerIdHint}
+                onChange={updateVoiceRuntimeField("doubaoSpeakerId")}
+              />
+              <small>{copy.doubaoSpeakerIdHint}</small>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.doubaoResourceId}</span>
+              <input
+                type="text"
+                value={voiceRuntimeConfig.doubaoResourceId}
+                autoComplete="off"
+                placeholder={copy.doubaoResourceIdHint}
+                onChange={updateVoiceRuntimeField("doubaoResourceId")}
+              />
+              <small>{copy.doubaoResourceIdHint}</small>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.fishAudioApiKey}</span>
+              <input
+                type="password"
+                value={voiceRuntimeConfig.fishAudioApiKey}
+                autoComplete="off"
+                placeholder={copy.fishAudioApiKeyHint}
+                onChange={updateVoiceRuntimeField("fishAudioApiKey")}
+              />
+              <small>{copy.fishAudioApiKeyHint}</small>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.fishAudioVoiceId}</span>
+              <input
+                type="text"
+                value={voiceRuntimeConfig.fishAudioVoiceId}
+                autoComplete="off"
+                placeholder={copy.fishAudioVoiceIdHint}
+                onChange={updateVoiceRuntimeField("fishAudioVoiceId")}
+              />
+              <small>{copy.fishAudioVoiceIdHint}</small>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.fishAudioModel}</span>
+              <input
+                type="text"
+                value={voiceRuntimeConfig.fishAudioModel}
+                autoComplete="off"
+                placeholder={copy.fishAudioModelHint}
+                onChange={updateVoiceRuntimeField("fishAudioModel")}
+              />
+              <small>{copy.fishAudioModelHint}</small>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.minimaxVoiceApiKey}</span>
+              <input
+                type="password"
+                value={voiceRuntimeConfig.minimaxApiKey}
+                autoComplete="off"
+                placeholder={copy.minimaxVoiceApiKeyHint}
+                onChange={updateVoiceRuntimeField("minimaxApiKey")}
+              />
+              <small>{copy.minimaxVoiceApiKeyHint}</small>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.minimaxGroupId}</span>
+              <input
+                type="text"
+                value={voiceRuntimeConfig.minimaxGroupId}
+                autoComplete="off"
+                placeholder={copy.minimaxGroupIdHint}
+                onChange={updateVoiceRuntimeField("minimaxGroupId")}
+              />
+              <small>{copy.minimaxGroupIdHint}</small>
             </label>
           </section>
 

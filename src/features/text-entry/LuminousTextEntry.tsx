@@ -21,8 +21,12 @@ gsap.registerPlugin(useGSAP);
 type LuminousTextEntryProps = {
   disabled?: boolean;
   thinkingModeEnabled: boolean;
+  voiceInputEnabled: boolean;
+  voiceOutputEnabled: boolean;
   onSend: (message: string, attachments: VoidConversationAttachment[]) => void | Promise<void>;
   onThinkingModeChange: (thinkingModeEnabled: boolean) => void;
+  onVoiceInputToggle: () => void;
+  onVoiceOutputToggle: () => void;
   onOpenModelConfig: () => void;
   onOpenConversationHistory: () => void;
 };
@@ -141,8 +145,12 @@ function LuminousCapsule({
 export function LuminousTextEntry({
   disabled = false,
   thinkingModeEnabled,
+  voiceInputEnabled,
+  voiceOutputEnabled,
   onSend,
   onThinkingModeChange,
+  onVoiceInputToggle,
+  onVoiceOutputToggle,
   onOpenModelConfig,
   onOpenConversationHistory
 }: LuminousTextEntryProps) {
@@ -409,10 +417,20 @@ export function LuminousTextEntry({
     pinOpen();
   };
 
-  const handleAgentActionClick = (action: "thinking" | "upload" | "history" | "settings") => {
+  const handleAgentActionClick = (action: "thinking" | "voice-input" | "voice-output" | "upload" | "history" | "settings") => {
     pinOpen();
     if (action === "thinking") {
       onThinkingModeChange(!thinkingModeEnabled);
+      return;
+    }
+
+    if (action === "voice-input") {
+      onVoiceInputToggle();
+      return;
+    }
+
+    if (action === "voice-output") {
+      onVoiceOutputToggle();
       return;
     }
 
@@ -590,6 +608,22 @@ export function LuminousTextEntry({
               onClick={() => handleAgentActionClick("thinking")}
             >
               {thinkingModeEnabled ? "Thinking on" : "Thinking off"}
+            </button>
+            <button
+              type="button"
+              className={voiceInputEnabled ? "is-active" : undefined}
+              aria-pressed={voiceInputEnabled}
+              onClick={() => handleAgentActionClick("voice-input")}
+            >
+              {voiceInputEnabled ? "Voice input on" : "Voice input off"}
+            </button>
+            <button
+              type="button"
+              className={voiceOutputEnabled ? "is-active" : undefined}
+              aria-pressed={voiceOutputEnabled}
+              onClick={() => handleAgentActionClick("voice-output")}
+            >
+              {voiceOutputEnabled ? "Voice output on" : "Voice output off"}
             </button>
             <button type="button" onClick={() => handleAgentActionClick("upload")}>
               Upload file

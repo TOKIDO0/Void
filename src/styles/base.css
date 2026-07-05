@@ -531,6 +531,13 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 2px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.model-settings-modal__content::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .model-settings-modal__section {

@@ -28,7 +28,7 @@ export class ProviderRequestError extends Error {
 }
 
 export function createHttpStatusError(status: number, serviceMessage: string, endpointUrl: string) {
-  return new ProviderRequestError(`模型请求失败：${status}`, {
+  return new ProviderRequestError(`请求失败：HTTP ${status}`, {
     kind: "http",
     status,
     serviceMessage,

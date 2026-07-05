@@ -1,38 +1,54 @@
 import { useEffect, useRef } from "react";
 import type { VoidVisualState } from "../void-state/voidVisualState";
+import type { VoiceActivityLevel, VoiceInputState } from "./voiceState";
 
-type UseMicrophoneVoiceActivityArgs = {
+type UseVoiceInputMonitorArgs = {
+  isEnabled: boolean;
+  onInputStateChange: (inputState: VoiceInputState) => void;
+  onActivityLevelChange: (activityLevel: VoiceActivityLevel) => void;
   onVisualStateChange: (visualState: VoidVisualState) => void;
 };
 
 const SPEECH_START_LEVEL = 0.045;
 const SPEECH_END_LEVEL = 0.022;
-const SILENCE_TO_THINKING_MS = 820;
-const THINKING_PREVIEW_MS = 2200;
+const SILENCE_TO_TRANSCRIBING_MS = 820;
 
-export function useMicrophoneVoiceActivity({
+export function useVoiceInputMonitor({
+  isEnabled,
+  onInputStateChange,
+  onActivityLevelChange,
   onVisualStateChange
-}: UseMicrophoneVoiceActivityArgs) {
+}: UseVoiceInputMonitorArgs) {
+  const onInputStateChangeRef = useRef(onInputStateChange);
+  const onActivityLevelChangeRef = useRef(onActivityLevelChange);
   const onVisualStateChangeRef = useRef(onVisualStateChange);
+
+  useEffect(() => {
+    onInputStateChangeRef.current = onInputStateChange;
+  }, [onInputStateChange]);
+
+  useEffect(() => {
+    onActivityLevelChangeRef.current = onActivityLevelChange;
+  }, [onActivityLevelChange]);
 
   useEffect(() => {
     onVisualStateChangeRef.current = onVisualStateChange;
   }, [onVisualStateChange]);
 
   useEffect(() => {
+    if (!isEnabled) {
+      onInputStateChangeRef.current("mic_off");
+      onActivityLevelChangeRef.current("silent");
+      return;
+    }
+
     let audioContext: AudioContext | null = null;
     let analyser: AnalyserNode | null = null;
     let microphoneStream: MediaStream | null = null;
     let animationFrameId = 0;
-    let hasStarted = false;
     let isSpeaking = false;
     let lastSpeechTime = 0;
-    let thinkingTimeoutId = 0;
-
-    const stopThinkingPreview = () => {
-      window.clearTimeout(thinkingTimeoutId);
-      thinkingTimeoutId = 0;
-    };
+    let isDisposed = false;
 
     const calculateVolumeLevel = (samples: Uint8Array) => {
       let sum = 0;
@@ -44,7 +60,7 @@ export function useMicrophoneVoiceActivity({
     };
 
     const renderVoiceActivity = () => {
-      if (!analyser) {
+      if (!analyser || isDisposed) {
         return;
       }
 
@@ -54,31 +70,27 @@ export function useMicrophoneVoiceActivity({
       const now = performance.now();
 
       if (volumeLevel >= SPEECH_START_LEVEL) {
-        stopThinkingPreview();
         lastSpeechTime = now;
         if (!isSpeaking) {
           isSpeaking = true;
+          onActivityLevelChangeRef.current("active");
+          onInputStateChangeRef.current("listening");
           onVisualStateChangeRef.current("listening");
         }
       }
 
-      if (isSpeaking && volumeLevel <= SPEECH_END_LEVEL && now - lastSpeechTime > SILENCE_TO_THINKING_MS) {
+      if (isSpeaking && volumeLevel <= SPEECH_END_LEVEL && now - lastSpeechTime > SILENCE_TO_TRANSCRIBING_MS) {
         isSpeaking = false;
+        onActivityLevelChangeRef.current("silent");
+        onInputStateChangeRef.current("transcribing");
         onVisualStateChangeRef.current("thinking");
-        thinkingTimeoutId = window.setTimeout(() => {
-          onVisualStateChangeRef.current("idle");
-        }, THINKING_PREVIEW_MS);
       }
 
       animationFrameId = window.requestAnimationFrame(renderVoiceActivity);
     };
 
-    const startMicrophone = async () => {
-      if (hasStarted || !navigator.mediaDevices?.getUserMedia) {
-        return;
-      }
-
-      hasStarted = true;
+    const startMonitoring = async () => {
+      onInputStateChangeRef.current("standby");
       try {
         microphoneStream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -87,6 +99,11 @@ export function useMicrophoneVoiceActivity({
             autoGainControl: true
           }
         });
+        if (isDisposed) {
+          microphoneStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
         audioContext = new AudioContext();
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 1024;
@@ -96,43 +113,20 @@ export function useMicrophoneVoiceActivity({
         microphoneSource.connect(analyser);
         renderVoiceActivity();
       } catch {
-        hasStarted = false;
+        onInputStateChangeRef.current("mic_off");
+        onActivityLevelChangeRef.current("silent");
         onVisualStateChangeRef.current("idle");
       }
     };
 
-    const startAfterUserIntent = () => {
-      void startMicrophone();
-    };
-
-    const startIfPermissionAlreadyGranted = async () => {
-      if (!navigator.permissions?.query) {
-        return;
-      }
-
-      try {
-        const microphonePermission = await navigator.permissions.query({
-          name: "microphone" as PermissionName
-        });
-        if (microphonePermission.state === "granted") {
-          void startMicrophone();
-        }
-      } catch {
-        return;
-      }
-    };
-
-    void startIfPermissionAlreadyGranted();
-    window.addEventListener("pointerdown", startAfterUserIntent, { once: true });
-    window.addEventListener("keydown", startAfterUserIntent, { once: true });
+    void startMonitoring();
 
     return () => {
+      isDisposed = true;
       window.cancelAnimationFrame(animationFrameId);
-      window.clearTimeout(thinkingTimeoutId);
-      window.removeEventListener("pointerdown", startAfterUserIntent);
-      window.removeEventListener("keydown", startAfterUserIntent);
       microphoneStream?.getTracks().forEach((track) => track.stop());
       void audioContext?.close();
+      onActivityLevelChangeRef.current("silent");
     };
-  }, []);
+  }, [isEnabled]);
 }

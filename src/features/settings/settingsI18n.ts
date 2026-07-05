@@ -5,6 +5,7 @@ const SETTINGS_LANGUAGE_STORAGE_KEY = "void.settingsLanguage";
 type SettingsCopy = {
   settings: string;
   model: string;
+  voice: string;
   language: string;
   preset: string;
   presetPlaceholder: string;
@@ -29,6 +30,22 @@ type SettingsCopy = {
   requestModeProduction: string;
   streamOutput: string;
   streamOutputHint: string;
+  doubaoVoiceApiKey: string;
+  doubaoVoiceApiKeyHint: string;
+  doubaoSpeakerId: string;
+  doubaoSpeakerIdHint: string;
+  doubaoResourceId: string;
+  doubaoResourceIdHint: string;
+  fishAudioApiKey: string;
+  fishAudioApiKeyHint: string;
+  fishAudioVoiceId: string;
+  fishAudioVoiceIdHint: string;
+  fishAudioModel: string;
+  fishAudioModelHint: string;
+  minimaxVoiceApiKey: string;
+  minimaxVoiceApiKeyHint: string;
+  minimaxGroupId: string;
+  minimaxGroupIdHint: string;
   cancel: string;
   save: string;
   closeSettings: string;
@@ -38,6 +55,7 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
   "zh-CN": {
     settings: "设置",
     model: "模型",
+    voice: "语音",
     language: "语言",
     preset: "服务预设",
     presetPlaceholder: "选择官方模型服务",
@@ -62,6 +80,22 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     requestModeProduction: "正式代理",
     streamOutput: "流式输出",
     streamOutputHint: "开启后不会等整段回复写完才显示，而是模型生成一点就显示一点。长回复会更快看到开头。",
+    doubaoVoiceApiKey: "Doubao 语音 API Key",
+    doubaoVoiceApiKeyHint: "用于 Doubao 流式语音识别和 Doubao TTS；仅当前会话保存。",
+    doubaoSpeakerId: "Doubao Speaker ID",
+    doubaoSpeakerIdHint: "Doubao TTS 必填音色 ID，可从火山语音控制台音色库获取。",
+    doubaoResourceId: "Doubao Resource ID",
+    doubaoResourceIdHint: "留空时默认使用 seed-tts-2.0。普通豆包官方音色优先用 seed-tts-2.0；只有复刻音色再使用 seed-icl-2.0，不要填写 ASR 资源 ID。",
+    fishAudioApiKey: "FishAudio API Key",
+    fishAudioApiKeyHint: "用于 FishAudio / Kitta Audio TTS；仅当前会话保存。",
+    fishAudioVoiceId: "FishAudio Voice ID",
+    fishAudioVoiceIdHint: "FishAudio 同步 TTS 必填音色 ID，可先从官方音色列表接口获取。",
+    fishAudioModel: "FishAudio Model",
+    fishAudioModelHint: "默认使用 s2-pro。仅在 FishAudio 官方 API 文档明确要求时再修改。",
+    minimaxVoiceApiKey: "MiniMax 语音 API Key",
+    minimaxVoiceApiKeyHint: "用于 MiniMax TTS；仅当前会话保存。",
+    minimaxGroupId: "MiniMax Group ID",
+    minimaxGroupIdHint: "如果你的 MiniMax TTS 调用需要 Group ID，请填在这里；没有则可留空。",
     cancel: "取消",
     save: "保存",
     closeSettings: "关闭设置"
@@ -69,6 +103,7 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
   "en-US": {
     settings: "Settings",
     model: "Model",
+    voice: "Voice",
     language: "Language",
     preset: "Preset",
     presetPlaceholder: "Select an official provider",
@@ -93,6 +128,22 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     requestModeProduction: "Formal proxy",
     streamOutput: "Stream output",
     streamOutputHint: "When enabled, the reply appears piece by piece while the model is still generating instead of waiting for the full answer.",
+    doubaoVoiceApiKey: "Doubao voice API key",
+    doubaoVoiceApiKeyHint: "Used for Doubao streaming STT and Doubao TTS. Stored for the current session only.",
+    doubaoSpeakerId: "Doubao speaker ID",
+    doubaoSpeakerIdHint: "Required speaker ID for Doubao TTS. Get it from the Volcengine voice console.",
+    doubaoResourceId: "Doubao resource ID",
+    doubaoResourceIdHint: "Leave blank to use seed-tts-2.0. Use seed-tts-2.0 for normal Doubao voices, and seed-icl-2.0 only for cloned voices. Do not enter an ASR resource ID.",
+    fishAudioApiKey: "FishAudio API key",
+    fishAudioApiKeyHint: "Used for FishAudio / Kitta Audio TTS. Stored for the current session only.",
+    fishAudioVoiceId: "FishAudio voice ID",
+    fishAudioVoiceIdHint: "Required voice ID for FishAudio sync TTS. Fetch it from the official voices endpoint.",
+    fishAudioModel: "FishAudio model",
+    fishAudioModelHint: "Defaults to s2-pro. Change it only if the official Fish Audio API docs require a different model.",
+    minimaxVoiceApiKey: "MiniMax voice API key",
+    minimaxVoiceApiKeyHint: "Used for MiniMax TTS. Stored for the current session only.",
+    minimaxGroupId: "MiniMax group ID",
+    minimaxGroupIdHint: "Fill this only if your MiniMax TTS account requires a Group ID.",
     cancel: "Cancel",
     save: "Save",
     closeSettings: "Close settings"
