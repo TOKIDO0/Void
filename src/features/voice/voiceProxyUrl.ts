@@ -37,6 +37,7 @@ export async function fetchVoiceWithProxy(target: VoiceFetchTarget, init: Reques
   try {
     return await fetch(target.url, {
       ...init,
+      signal: init.signal,
       headers: {
         ...(init.headers as Record<string, string> | undefined),
         ...target.headers

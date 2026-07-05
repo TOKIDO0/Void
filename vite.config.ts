@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import type { IncomingMessage } from "node:http";
+import { attachVoiceSttBridge } from "./server/voiceSttBridge";
 
 export default defineConfig({
   plugins: [
@@ -8,6 +9,11 @@ export default defineConfig({
     {
       name: "void-model-proxy",
       configureServer(server) {
+        // 挂载豆包流式语音识别 WebSocket 桥接（/void-voice-proxy/stt）
+        if (server.httpServer) {
+          attachVoiceSttBridge(server.httpServer);
+        }
+
         server.middlewares.use("/void-model-proxy", async (request, response) => {
           const targetUrl = request.headers["x-void-target-url"];
           if (typeof targetUrl !== "string") {

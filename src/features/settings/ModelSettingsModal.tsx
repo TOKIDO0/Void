@@ -139,7 +139,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     };
   };
 
-  const updateVoiceRuntimeField = (fieldName: "doubaoApiKey" | "doubaoSpeakerId" | "doubaoResourceId" | "fishAudioApiKey" | "fishAudioVoiceId" | "fishAudioModel" | "minimaxApiKey" | "minimaxGroupId") => {
+  const updateVoiceRuntimeField = (fieldName: "doubaoAppId" | "doubaoApiKey" | "doubaoSpeakerId" | "doubaoResourceId" | "fishAudioApiKey" | "fishAudioVoiceId" | "fishAudioModel" | "minimaxApiKey" | "minimaxGroupId") => {
     return (event: ChangeEvent<HTMLInputElement>) => {
       const nextValue = event.target.value;
       setVoiceRuntimeConfig((currentConfig) => ({
@@ -263,6 +263,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       streamEnabled: draftConfig.provider === "openai-compatible" && draftConfig.streamEnabled
     });
     saveVoiceRuntimeConfig({
+      doubaoAppId: voiceRuntimeConfig.doubaoAppId,
       doubaoApiKey: voiceRuntimeConfig.doubaoApiKey,
       doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId,
       doubaoResourceId: voiceRuntimeConfig.doubaoResourceId,
@@ -421,6 +422,18 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
                 <option value="production-proxy">{copy.requestModeProduction}</option>
               </select>
               <small>{copy.requestModeHint}</small>
+            </label>
+
+            <label className="model-settings-modal__field">
+              <span>{copy.doubaoAppId}</span>
+              <input
+                type="text"
+                value={voiceRuntimeConfig.doubaoAppId}
+                autoComplete="off"
+                placeholder={copy.doubaoAppIdHint}
+                onChange={updateVoiceRuntimeField("doubaoAppId")}
+              />
+              <small>{copy.doubaoAppIdHint}</small>
             </label>
 
             <label className="model-settings-modal__field">

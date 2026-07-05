@@ -4,6 +4,7 @@ export type VoiceSynthesisRequest = {
   voiceMode?: "default" | "scene";
   preferredGender?: "female" | "male";
   scene?: "default" | "story" | "horror" | "companion";
+  signal?: AbortSignal;
 };
 
 export type VoiceSynthesisResult = {

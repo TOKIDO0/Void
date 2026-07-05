@@ -30,6 +30,8 @@ type SettingsCopy = {
   requestModeProduction: string;
   streamOutput: string;
   streamOutputHint: string;
+  doubaoAppId: string;
+  doubaoAppIdHint: string;
   doubaoVoiceApiKey: string;
   doubaoVoiceApiKeyHint: string;
   doubaoSpeakerId: string;
@@ -80,8 +82,10 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     requestModeProduction: "正式代理",
     streamOutput: "流式输出",
     streamOutputHint: "开启后不会等整段回复写完才显示，而是模型生成一点就显示一点。长回复会更快看到开头。",
-    doubaoVoiceApiKey: "Doubao 语音 API Key",
-    doubaoVoiceApiKeyHint: "用于 Doubao 流式语音识别和 Doubao TTS；仅当前会话保存。",
+    doubaoAppId: "Doubao App ID",
+    doubaoAppIdHint: "火山语音控制台的 APP ID，用于 Doubao 流式语音识别鉴权。",
+    doubaoVoiceApiKey: "Doubao Access Token",
+    doubaoVoiceApiKeyHint: "火山语音控制台的 Access Token，用于 Doubao 流式语音识别；仅当前会话保存。",
     doubaoSpeakerId: "Doubao Speaker ID",
     doubaoSpeakerIdHint: "Doubao TTS 必填音色 ID，可从火山语音控制台音色库获取。",
     doubaoResourceId: "Doubao Resource ID",
@@ -128,8 +132,10 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     requestModeProduction: "Formal proxy",
     streamOutput: "Stream output",
     streamOutputHint: "When enabled, the reply appears piece by piece while the model is still generating instead of waiting for the full answer.",
-    doubaoVoiceApiKey: "Doubao voice API key",
-    doubaoVoiceApiKeyHint: "Used for Doubao streaming STT and Doubao TTS. Stored for the current session only.",
+    doubaoAppId: "Doubao App ID",
+    doubaoAppIdHint: "The APP ID from the Volcengine voice console, used for Doubao streaming STT authentication.",
+    doubaoVoiceApiKey: "Doubao access token",
+    doubaoVoiceApiKeyHint: "The access token from the Volcengine voice console, used for Doubao streaming STT. Stored for the current session only.",
     doubaoSpeakerId: "Doubao speaker ID",
     doubaoSpeakerIdHint: "Required speaker ID for Doubao TTS. Get it from the Volcengine voice console.",
     doubaoResourceId: "Doubao resource ID",

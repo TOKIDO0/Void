@@ -2,7 +2,7 @@ import { createNetworkError } from "../../../lib/model-providers/providerErrors"
 import { buildVoiceFetchTarget, fetchVoiceWithProxy } from "../voiceProxyUrl";
 import {
   FISHAUDIO_TTS_ENDPOINT,
-  FISHAUDIO_TTS_MODEL
+  normalizeFishAudioModel
 } from "../voiceProviderConfig";
 import type { VoiceSynthesisRequest, VoiceSynthesisResult, VoiceTtsProvider } from "./voiceTtsContract";
 import { parseVoiceSynthesisResponse } from "./voiceTtsResponse";
@@ -57,30 +57,30 @@ export class FishAudioTtsProvider implements VoiceTtsProvider {
         model: this.model,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(requestBody),
+      signal: request.signal
     });
 
-    return await parseVoiceSynthesisResponse(response, {
-      providerLabel: "FishAudio TTS",
-      providerKind: "fishaudio",
-      endpointUrl: this.endpointUrl
-    });
+    if (!response.ok) {
+      await parseVoiceSynthesisResponse(response, {
+        providerLabel: "FishAudio TTS",
+        providerKind: "fishaudio",
+        endpointUrl: this.endpointUrl
+      });
+      throw new Error("FishAudio TTS 响应解析中断。");
+    }
+
+    const audioBlob = await response.blob();
+    return {
+      audioUrl: URL.createObjectURL(audioBlob),
+      mimeType: audioBlob.type || "audio/mpeg",
+      provider: "fishaudio"
+    };
   }
 }
 
 function normalizeBearerToken(apiKey: string) {
   return apiKey.trim().replace(/^Bearer\s+/i, "");
-}
-
-function normalizeFishAudioModel(model?: string) {
-  const trimmedModel = model?.trim().toLowerCase() ?? "";
-  // 官方支持的模型标识；其余（含空值、历史遗留的 kitta-tts-v1）统一回落到默认免费模型
-  const supportedModels = new Set(["s2.1-pro", "s2-pro", "s1"]);
-  if (supportedModels.has(trimmedModel)) {
-    return trimmedModel;
-  }
-
-  return FISHAUDIO_TTS_MODEL;
 }
 
 function logFishAudioRequest(

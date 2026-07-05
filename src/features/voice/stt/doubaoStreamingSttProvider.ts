@@ -5,29 +5,35 @@ import type { VoiceSttProvider, VoiceSttStartOptions } from "./voiceSttContract"
 import { isVoiceSttBridgeServerEvent, type VoiceSttBridgeClientEvent } from "./voiceSttBridgeProtocol";
 
 type DoubaoStreamingSttProviderConfig = {
-  apiKey: string;
+  appKey: string;
+  accessKey: string;
   resourceId?: string;
   endpointUrl?: string;
 };
 
-const DEVELOPMENT_STT_BRIDGE_URL = "ws://localhost:5173/void-voice-proxy/stt";
+// 桥接路径挂在 vite dev 同源上，用 location 推导，避免写死端口
+const STT_BRIDGE_PATH = "/void-voice-proxy/stt";
 
 export class DoubaoStreamingSttProvider implements VoiceSttProvider {
-  private readonly apiKey: string;
+  private readonly appKey: string;
+  private readonly accessKey: string;
   private readonly resourceId: string;
   private readonly endpointUrl: string;
+  private readonly bridgeUrl: string;
   private websocket: WebSocket | null = null;
   private encoder: VoicePcmEncoder | null = null;
 
   constructor(config: DoubaoStreamingSttProviderConfig) {
-    this.apiKey = config.apiKey.trim();
+    this.appKey = config.appKey.trim();
+    this.accessKey = config.accessKey.trim();
     this.resourceId = config.resourceId?.trim() || DOUBAO_ASR_RESOURCE_ID;
     this.endpointUrl = config.endpointUrl?.trim() || DOUBAO_ASR_ENDPOINT;
+    this.bridgeUrl = resolveBridgeUrl();
   }
 
   async start(options: VoiceSttStartOptions) {
-    if (!this.apiKey) {
-      throw createNetworkError("Doubao 流式语音识别缺少 API Key。", this.endpointUrl);
+    if (!this.appKey || !this.accessKey) {
+      throw createNetworkError("Doubao 流式语音识别缺少 App ID 或 Access Token。", this.endpointUrl);
     }
 
     if (!import.meta.env.DEV) {
@@ -49,16 +55,16 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
     }
 
     try {
-      this.websocket = new WebSocket(DEVELOPMENT_STT_BRIDGE_URL);
+      this.websocket = new WebSocket(this.bridgeUrl);
     } catch (error) {
       microphoneStream.getTracks().forEach((track) => track.stop());
-      throw createNetworkError("开发环境 STT 桥接未部署，请先实现 /void-voice-proxy/stt。", DEVELOPMENT_STT_BRIDGE_URL, error);
+      throw createNetworkError("开发环境 STT 桥接未部署，请先实现 /void-voice-proxy/stt。", this.bridgeUrl, error);
     }
 
     try {
       await new Promise<void>((resolve, reject) => {
         if (!this.websocket) {
-          reject(createNetworkError("STT 桥接连接创建失败。", DEVELOPMENT_STT_BRIDGE_URL));
+          reject(createNetworkError("STT 桥接连接创建失败。", this.bridgeUrl));
           return;
         }
 
@@ -68,7 +74,8 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
         websocket.addEventListener("open", () => {
           const startEvent: VoiceSttBridgeClientEvent = {
             type: "start",
-            apiKey: this.apiKey,
+            appKey: this.appKey,
+            accessKey: this.accessKey,
             resourceId: this.resourceId,
             sampleRate: 16000,
             format: "pcm_s16le"
@@ -109,12 +116,12 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
         });
 
         websocket.addEventListener("error", () => {
-          reject(createNetworkError("开发环境 STT 桥接未部署，请先实现 /void-voice-proxy/stt。", DEVELOPMENT_STT_BRIDGE_URL));
+          reject(createNetworkError("开发环境 STT 桥接未部署，请先实现 /void-voice-proxy/stt。", this.bridgeUrl));
         }, { once: true });
 
         websocket.addEventListener("close", () => {
           if (!didResolve) {
-            reject(createNetworkError("STT 桥接连接已关闭。", DEVELOPMENT_STT_BRIDGE_URL));
+            reject(createNetworkError("STT 桥接连接已关闭。", this.bridgeUrl));
           }
         }, { once: true });
       });
@@ -142,10 +149,19 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
   }
 
   async stop() {
-    this.websocket?.send(JSON.stringify({ type: "stop" satisfies VoiceSttBridgeClientEvent["type"] }));
+    // 仅在连接仍打开时通知桥接收尾，避免对已关闭连接发送导致告警
+    if (this.websocket?.readyState === WebSocket.OPEN) {
+      this.websocket.send(JSON.stringify({ type: "stop" satisfies VoiceSttBridgeClientEvent["type"] }));
+    }
     this.websocket?.close();
     this.websocket = null;
     await this.encoder?.stop();
     this.encoder = null;
   }
+}
+
+/** 用当前页面同源推导桥接 WebSocket 地址，避免写死开发端口 */
+function resolveBridgeUrl() {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}${STT_BRIDGE_PATH}`;
 }

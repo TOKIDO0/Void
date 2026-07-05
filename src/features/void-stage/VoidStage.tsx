@@ -24,9 +24,7 @@ import { VoiceSessionController } from "../voice/voiceSessionController";
 import { useVoiceInputMonitor } from "../voice/useVoiceInputMonitor";
 import { DEFAULT_VOICE_STATE, type VoiceStateSnapshot } from "../voice/voiceState";
 import { DoubaoStreamingSttProvider } from "../voice/stt/doubaoStreamingSttProvider";
-import { FishAudioTtsProvider } from "../voice/tts/fishAudioTtsProvider";
-import { MiniMaxTtsProvider } from "../voice/tts/minimaxTtsProvider";
-import { DoubaoTtsProvider } from "../voice/tts/doubaoTtsProvider";
+import { VoiceTtsOrchestrator } from "../voice/tts/voiceTtsOrchestrator";
 import { VoicePlaybackController } from "../voice/tts/voicePlaybackController";
 import { ProviderRequestError } from "../../lib/model-providers/providerErrors";
 
@@ -77,6 +75,8 @@ export function VoidStage() {
   const expandedResponseProgressRef = useRef({ value: 0 });
   const voicePlaybackControllerRef = useRef(new VoicePlaybackController());
   const voiceSessionControllerRef = useRef<VoiceSessionController | null>(null);
+  const voiceOutputAbortControllerRef = useRef<AbortController | null>(null);
+  const voiceOutputStreamFinishedRef = useRef(true);
 
   const setExpandedProgress = useCallback((progress: number) => {
     expandedResponseProgressRef.current.value = progress;
@@ -156,65 +156,6 @@ export function VoidStage() {
     });
   }, [showResponseLayer]);
 
-  const synthesizeSpeech = useCallback(async (text: string) => {
-    const runtimeConfig = loadVoiceRuntimeConfig();
-    const synthesisRequest = {
-      text,
-      requestMode: runtimeConfig.requestMode,
-      voiceMode: "default" as const,
-      preferredGender: "female" as const,
-      scene: "default" as const
-    };
-    const synthesisErrors: string[] = [];
-
-    if (runtimeConfig.doubaoApiKey) {
-      try {
-        const doubaoProvider = new DoubaoTtsProvider({
-          apiKey: runtimeConfig.doubaoApiKey,
-          speakerId: runtimeConfig.doubaoSpeakerId,
-          resourceId: runtimeConfig.doubaoResourceId
-        });
-
-        return await doubaoProvider.synthesize(synthesisRequest);
-      } catch (error) {
-        synthesisErrors.push(resolveTtsErrorMessage(error));
-      }
-    }
-
-    if (runtimeConfig.fishAudioApiKey) {
-      try {
-        const fishAudioProvider = new FishAudioTtsProvider({
-          apiKey: runtimeConfig.fishAudioApiKey,
-          voiceId: runtimeConfig.fishAudioVoiceId,
-          model: runtimeConfig.fishAudioModel
-        });
-
-        return await fishAudioProvider.synthesize(synthesisRequest);
-      } catch (error) {
-        synthesisErrors.push(resolveTtsErrorMessage(error));
-      }
-    }
-
-    if (runtimeConfig.minimaxApiKey) {
-      try {
-        const minimaxProvider = new MiniMaxTtsProvider({
-          apiKey: runtimeConfig.minimaxApiKey,
-          groupId: runtimeConfig.minimaxGroupId
-        });
-
-        return await minimaxProvider.synthesize(synthesisRequest);
-      } catch (error) {
-        synthesisErrors.push(resolveTtsErrorMessage(error));
-      }
-    }
-
-    if (!runtimeConfig.doubaoApiKey && !runtimeConfig.fishAudioApiKey && !runtimeConfig.minimaxApiKey) {
-      return null;
-    }
-
-    throw new Error(synthesisErrors.join("；") || "语音合成失败，请检查语音供应商配置。");
-  }, []);
-
   const resetVoiceOutputState = useCallback((nextVisualState: VoidVisualState = "idle") => {
     setVoiceState((currentState) => ({
       ...currentState,
@@ -225,6 +166,43 @@ export function VoidStage() {
       setVisualState(nextVisualState);
     }
   }, []);
+
+  const tryCompleteVoiceOutputSession = useCallback((nextVisualState: VoidVisualState = "idle") => {
+    if (!voiceOutputStreamFinishedRef.current || !voicePlaybackControllerRef.current.isIdle()) {
+      return;
+    }
+
+    resetVoiceOutputState(nextVisualState);
+  }, [resetVoiceOutputState]);
+
+  const startVoiceOutputSession = useCallback(() => {
+    voiceOutputAbortControllerRef.current?.abort();
+    voiceOutputAbortControllerRef.current = new AbortController();
+    voiceOutputStreamFinishedRef.current = false;
+
+    voicePlaybackControllerRef.current.setLifecycle({
+      onStart: () => {
+        setVoiceState((currentState) => ({
+          ...currentState,
+          outputState: "speaking"
+        }));
+        setVisualState("speaking");
+      },
+      onEnd: () => {
+        tryCompleteVoiceOutputSession("idle");
+      },
+      onError: () => {
+        tryCompleteVoiceOutputSession("idle");
+      }
+    });
+
+    return voiceOutputAbortControllerRef.current.signal;
+  }, [tryCompleteVoiceOutputSession]);
+
+  const finalizeVoiceOutputSession = useCallback((nextVisualState: VoidVisualState = "idle") => {
+    voiceOutputStreamFinishedRef.current = true;
+    tryCompleteVoiceOutputSession(nextVisualState);
+  }, [tryCompleteVoiceOutputSession]);
 
   const requestVoidResponse = useCallback((
     message: string,
@@ -280,28 +258,24 @@ export function VoidStage() {
       return;
     }
 
-    const synthesisResult = await synthesizeSpeech(responseText);
+    const runtimeConfig = loadVoiceRuntimeConfig();
+    const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
+    const synthesisResult = await orchestrator.synthesize({
+      text: responseText,
+      requestMode: runtimeConfig.requestMode,
+      voiceMode: "default",
+      preferredGender: "female",
+      scene: "default"
+    });
     if (!synthesisResult) {
       setVisualState("idle");
       return;
     }
 
-    voicePlaybackControllerRef.current.play(synthesisResult.audioUrl, {
-      onStart: () => {
-        setVoiceState((currentState) => ({
-          ...currentState,
-          outputState: "speaking"
-        }));
-        setVisualState("speaking");
-      },
-      onEnd: () => {
-        resetVoiceOutputState("idle");
-      },
-      onError: () => {
-        resetVoiceOutputState("idle");
-      }
-    });
-  }, [resetVoiceOutputState, scheduleResponseLayerHide, showResponseLayer, synthesizeSpeech, voicePreferences.voiceOutputEnabled]);
+    startVoiceOutputSession();
+    voicePlaybackControllerRef.current.enqueue(synthesisResult.audioUrl);
+    finalizeVoiceOutputSession("idle");
+  }, [finalizeVoiceOutputSession, scheduleResponseLayerHide, showResponseLayer, startVoiceOutputSession, voicePreferences.voiceOutputEnabled]);
 
   const completeTextResponseWithErrorHandling = useCallback(async (responseText: string, pulseKey: string) => {
     try {
@@ -318,6 +292,96 @@ export function VoidStage() {
       setVisualState("idle");
     }
   }, [completeTextResponse, scheduleResponseLayerHide, showResponseLayer]);
+
+  const streamVoiceOutput = useCallback(async (responseText: string) => {
+    if (!voicePreferences.voiceOutputEnabled) {
+      return;
+    }
+
+    const runtimeConfig = loadVoiceRuntimeConfig();
+    const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
+    const sentences = splitCompleteSentences(responseText, true);
+    if (!sentences.length) {
+      return;
+    }
+
+    const signal = startVoiceOutputSession();
+    await orchestrator.synthesizeSentences(
+      sentences,
+      {
+        requestMode: runtimeConfig.requestMode,
+        voiceMode: "default",
+        preferredGender: "female",
+        scene: "default"
+      },
+      async ({ result }) => {
+        if (signal.aborted) {
+          URL.revokeObjectURL(result.audioUrl);
+          return;
+        }
+
+        voicePlaybackControllerRef.current.enqueue(result.audioUrl);
+      },
+      signal
+    );
+    finalizeVoiceOutputSession("idle");
+  }, [finalizeVoiceOutputSession, startVoiceOutputSession, voicePreferences.voiceOutputEnabled]);
+
+  const createStreamingVoiceBatcher = useCallback(() => {
+    if (!voicePreferences.voiceOutputEnabled) {
+      return null;
+    }
+
+    const runtimeConfig = loadVoiceRuntimeConfig();
+    const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
+    const signal = startVoiceOutputSession();
+    // 整轮语音输出只维护一个流式合成会话：全局并发受控，按 index 顺序入队，避免打爆供应商触发 429
+    const synthesisSession = orchestrator.createStreamingSession(
+      {
+        requestMode: runtimeConfig.requestMode,
+        voiceMode: "default",
+        preferredGender: "female",
+        scene: "default"
+      },
+      ({ result }) => {
+        if (signal.aborted) {
+          URL.revokeObjectURL(result.audioUrl);
+          return;
+        }
+
+        voicePlaybackControllerRef.current.enqueue(result.audioUrl);
+      },
+      signal
+    );
+    let synthesizedCursor = 0;
+    // 本轮已产出的合成块数量，供渐进式阈值定位（首块最短、后续渐长）
+    let emittedChunkCount = 0;
+
+    return {
+      push(content: string) {
+        const segment = content.slice(synthesizedCursor);
+        const { sentences, consumedLength } = extractReadySentences(segment, false, emittedChunkCount);
+        if (!sentences.length) {
+          return;
+        }
+
+        synthesizedCursor += consumedLength;
+        emittedChunkCount += sentences.length;
+        synthesisSession.push(sentences);
+      },
+      async complete(content: string) {
+        const segment = content.slice(synthesizedCursor);
+        const { sentences, consumedLength } = extractReadySentences(segment, true, emittedChunkCount);
+        synthesizedCursor += consumedLength;
+        emittedChunkCount += sentences.length;
+        if (sentences.length) {
+          synthesisSession.push(sentences);
+        }
+        await synthesisSession.complete();
+        finalizeVoiceOutputSession("idle");
+      }
+    };
+  }, [finalizeVoiceOutputSession, startVoiceOutputSession, voicePreferences.voiceOutputEnabled]);
 
   const failTextResponse = useCallback((
     error: unknown,
@@ -385,6 +449,9 @@ export function VoidStage() {
   }, [clearResponseLayerHideTimer]);
 
   const stopVoicePlayback = useCallback(() => {
+    voiceOutputAbortControllerRef.current?.abort();
+    voiceOutputAbortControllerRef.current = null;
+    voiceOutputStreamFinishedRef.current = true;
     voicePlaybackControllerRef.current.stop();
     resetVoiceOutputState(voicePreferences.voiceInputEnabled ? "listening" : "idle");
   }, [resetVoiceOutputState, voicePreferences.voiceInputEnabled]);
@@ -415,6 +482,12 @@ export function VoidStage() {
     const previousHistory = conversationHistoryRef.current;
     const streamState = createPendingAssistantConversation(previousHistory, message, attachments);
     let latestConversationHistory = streamState.history;
+    const modelConfig = {
+      ...loadModelConfig(),
+      thinkingModeEnabled
+    };
+    const canStream = modelConfig.streamEnabled && modelConfig.provider === "openai-compatible";
+    const streamingVoiceBatcher = canStream ? createStreamingVoiceBatcher() : null;
 
     try {
       syncConversationHistory(latestConversationHistory);
@@ -422,16 +495,29 @@ export function VoidStage() {
       const syncStreamingAssistantMessage = (content: string) => {
         latestConversationHistory = applyAssistantStreamContent(streamState, content);
         syncConversationHistory(latestConversationHistory);
+        streamingVoiceBatcher?.push(content);
       };
 
       const assistantResponse = await requestVoidResponse(message, previousHistory, attachments, syncStreamingAssistantMessage);
       const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
       commitConversationHistory(finalConversationHistory);
+      if (streamingVoiceBatcher) {
+        await streamingVoiceBatcher.complete(assistantResponse.content);
+        showResponseLayer({
+          text: assistantResponse.content,
+          tone: "quiet",
+          source: "text",
+          pulseKey: "complete"
+        });
+        scheduleResponseLayerHide();
+        textExchangeActiveRef.current = false;
+        return;
+      }
       await completeTextResponseWithErrorHandling(assistantResponse.content, "complete");
     } catch (error) {
       failTextResponse(error, "error", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [commitConversationHistory, completeTextResponseWithErrorHandling, failTextResponse, requestVoidResponse, showResponseLayer, stopVoicePlayback, syncConversationHistory]);
+  }, [commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
 
   const handleRegenerateLatestUserMessage = useCallback(async (messageIndex: number, content: string) => {
     const currentHistory = conversationHistoryRef.current;
@@ -454,6 +540,12 @@ export function VoidStage() {
     const historyBeforeEditedMessage = currentHistory.slice(0, messageIndex);
     const streamState = createPendingAssistantConversation(historyBeforeEditedMessage, content);
     let latestConversationHistory = streamState.history;
+    const modelConfig = {
+      ...loadModelConfig(),
+      thinkingModeEnabled
+    };
+    const canStream = modelConfig.streamEnabled && modelConfig.provider === "openai-compatible";
+    const streamingVoiceBatcher = canStream ? createStreamingVoiceBatcher() : null;
 
     try {
       syncConversationHistory(latestConversationHistory);
@@ -461,6 +553,7 @@ export function VoidStage() {
       const syncStreamingAssistantMessage = (streamedContent: string) => {
         latestConversationHistory = applyAssistantStreamContent(streamState, streamedContent);
         syncConversationHistory(latestConversationHistory);
+        streamingVoiceBatcher?.push(streamedContent);
       };
 
       const assistantResponse = await requestVoidResponse(
@@ -471,11 +564,23 @@ export function VoidStage() {
       );
       const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
       commitConversationHistory(finalConversationHistory);
+      if (streamingVoiceBatcher) {
+        await streamingVoiceBatcher.complete(assistantResponse.content);
+        showResponseLayer({
+          text: assistantResponse.content,
+          tone: "quiet",
+          source: "text",
+          pulseKey: "complete-regenerate"
+        });
+        scheduleResponseLayerHide();
+        textExchangeActiveRef.current = false;
+        return;
+      }
       await completeTextResponseWithErrorHandling(assistantResponse.content, "complete-regenerate");
     } catch (error) {
       failTextResponse(error, "error-regenerate", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [commitConversationHistory, completeTextResponseWithErrorHandling, failTextResponse, requestVoidResponse, showResponseLayer, stopVoicePlayback, syncConversationHistory]);
+  }, [commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
 
   const handleVoiceInputToggle = useCallback(() => {
     const nextVoiceInputEnabled = !voicePreferences.voiceInputEnabled;
@@ -487,7 +592,8 @@ export function VoidStage() {
 
     if (nextVoiceInputEnabled) {
       const sttProvider = new DoubaoStreamingSttProvider({
-        apiKey: runtimeConfig.doubaoApiKey
+        appKey: runtimeConfig.doubaoAppId,
+        accessKey: runtimeConfig.doubaoApiKey
       });
 
       voiceSessionControllerRef.current = new VoiceSessionController({
@@ -655,4 +761,74 @@ function resolveTtsErrorMessage(error: unknown) {
   }
 
   return "语音合成失败。";
+}
+
+// 渐进式分块（progressive chunking）：首块尽量短以最小化首字发声延迟（TTFA），
+// 后续块逐渐变长——此时首句已在播放，有余量从容合成，换取更少请求与更自然的韵律。
+// 数组按「本轮已产出的合成块序号」取阈值，越靠后越长，末位为封顶值。
+const SYNTHESIS_CHUNK_MIN_CHARS_RAMP = [6, 14, 24];
+// 软切封顶：无强标点（。！？；换行）的超长串，达到此长度即允许在弱停顿（逗号、顿号）处切，避免一口气憋太长
+const SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS = 40;
+
+function resolveChunkMinChars(chunkIndex: number) {
+  const rampIndex = Math.min(chunkIndex, SYNTHESIS_CHUNK_MIN_CHARS_RAMP.length - 1);
+  return SYNTHESIS_CHUNK_MIN_CHARS_RAMP[rampIndex];
+}
+
+/**
+ * 从流式文本中切出「已就绪」的合成块。
+ * @param includeRemainder 收尾时为 true，把剩余不足一块的尾巴也一并吐出
+ * @param emittedChunkOffset 本轮此前已产出的合成块数量，用于渐进式阈值定位（首块最短）
+ */
+function extractReadySentences(text: string, includeRemainder: boolean, emittedChunkOffset = 0) {
+  const sentences: string[] = [];
+  let consumedLength = 0;
+  let chunkStartIndex = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const isStrongBoundary = isSentenceDelimiter(text[index]);
+    const isSoftBoundary = isSoftSentenceDelimiter(text[index]);
+    if (!isStrongBoundary && !isSoftBoundary) {
+      continue;
+    }
+
+    const chunk = text.slice(chunkStartIndex, index + 1).trim();
+    const globalChunkIndex = emittedChunkOffset + sentences.length;
+    // 首块允许在弱停顿处切以尽快开口；后续块仅当强标点、或已超过软切封顶时才允许弱停顿切分
+    const boundaryAllowed = isStrongBoundary
+      || globalChunkIndex === 0
+      || chunk.length >= SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS;
+    if (!boundaryAllowed || chunk.length < resolveChunkMinChars(globalChunkIndex)) {
+      continue;
+    }
+
+    sentences.push(chunk);
+    chunkStartIndex = index + 1;
+    consumedLength = index + 1;
+  }
+
+  if (includeRemainder) {
+    const remainder = text.slice(chunkStartIndex).trim();
+    if (remainder) {
+      sentences.push(remainder);
+      consumedLength = text.length;
+    }
+  }
+
+  return {
+    sentences,
+    consumedLength
+  };
+}
+
+function splitCompleteSentences(text: string, includeRemainder: boolean) {
+  return extractReadySentences(text, includeRemainder).sentences;
+}
+
+function isSentenceDelimiter(character: string) {
+  return character === "。" || character === "！" || character === "？" || character === "；" || character === "\n";
+}
+
+function isSoftSentenceDelimiter(character: string) {
+  return character === "，" || character === "、" || character === ",";
 }

@@ -5,7 +5,12 @@ import {
   DOUBAO_TTS_RESOURCE_ID
 } from "../voiceProviderConfig";
 import type { VoiceSynthesisRequest, VoiceSynthesisResult, VoiceTtsProvider } from "./voiceTtsContract";
-import { parseVoiceSynthesisResponse } from "./voiceTtsResponse";
+import {
+  assertSuccessfulBaseResponse,
+  decodeBase64Audio,
+  parseVoiceSynthesisResponse,
+  resolveAudioMimeType
+} from "./voiceTtsResponse";
 
 type DoubaoTtsProviderConfig = {
   apiKey: string;
@@ -53,6 +58,7 @@ export class DoubaoTtsProvider implements VoiceTtsProvider {
         "X-Api-Resource-Id": this.resourceId,
         "X-Api-Request-Id": crypto.randomUUID()
       },
+      signal: request.signal,
       body: JSON.stringify({
         req_params: {
           text: request.text,
@@ -65,15 +71,76 @@ export class DoubaoTtsProvider implements VoiceTtsProvider {
       })
     });
 
-    return await parseVoiceSynthesisResponse(response, {
+    if (!response.ok) {
+      await parseVoiceSynthesisResponse(response, {
+        providerLabel: "Doubao TTS",
+        providerKind: "doubao",
+        endpointUrl: this.endpointUrl
+      });
+      throw new Error("Doubao TTS 响应解析中断。");
+    }
+
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (contentType.startsWith("audio/")) {
+      const audioBlob = await response.blob();
+      return {
+        audioUrl: URL.createObjectURL(audioBlob),
+        mimeType: audioBlob.type || contentType,
+        provider: "doubao"
+      };
+    }
+
+    const payload = await response.json() as Record<string, unknown>;
+    assertSuccessfulBaseResponse(payload, {
       providerLabel: "Doubao TTS",
       providerKind: "doubao",
       endpointUrl: this.endpointUrl
     });
+
+    const audioBase64 = resolveDoubaoAudioBase64(payload);
+    if (!audioBase64) {
+      throw new Error("Doubao TTS 返回成功，但未携带可解析音频数据。待任务 2 复验其真实返回结构。");
+    }
+
+    const mimeType = resolveAudioMimeType(payload, contentType);
+    const audioBlob = decodeBase64Audio(audioBase64, mimeType);
+    return {
+      audioUrl: URL.createObjectURL(audioBlob),
+      mimeType,
+      provider: "doubao"
+    };
   }
 }
 
 function isAsrResourceId(resourceId: string) {
   const normalizedResourceId = resourceId.trim().toLowerCase();
   return normalizedResourceId.includes(".sauc.") || normalizedResourceId.includes("asr");
+}
+
+function resolveDoubaoAudioBase64(payload: Record<string, unknown>) {
+  const data = asRecord(payload.data);
+  const candidates = [
+    payload.data,
+    payload.audio,
+    payload.audio_base64,
+    data?.audio,
+    data?.audio_base64,
+    data?.data
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
+function asRecord(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
 }

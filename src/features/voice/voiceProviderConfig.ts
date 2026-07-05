@@ -18,8 +18,10 @@ export const DOUBAO_TTS_RESOURCE_ID = "seed-tts-2.0";
 export const DOUBAO_TTS_MODEL = "seed-tts-2.0-standard";
 export const DOUBAO_TTS_ENDPOINT = "wss://openspeech.bytedance.com/api/v3/tts/unidirectional/stream";
 export const DOUBAO_TTS_HTTP_ENDPOINT = "https://openspeech.bytedance.com/api/v3/tts/unidirectional";
-export const DOUBAO_ASR_ENDPOINT = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async";
-export const DOUBAO_ASR_RESOURCE_ID = "volc.seedasr.sauc.duration";
+// 双向流式（每包即返，实时性最优）。资源号对应豆包流式语音识别模型 1.0 小时版（账号实测开通的档位）。
+// 若将来账号开通 2.0（Seed），改为 volc.seedasr.sauc.duration。
+export const DOUBAO_ASR_ENDPOINT = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel";
+export const DOUBAO_ASR_RESOURCE_ID = "volc.bigasr.sauc.duration";
 
 export const MINIMAX_TTS_ENDPOINT = "https://api.minimaxi.com/v1/t2a_v2";
 export const MINIMAX_TTS_MODEL = "speech-02-turbo";
@@ -27,6 +29,7 @@ export const MINIMAX_TTS_MODEL = "speech-02-turbo";
 export const FISHAUDIO_TTS_ENDPOINT = "https://api.fish.audio/v1/tts";
 // s2.1-pro 为官方免费开放模型（见 https://fish.audio/zh-CN/blog/s2-1-pro-free-api/），已实测返回真实音频
 export const FISHAUDIO_TTS_MODEL = "s2.1-pro";
+const SUPPORTED_FISHAUDIO_MODELS = new Set(["s2.1-pro", "s2-pro", "s1"]);
 
 export const DEFAULT_FEMALE_MINIMAX_VOICE_ID = "Chinese (Mandarin)_Mature_Woman";
 export const DEFAULT_MALE_MINIMAX_VOICE_ID = "Chinese (Mandarin)_Gentleman";
@@ -84,4 +87,13 @@ export function resolveSceneVoiceCatalogEntry(scene: VoiceSceneMode, preferredGe
   return VOICE_CATALOG.find((entry) => entry.scene === scene && entry.gender === preferredGender)
     ?? VOICE_CATALOG.find((entry) => entry.scene === scene)
     ?? resolveDefaultVoiceCatalogEntry(preferredGender);
+}
+
+export function normalizeFishAudioModel(model?: string) {
+  const trimmedModel = model?.trim().toLowerCase() ?? "";
+  if (SUPPORTED_FISHAUDIO_MODELS.has(trimmedModel)) {
+    return trimmedModel;
+  }
+
+  return FISHAUDIO_TTS_MODEL;
 }
