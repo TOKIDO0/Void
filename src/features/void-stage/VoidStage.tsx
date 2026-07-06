@@ -22,7 +22,7 @@ import { loadVoicePreferences, saveVoicePreferences, type VoicePreferences } fro
 import { loadVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
 import { VoiceSessionController } from "../voice/voiceSessionController";
 import { useVoiceInputMonitor } from "../voice/useVoiceInputMonitor";
-import { DEFAULT_VOICE_STATE, type VoiceStateSnapshot } from "../voice/voiceState";
+import { DEFAULT_VOICE_STATE, type VoiceActivityLevel, type VoiceStateSnapshot } from "../voice/voiceState";
 import { DoubaoStreamingSttProvider } from "../voice/stt/doubaoStreamingSttProvider";
 import { VoiceTtsOrchestrator } from "../voice/tts/voiceTtsOrchestrator";
 import { VoicePlaybackController } from "../voice/tts/voicePlaybackController";
@@ -40,6 +40,12 @@ type ResponseLayerState = {
 };
 
 const RESPONSE_LAYER_IDLE_HIDE_MS = 32000;
+// 打断（barge-in）判定门槛：STT 文本最小字数。
+// 方案 A（AI 优先）：AI 忙时必须「本地音量 VAD 确认真实人声」+「STT 文本达到门槛」才真正打断，
+// 以过滤环境音/回声被 STT 识别成幻觉文字导致的误打断。
+// AI 播报中会外放 TTS、回声风险最高，门槛更严；仅思考中（无外放）门槛较松。
+const BARGE_IN_MIN_CHARS_THINKING = 2;
+const BARGE_IN_MIN_CHARS_SPEAKING = 4;
 const ERROR_RESPONSE_HIDE_MS = 14000;
 const THINKING_TEXT = "正在思考...";
 const REGENERATING_TEXT = "正在重新思考...";
@@ -77,6 +83,9 @@ export function VoidStage() {
   const voiceSessionControllerRef = useRef<VoiceSessionController | null>(null);
   const voiceOutputAbortControllerRef = useRef<AbortController | null>(null);
   const voiceOutputStreamFinishedRef = useRef(true);
+  // 本地音量 VAD 的最新活跃度快照（ref 供 STT 回调同步读取，避免闭包旧值）：
+  // 打断判定的「真实人声」二次校验依据，"active" 表示麦克风能量高于环境噪声阈值。
+  const voiceActivityLevelRef = useRef<VoiceActivityLevel>("silent");
   // 对话回合的单调递增 id：用户打断（barge-in）时自增以「作废」当前回合的后续副作用
   const activeExchangeIdRef = useRef(0);
   // 当前回合开始前的历史快照，打断时回滚，避免残留空回合并防止过期提交污染新回合
@@ -426,6 +435,8 @@ export function VoidStage() {
       }));
     },
     onActivityLevelChange: (nextActivityLevel) => {
+      // 同步写入 ref 供 STT 打断判定读取，再更新用于渲染的 state。
+      voiceActivityLevelRef.current = nextActivityLevel;
       setVoiceState((currentState) => ({
         ...currentState,
         activityLevel: nextActivityLevel
@@ -436,12 +447,11 @@ export function VoidStage() {
         return;
       }
 
-      if (nextVisualState === "listening") {
-        hideResponseLayer();
-      }
-
       // 说完话的「发送」由豆包服务端 VAD 的 definite final 驱动（onFinalTranscript → handleTextMessage），
       // 此处 VAD 的 thinking 仅作等待识别定稿的视觉过渡，不再伪触发发送。
+      // 注意：不在此处调用 hideResponseLayer——预览层的显隐由 STT 回调（onInterimTranscript/
+      // onFinalTranscript）与文本回合统一管理。音量 VAD 越权隐藏会在长句自然换气时把正在显示的
+      // STT 预览硬藏一下又重现，造成"闪烁"（doc 18 问题 A）。
       setVisualState(nextVisualState);
     }
   });
@@ -645,12 +655,32 @@ export function VoidStage() {
         sttProvider,
         onInterimTranscript: (text) => {
           const trimmedText = text.trim();
-          // 打断（barge-in）：AI 正在思考或播报时用户开口，立即停 AI 并作废该回合，
-          // 随后把用户识别文字显示到预览层。长度≥2 过滤掉单字噪声/回声误触发。
-          const isAgentBusy = textExchangeActiveRef.current || !voicePlaybackControllerRef.current.isIdle();
-          if (trimmedText.length >= 2 && isAgentBusy) {
-            interruptForBargeIn();
+          const isSpeaking = !voicePlaybackControllerRef.current.isIdle(); // AI 正在外放 TTS，回声风险最高
+          const isAgentBusy = textExchangeActiveRef.current || isSpeaking;
+
+          if (isAgentBusy) {
+            // 方案 A（AI 优先）：AI 思考/播报期间，先压制识别文字——不让环境音/回声被 STT 识别出的
+            // 幻觉文字覆盖 AI 当前输出或误触发打断。仅当同时满足以下二者，才判定为「真实的用户打断」：
+            //   1) 本地音量 VAD 二次确认真实人声（能量高于环境噪声阈值，非回声/低电平噪声幻觉）；
+            //   2) STT 文本达到最小字数门槛（播报中回声风险高、门槛更严）。
+            const isRealHumanVoice = voiceActivityLevelRef.current === "active";
+            const minChars = isSpeaking ? BARGE_IN_MIN_CHARS_SPEAKING : BARGE_IN_MIN_CHARS_THINKING;
+            if (isRealHumanVoice && trimmedText.length >= minChars) {
+              // 确认打断：停 AI、作废该回合，并把用户识别文字接管到预览层。
+              interruptForBargeIn();
+              setVoiceTranscriptPreview(text);
+              showResponseLayer({
+                text,
+                tone: "quiet",
+                source: "voice-transcript",
+                pulseKey: "voice-interim"
+              });
+            }
+            // 未确认打断：压制，不写预览层、不打断，保护 AI 当前输出不被闪断。
+            return;
           }
+
+          // AI 空闲：正常显示识别预览。
           setVoiceTranscriptPreview(text);
           if (trimmedText) {
             showResponseLayer({

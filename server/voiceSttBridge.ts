@@ -37,6 +37,15 @@ type BridgeClientEvent =
 type StartEvent = Extract<BridgeClientEvent, { type: "start" }>;
 
 /**
+ * 文本归一化，用于「同一句话不同版本」的等价去重比较：剥离所有空白与标点。
+ * 豆包会对同一句话先给不含标点的稿、再补含标点的定稿（如「你在干嘛呀」→「你在干嘛呀？」），
+ * 若用裸字符串相等比较会判为两句、把同一句发两次 final，导致 AI「回复两遍」。
+ */
+function normalizeForDedup(text: string): string {
+  return text.replace(/[\s\p{P}]/gu, "");
+}
+
+/**
  * 把 STT 桥接挂载到 vite dev 的 HTTP server 上。
  * 仅拦截 STT_BRIDGE_PATH 的 upgrade，其余（如 vite HMR）交回原有监听器。
  */
@@ -174,8 +183,9 @@ function handleBrowserConnection(browserSocket: WebSocket) {
 
     const { finals: newDefinites, partial } = extractUtteranceResults(decoded.payload, seenDefiniteKeys);
     for (const definiteText of newDefinites) {
-      // 兜底跳过：该定稿句此前已作为未定稿尾句兜底发出过，跳过一次避免重复
-      if (skipOnceDefiniteText && definiteText === skipOnceDefiniteText) {
+      // 兜底跳过：该定稿句此前已作为未定稿尾句兜底发出过，跳过一次避免重复。
+      // 用归一化比较：兜底发的是无标点尾句，稍后豆包补的定稿带标点，裸字符串不相等会漏跳导致重复。
+      if (skipOnceDefiniteText && normalizeForDedup(definiteText) === normalizeForDedup(skipOnceDefiniteText)) {
         skipOnceDefiniteText = "";
         continue;
       }
@@ -373,7 +383,9 @@ function extractUtteranceResults(
     }
 
     if (utterance.definite === true) {
-      const deduplicationKey = `${utterance.start_time ?? ""}-${utterance.end_time ?? ""}-${text}`;
+      // 去重键＝起始时间 + 归一化文本：同一句被先后以「无标点/带标点」两版定稿回传时判为同键去重；
+      // 起始时间保证不同时刻说的相同短语（如两次「好的」）仍各自保留。
+      const deduplicationKey = `${utterance.start_time ?? ""}-${normalizeForDedup(text)}`;
       if (!seenDefiniteKeys.has(deduplicationKey)) {
         seenDefiniteKeys.add(deduplicationKey);
         finals.push(text);

@@ -152,6 +152,11 @@ function buildForwardedHeaders(headers: Record<string, string | string[] | undef
     "accept",
     "authorization",
     "content-type",
+    // 豆包 openspeech v3 鉴权头（STT/TTS 同一套）：App ID + Access Key + Resource ID。
+    // 缺任一都会被上游判 401；App-Key 与 App-Id 为不同接口的别名，一并放行以防分叉。
+    "x-api-app-key",
+    "x-api-app-id",
+    "x-api-access-key",
     "x-api-key",
     "x-api-request-id",
     "x-api-resource-id",

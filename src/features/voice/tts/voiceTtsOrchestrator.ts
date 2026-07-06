@@ -27,8 +27,8 @@ export type VoiceStreamingSynthesisSession = {
   complete(): Promise<void>;
 };
 
-// FishAudio 已打通、免费，给宽松超时；Doubao/MiniMax 未复验，短超时快速降级
-const FISHAUDIO_TIMEOUT_MS = 12000;
+// 主供应商（豆包，国内直连零 VPN）给宽松超时；回退供应商短超时快速降级。
+const PRIMARY_PROVIDER_TIMEOUT_MS = 12000;
 const FALLBACK_PROVIDER_TIMEOUT_MS = 7000;
 // 全局句子级合成并发上限：FishAudio 免费档实测支持 5 并发，这里压到 2 留足安全边际，防 429
 const STREAMING_SENTENCE_CONCURRENCY = 2;
@@ -40,26 +40,30 @@ export class VoiceTtsOrchestrator {
   private readonly providerRegistrations: VoiceTtsProviderRegistration[];
 
   constructor(private readonly runtimeConfig: VoiceRuntimeConfig) {
+    // 供应商尝试顺序 = 数组顺序。豆包（openspeech.bytedance.com，国内直连、单价极低、无需 VPN）
+    // 作为主供应商置于首位；FishAudio（国内需 VPN）、MiniMax 依次作为回退。
+    // 主供应商未配置/合成失败时自动向下回退，行为对旧默认只增不减。
     this.providerRegistrations = [
       {
+        kind: "doubao",
+        timeoutMs: PRIMARY_PROVIDER_TIMEOUT_MS,
+        createProvider: () => this.runtimeConfig.doubaoApiKey
+          ? new DoubaoTtsProvider({
+            appId: this.runtimeConfig.doubaoAppId,
+            apiKey: this.runtimeConfig.doubaoApiKey,
+            speakerId: this.runtimeConfig.doubaoSpeakerId,
+            resourceId: this.runtimeConfig.doubaoResourceId
+          })
+          : null
+      },
+      {
         kind: "fishaudio",
-        timeoutMs: FISHAUDIO_TIMEOUT_MS,
+        timeoutMs: FALLBACK_PROVIDER_TIMEOUT_MS,
         createProvider: () => this.runtimeConfig.fishAudioApiKey
           ? new FishAudioTtsProvider({
             apiKey: this.runtimeConfig.fishAudioApiKey,
             voiceId: this.runtimeConfig.fishAudioVoiceId,
             model: this.runtimeConfig.fishAudioModel
-          })
-          : null
-      },
-      {
-        kind: "doubao",
-        timeoutMs: FALLBACK_PROVIDER_TIMEOUT_MS,
-        createProvider: () => this.runtimeConfig.doubaoApiKey
-          ? new DoubaoTtsProvider({
-            apiKey: this.runtimeConfig.doubaoApiKey,
-            speakerId: this.runtimeConfig.doubaoSpeakerId,
-            resourceId: this.runtimeConfig.doubaoResourceId
           })
           : null
       },
@@ -77,7 +81,7 @@ export class VoiceTtsOrchestrator {
   }
 
   /**
-   * 单段整段合成：按 FishAudio → Doubao → MiniMax 顺序逐个尝试，命中 429 时对同一供应商退避重试。
+   * 单段整段合成：按 Doubao → FishAudio → MiniMax 顺序逐个尝试，命中 429 时对同一供应商退避重试。
    * @param parentSignal 外部中断信号（打断/关闭语音输出时透传）
    */
   async synthesize(
