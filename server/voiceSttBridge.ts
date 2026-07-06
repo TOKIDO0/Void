@@ -23,6 +23,10 @@ import {
 const DOUBAO_SAUC_ENDPOINT = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel";
 // 浏览器侧连接的桥接路径
 const STT_BRIDGE_PATH = "/void-voice-proxy/stt";
+// 整段停顿提交阈值（endpointing）：识别文本静默超过此时长即判定「用户说完」，把累积内容发出。
+// 取值依据：行业 endpointing 静音区间约 300–800ms，400ms 起有卡顿感、满 1s 会觉得没反应；
+// 取上沿 800ms 既能容纳说长句时的自然换气（通常 <1s），又留足时间让豆包对尾句完成定稿。
+const UTTERANCE_COMMIT_SILENCE_MS = 800;
 
 /** 浏览器 → 桥接 的客户端事件 */
 type BridgeClientEvent =
@@ -60,8 +64,32 @@ function handleBrowserConnection(browserSocket: WebSocket) {
   // 上游就绪前浏览器已推来的音频，先缓存，就绪后按序补发
   const pendingAudioChunks: Buffer[] = [];
   // 已定稿（definite）句子的去重键集合。豆包每帧会回传历史全部定稿句，
-  // 不去重会把同一句反复当 final 发出，导致 AI 重复收到并重复回复。
+  // 不去重会把同一句反复累积。
   const seenDefiniteKeys = new Set<string>();
+
+  // —— 整段停顿提交（endpointing）——
+  // 豆包的 definite 是「句子级」VAD 分句；而「用户说完了、可以发给 AI」是更高层的
+  // 「整段停顿」判定。若把每个 definite 直接当作发送边界，说长句时中间的自然换气就会被
+  // 切断误发。因此这里：定稿句只累积与实时预览，直到识别文本静默超过阈值（用户真正停顿）
+  // 才把累积内容合并成一条 final 发出。
+  const committedSentences: string[] = [];
+  // committedSentences 中已作为 final 发出的句子数（水位线）
+  let flushedCount = 0;
+  // 当前未定稿尾句，仅用于实时预览
+  let lastPartial = "";
+  // 上一次的实时全文，用于变化检测（用户还在说＝文本在变）
+  let lastLiveText = "";
+  // 极端兜底：停顿时豆包尚未把尾句定稿，用尾句兜底发出后记下该文本，
+  // 防止其稍后被豆包补判定稿导致重复发送。
+  let skipOnceDefiniteText = "";
+  let commitTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearCommitTimer = () => {
+    if (commitTimer) {
+      clearTimeout(commitTimer);
+      commitTimer = null;
+    }
+  };
 
   const sendToBrowser = (event: Record<string, unknown>) => {
     if (browserSocket.readyState === WebSocket.OPEN) {
@@ -70,6 +98,7 @@ function handleBrowserConnection(browserSocket: WebSocket) {
   };
 
   const closeAll = () => {
+    clearCommitTimer();
     try {
       upstreamSocket?.close();
     } catch {
@@ -92,6 +121,38 @@ function handleBrowserConnection(browserSocket: WebSocket) {
     }
   };
 
+  // 停顿到阈值：把本段累积但尚未发送的定稿句合并为一条 final 发出，驱动前端发送给 AI。
+  const commitUtterance = () => {
+    let pending = committedSentences.slice(flushedCount).join("").trim();
+    let usedPartialFallback = false;
+
+    // 正常停顿时尾句已被豆包定稿、已在 committedSentences 中；仅当此刻无任何已定稿待发、
+    // 却仍有未定稿尾句时，才用尾句兜底，避免最后一句丢失。
+    if (!pending && lastPartial.trim()) {
+      pending = lastPartial.trim();
+      usedPartialFallback = true;
+    }
+
+    if (!pending) {
+      return;
+    }
+
+    flushedCount = committedSentences.length;
+    if (usedPartialFallback) {
+      skipOnceDefiniteText = pending;
+      lastPartial = "";
+    }
+    // 强制下一帧重新评估剩余内容，避免残留尾句被漏发
+    lastLiveText = "";
+    hasSentFinal = true;
+    sendToBrowser({ type: "final", text: pending });
+  };
+
+  const scheduleCommit = () => {
+    clearCommitTimer();
+    commitTimer = setTimeout(commitUtterance, UTTERANCE_COMMIT_SILENCE_MS);
+  };
+
   const handleUpstreamFrame = (frame: Buffer) => {
     const decoded = decodeServerFrame(frame);
     if (!decoded) {
@@ -111,26 +172,38 @@ function handleBrowserConnection(browserSocket: WebSocket) {
       flushPendingAudio();
     }
 
-    const { finals, partial } = extractUtteranceResults(decoded.payload, seenDefiniteKeys);
-
-    // 服务端 VAD 判定某句说完（definite:true）即逐句发 final，驱动前端自动发送给 AI；
-    // 连接保持不关，继续听下一句，实现单连接连续多轮。
-    for (const finalText of finals) {
-      hasSentFinal = true;
-      sendToBrowser({ type: "final", text: finalText });
+    const { finals: newDefinites, partial } = extractUtteranceResults(decoded.payload, seenDefiniteKeys);
+    for (const definiteText of newDefinites) {
+      // 兜底跳过：该定稿句此前已作为未定稿尾句兜底发出过，跳过一次避免重复
+      if (skipOnceDefiniteText && definiteText === skipOnceDefiniteText) {
+        skipOnceDefiniteText = "";
+        continue;
+      }
+      committedSentences.push(definiteText);
     }
+    lastPartial = partial ?? "";
 
-    // 关麦末包：把仍未定稿的尾句补发为 final，避免最后一句因未触发 VAD 而丢失。
+    // 关麦末包：立即把剩余全部（含未定稿尾句）作为 final 收尾，不再等待停顿阈值。
     if (decoded.isLastPacket) {
-      if (partial) {
+      clearCommitTimer();
+      const finalText = (committedSentences.slice(flushedCount).join("") + lastPartial).trim();
+      if (finalText) {
+        flushedCount = committedSentences.length;
         hasSentFinal = true;
-        sendToBrowser({ type: "final", text: partial });
+        sendToBrowser({ type: "final", text: finalText });
       }
       return;
     }
 
-    if (partial) {
-      sendToBrowser({ type: "partial", text: partial, isInterim: true });
+    // 本段尚未发送的实时全文 = 未发送的定稿句 + 未定稿尾句
+    const liveText = committedSentences.slice(flushedCount).join("") + lastPartial;
+    if (liveText !== lastLiveText) {
+      lastLiveText = liveText;
+      if (liveText.trim()) {
+        sendToBrowser({ type: "partial", text: liveText, isInterim: true });
+      }
+      // 文本仍在变化＝用户还在说：把「停顿提交」计时推后；静默满阈值才真正发送
+      scheduleCommit();
     }
   };
 
@@ -254,7 +327,7 @@ function buildRecognitionConfig(startEvent: StartEvent) {
 
 /** 单帧解析结果：本帧新定稿的完整句 + 当前未定稿的尾句 */
 type UtteranceExtraction = {
-  /** 本帧新出现（去重后）的 definite 定稿句，逐句作为 final */
+  /** 本帧新出现（去重后）的 definite 定稿句，交由调用方累积、按停顿合并发出 */
   finals: string[];
   /** 当前仍在累积、未定稿的尾句，作为 partial 实时预览；无则为 null */
   partial: string | null;

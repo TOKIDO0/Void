@@ -9,3 +9,14 @@ vite.config.d.ts
 
 # 一次性人脸亮度源预处理素材
 .facegen/
+
+# 内部策划/交接文档（含产品策略等隐私内容，仅本地保留，不入库）
+.md/
+
+# 环境变量与本地私有配置（含密钥，禁止入库）
+.env
+.env.*
+*.local
+
+# 编辑器/工具本地配置
+.claude/settings.local.json

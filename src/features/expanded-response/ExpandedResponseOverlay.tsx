@@ -25,7 +25,9 @@ export function ExpandedResponseOverlay({
   onRegenerateLatestUserMessage
 }: ExpandedResponseOverlayProps) {
   const [shouldRender, setShouldRender] = useState(isOpen);
-  const [isClosing, setIsClosing] = useState(false);
+  // 关闭进行中的守卫用 ref 而非 state：它不参与渲染，且必须让 playClose 保持稳定引用，
+  // 否则会被关闭动画每帧的父组件重渲染卷入重入，导致模态框关闭后"还魂"。
+  const isClosingRef = useRef(false);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
@@ -64,11 +66,11 @@ export function ExpandedResponseOverlay({
   }, []);
 
   const playClose = useCallback(() => {
-    if (isClosing) {
+    if (isClosingRef.current) {
       return;
     }
 
-    setIsClosing(true);
+    isClosingRef.current = true;
     onClosingChange(true);
     const timeline = gsap.timeline({
       defaults: { ease: "power3.inOut" },
@@ -76,7 +78,7 @@ export function ExpandedResponseOverlay({
         progressRef.current.value = 0;
         onOpenProgressChange(0);
         setShouldRender(false);
-        setIsClosing(false);
+        isClosingRef.current = false;
         onClosingChange(false);
         onClose();
       }
@@ -90,12 +92,12 @@ export function ExpandedResponseOverlay({
         onUpdate: () => onOpenProgressChange(progressRef.current.value)
       }, 0.06)
       .to(rootRef.current, { autoAlpha: 0, duration: 0.44 }, 0.26);
-  }, [isClosing, onClose, onClosingChange, onOpenProgressChange]);
+  }, [onClose, onClosingChange, onOpenProgressChange]);
 
   useEffect(() => {
     if (isOpen) {
       setShouldRender(true);
-      setIsClosing(false);
+      isClosingRef.current = false;
       shouldStickToBottomRef.current = true;
       onClosingChange(false);
     } else if (shouldRender) {

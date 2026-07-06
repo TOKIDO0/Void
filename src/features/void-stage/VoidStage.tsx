@@ -77,6 +77,10 @@ export function VoidStage() {
   const voiceSessionControllerRef = useRef<VoiceSessionController | null>(null);
   const voiceOutputAbortControllerRef = useRef<AbortController | null>(null);
   const voiceOutputStreamFinishedRef = useRef(true);
+  // 对话回合的单调递增 id：用户打断（barge-in）时自增以「作废」当前回合的后续副作用
+  const activeExchangeIdRef = useRef(0);
+  // 当前回合开始前的历史快照，打断时回滚，避免残留空回合并防止过期提交污染新回合
+  const exchangeBaseHistoryRef = useRef<VoidConversationMessage[]>([]);
 
   const setExpandedProgress = useCallback((progress: number) => {
     expandedResponseProgressRef.current.value = progress;
@@ -99,6 +103,14 @@ export function VoidStage() {
     syncConversationHistory(nextConversationHistory);
     saveCurrentConversationHistory(nextConversationHistory);
   }, [syncConversationHistory]);
+
+  // 开启一个新的对话回合：自增回合 id、标记交换进行中、记录回滚基线，返回本回合 id。
+  const beginExchange = useCallback((baseHistory: VoidConversationMessage[]) => {
+    activeExchangeIdRef.current += 1;
+    textExchangeActiveRef.current = true;
+    exchangeBaseHistoryRef.current = baseHistory;
+    return activeExchangeIdRef.current;
+  }, []);
 
   const clearResponseLayerHideTimer = useCallback(() => {
     window.clearTimeout(responseLayerHideTimeoutRef.current);
@@ -248,10 +260,17 @@ export function VoidStage() {
       return;
     }
 
+    // 送入合成前剥离括号情绪标注（显示层保留原文）；净化后为空则无需发声
+    const speechText = sanitizeTextForSpeech(responseText);
+    if (!speechText) {
+      setVisualState("idle");
+      return;
+    }
+
     const runtimeConfig = loadVoiceRuntimeConfig();
     const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
     const synthesisResult = await orchestrator.synthesize({
-      text: responseText,
+      text: speechText,
       requestMode: runtimeConfig.requestMode,
       voiceMode: "default",
       preferredGender: "female",
@@ -357,7 +376,8 @@ export function VoidStage() {
 
         synthesizedCursor += consumedLength;
         emittedChunkCount += sentences.length;
-        synthesisSession.push(sentences);
+        // 送入合成前剥离括号情绪标注（显示层不受影响）；空句由合成会话内部跳过
+        synthesisSession.push(sentences.map(sanitizeTextForSpeech));
       },
       async complete(content: string) {
         const segment = content.slice(synthesizedCursor);
@@ -365,7 +385,7 @@ export function VoidStage() {
         synthesizedCursor += consumedLength;
         emittedChunkCount += sentences.length;
         if (sentences.length) {
-          synthesisSession.push(sentences);
+          synthesisSession.push(sentences.map(sanitizeTextForSpeech));
         }
         await synthesisSession.complete();
         finalizeVoiceOutputSession("idle");
@@ -436,6 +456,13 @@ export function VoidStage() {
     setIsExpandedResponseOpen(true);
   }, [clearResponseLayerHideTimer]);
 
+  // 稳定的关闭回调：必须用 useCallback 固定引用。
+  // 否则关闭动画每帧回调 setExpandedProgress 触发父组件重渲染 → 每帧新建 onClose
+  // → overlay 内 playClose 每帧 churn → 关闭同步 effect 每帧重跑，击穿关闭守卫导致模态框"还魂"。
+  const closeExpandedResponse = useCallback(() => {
+    setIsExpandedResponseOpen(false);
+  }, []);
+
   const stopVoicePlayback = useCallback(() => {
     voiceOutputAbortControllerRef.current?.abort();
     voiceOutputAbortControllerRef.current = null;
@@ -443,6 +470,18 @@ export function VoidStage() {
     voicePlaybackControllerRef.current.stop();
     resetVoiceOutputState(voicePreferences.voiceInputEnabled ? "listening" : "idle");
   }, [resetVoiceOutputState, voicePreferences.voiceInputEnabled]);
+
+  // 用户在 AI 思考/播报时开口即打断：停止播报、作废当前回合的后续副作用，并回滚乐观历史。
+  const interruptForBargeIn = useCallback(() => {
+    const wasGenerating = textExchangeActiveRef.current;
+    activeExchangeIdRef.current += 1;
+    textExchangeActiveRef.current = false;
+    stopVoicePlayback();
+    if (wasGenerating) {
+      // 模型仍在生成：回滚到回合开始前的历史，丢弃这一被打断的问答，避免残留与过期提交
+      commitConversationHistory(exchangeBaseHistoryRef.current);
+    }
+  }, [commitConversationHistory, stopVoicePlayback]);
 
   const handleVoiceOutputToggle = useCallback(() => {
     const nextVoiceOutputEnabled = !voicePreferences.voiceOutputEnabled;
@@ -457,7 +496,8 @@ export function VoidStage() {
   }, [stopVoicePlayback, updateVoicePreferences, voicePreferences]);
 
   const handleTextMessage = useCallback(async (message: string, attachments: VoidConversationAttachment[]) => {
-    textExchangeActiveRef.current = true;
+    const previousHistory = conversationHistoryRef.current;
+    const exchangeId = beginExchange(previousHistory);
     stopVoicePlayback();
     showResponseLayer({
       text: THINKING_TEXT,
@@ -467,7 +507,6 @@ export function VoidStage() {
     });
     setVisualState("thinking");
 
-    const previousHistory = conversationHistoryRef.current;
     const streamState = createPendingAssistantConversation(previousHistory, message, attachments);
     let latestConversationHistory = streamState.history;
     const modelConfig = {
@@ -481,12 +520,18 @@ export function VoidStage() {
       syncConversationHistory(latestConversationHistory);
 
       const syncStreamingAssistantMessage = (content: string) => {
+        if (activeExchangeIdRef.current !== exchangeId) {
+          return; // 已被用户打断：停止本回合的流式历史与语音副作用
+        }
         latestConversationHistory = applyAssistantStreamContent(streamState, content);
         syncConversationHistory(latestConversationHistory);
         streamingVoiceBatcher?.push(content);
       };
 
       const assistantResponse = await requestVoidResponse(message, previousHistory, attachments, syncStreamingAssistantMessage);
+      if (activeExchangeIdRef.current !== exchangeId) {
+        return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）
+      }
       const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
       commitConversationHistory(finalConversationHistory);
       if (streamingVoiceBatcher) {
@@ -503,9 +548,12 @@ export function VoidStage() {
       }
       await completeTextResponseWithErrorHandling(assistantResponse.content, "complete");
     } catch (error) {
+      if (activeExchangeIdRef.current !== exchangeId) {
+        return; // 已被打断：忽略本回合的错误
+      }
       failTextResponse(error, "error", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
+  }, [beginExchange, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
 
   const handleRegenerateLatestUserMessage = useCallback(async (messageIndex: number, content: string) => {
     const currentHistory = conversationHistoryRef.current;
@@ -515,7 +563,8 @@ export function VoidStage() {
       return;
     }
 
-    textExchangeActiveRef.current = true;
+    const historyBeforeEditedMessage = currentHistory.slice(0, messageIndex);
+    const exchangeId = beginExchange(historyBeforeEditedMessage);
     stopVoicePlayback();
     setVisualState("thinking");
     showResponseLayer({
@@ -525,7 +574,6 @@ export function VoidStage() {
       pulseKey: "thinking-regenerate"
     });
 
-    const historyBeforeEditedMessage = currentHistory.slice(0, messageIndex);
     const streamState = createPendingAssistantConversation(historyBeforeEditedMessage, content);
     let latestConversationHistory = streamState.history;
     const modelConfig = {
@@ -539,6 +587,9 @@ export function VoidStage() {
       syncConversationHistory(latestConversationHistory);
 
       const syncStreamingAssistantMessage = (streamedContent: string) => {
+        if (activeExchangeIdRef.current !== exchangeId) {
+          return; // 已被用户打断：停止本回合的流式历史与语音副作用
+        }
         latestConversationHistory = applyAssistantStreamContent(streamState, streamedContent);
         syncConversationHistory(latestConversationHistory);
         streamingVoiceBatcher?.push(streamedContent);
@@ -550,6 +601,9 @@ export function VoidStage() {
         targetMessage.attachments ?? [],
         syncStreamingAssistantMessage
       );
+      if (activeExchangeIdRef.current !== exchangeId) {
+        return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）
+      }
       const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
       commitConversationHistory(finalConversationHistory);
       if (streamingVoiceBatcher) {
@@ -566,9 +620,12 @@ export function VoidStage() {
       }
       await completeTextResponseWithErrorHandling(assistantResponse.content, "complete-regenerate");
     } catch (error) {
+      if (activeExchangeIdRef.current !== exchangeId) {
+        return; // 已被打断：忽略本回合的错误
+      }
       failTextResponse(error, "error-regenerate", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
+  }, [beginExchange, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
 
   const handleVoiceInputToggle = useCallback(() => {
     const nextVoiceInputEnabled = !voicePreferences.voiceInputEnabled;
@@ -587,8 +644,15 @@ export function VoidStage() {
       voiceSessionControllerRef.current = new VoiceSessionController({
         sttProvider,
         onInterimTranscript: (text) => {
+          const trimmedText = text.trim();
+          // 打断（barge-in）：AI 正在思考或播报时用户开口，立即停 AI 并作废该回合，
+          // 随后把用户识别文字显示到预览层。长度≥2 过滤掉单字噪声/回声误触发。
+          const isAgentBusy = textExchangeActiveRef.current || !voicePlaybackControllerRef.current.isIdle();
+          if (trimmedText.length >= 2 && isAgentBusy) {
+            interruptForBargeIn();
+          }
           setVoiceTranscriptPreview(text);
-          if (text.trim()) {
+          if (trimmedText) {
             showResponseLayer({
               text,
               tone: "quiet",
@@ -620,7 +684,7 @@ export function VoidStage() {
     if (!textExchangeActiveRef.current && voiceState.outputState !== "speaking") {
       setVisualState("idle");
     }
-  }, [handleTextMessage, handleVoiceSessionError, showResponseLayer, updateVoicePreferences, voicePreferences, voiceState.outputState]);
+  }, [handleTextMessage, handleVoiceSessionError, interruptForBargeIn, showResponseLayer, updateVoicePreferences, voicePreferences, voiceState.outputState]);
 
   const handleOpenModelConfig = useCallback(() => {
     setIsModelSettingsOpen(true);
@@ -702,7 +766,7 @@ export function VoidStage() {
       <ExpandedResponseOverlay
         isOpen={isExpandedResponseOpen}
         messages={conversationHistory}
-        onClose={() => setIsExpandedResponseOpen(false)}
+        onClose={closeExpandedResponse}
         onClosingChange={setIsExpandedResponseClosing}
         onOpenProgressChange={setExpandedProgress}
         onRegenerateLatestUserMessage={handleRegenerateLatestUserMessage}
@@ -762,6 +826,22 @@ const SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS = 40;
 function resolveChunkMinChars(chunkIndex: number) {
   const rampIndex = Math.min(chunkIndex, SYNTHESIS_CHUNK_MIN_CHARS_RAMP.length - 1);
   return SYNTHESIS_CHUNK_MIN_CHARS_RAMP[rampIndex];
+}
+
+// 朗读文本净化：AI 回复中形如「（轻声）」「(笑)」的括号情绪/动作标注，显示时保留（用户可见其情绪），
+// 但 TTS 合成前必须剥离，否则会被逐字读出。仅用于送入合成的文本，绝不改动显示层。
+function sanitizeTextForSpeech(text: string) {
+  return text
+    // 成对括号及其内容：中文（）、英文 ()、【】、[]
+    .replace(/（[^（）]*）/g, "")
+    .replace(/\([^()]*\)/g, "")
+    .replace(/【[^【】]*】/g, "")
+    .replace(/\[[^[\]]*\]/g, "")
+    // 流式分块可能把一对括号切散，残留的孤立括号符号一并清除
+    .replace(/[（）()【】[\]]/g, "")
+    // 剥离后可能留下多余空白
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 /**
