@@ -124,6 +124,8 @@ export class VoiceTtsOrchestrator {
     signal?: AbortSignal
   ): VoiceStreamingSynthesisSession {
     const pendingTasks: { index: number; text: string }[] = [];
+    // 按 index 记录每句净化文本，供 worker 取「上一句」作为 contextText（滑动窗口=1 句）。
+    const taskTextByIndex = new Map<number, string>();
     const completedResults = new Map<number, VoiceSynthesisResult>();
     const drainWaiters: Array<() => void> = [];
     let nextTaskIndex = 0;
@@ -166,8 +168,10 @@ export class VoiceTtsOrchestrator {
             break;
           }
 
+          // 上一句净化文本作为本句 context_texts，承接跨句语气；首句无上文则不带。
+          const previousText = taskTextByIndex.get(currentTask.index - 1);
           const result = await this.synthesize(
-            { ...request, text: currentTask.text },
+            { ...request, text: currentTask.text, contextText: previousText },
             signal
           );
           if (!result) {
@@ -203,6 +207,7 @@ export class VoiceTtsOrchestrator {
             continue;
           }
           pendingTasks.push({ index: nextTaskIndex, text });
+          taskTextByIndex.set(nextTaskIndex, text);
           nextTaskIndex += 1;
         }
         ensureWorkers();

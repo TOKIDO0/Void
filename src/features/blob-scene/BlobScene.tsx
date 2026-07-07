@@ -4,6 +4,7 @@ import { Bloom, EffectComposer } from "@react-three/postprocessing";
 import { VoidBlob } from "./VoidBlob";
 import { BLOB_VISUAL_PROFILES } from "../void-state/voidVisualState";
 import type { VoidVisualState } from "../void-state/voidVisualState";
+import type { VisualProfileHint } from "../emotion/emotionToResponsePolicy";
 
 type BlobSceneProps = {
   visualState: VoidVisualState;
@@ -11,6 +12,7 @@ type BlobSceneProps = {
   isExpandedResponseClosing: boolean;
   thinkingModePulseEventId: number;
   thinkingModePulseDirection: "on" | "off";
+  emotionVisualHint: VisualProfileHint;
 };
 
 export function BlobScene({
@@ -18,7 +20,8 @@ export function BlobScene({
   expandedResponseProgress,
   isExpandedResponseClosing,
   thinkingModePulseEventId,
-  thinkingModePulseDirection
+  thinkingModePulseDirection,
+  emotionVisualHint
 }: BlobSceneProps) {
   const bloomIntensity = BLOB_VISUAL_PROFILES[visualState].bloomIntensity;
   const expandedBloomLift = expandedResponseProgress * 1.15;
@@ -39,6 +42,7 @@ export function BlobScene({
               isExpandedResponseClosing={isExpandedResponseClosing}
               thinkingModePulseEventId={thinkingModePulseEventId}
               thinkingModePulseDirection={thinkingModePulseDirection}
+              emotionVisualHint={emotionVisualHint}
             />
           </group>
           <EffectComposer multisampling={0}>

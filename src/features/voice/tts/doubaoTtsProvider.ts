@@ -4,7 +4,12 @@ import {
   DOUBAO_TTS_HTTP_ENDPOINT,
   DOUBAO_TTS_RESOURCE_ID
 } from "../voiceProviderConfig";
-import type { VoiceSynthesisRequest, VoiceSynthesisResult, VoiceTtsProvider } from "./voiceTtsContract";
+import type {
+  VoiceSynthesisExpression,
+  VoiceSynthesisRequest,
+  VoiceSynthesisResult,
+  VoiceTtsProvider
+} from "./voiceTtsContract";
 import { decodeBase64Audio, parseVoiceSynthesisResponse } from "./voiceTtsResponse";
 
 // v3 单向流式合成的音频封装格式（与请求体 audio_params.format 保持一致）
@@ -78,10 +83,9 @@ export class DoubaoTtsProvider implements VoiceTtsProvider {
         req_params: {
           text: request.text,
           speaker: this.speakerId,
-          audio_params: {
-            format: DOUBAO_TTS_AUDIO_FORMAT,
-            sample_rate: DOUBAO_TTS_AUDIO_SAMPLE_RATE
-          }
+          audio_params: buildAudioParams(request.expression),
+          // 上文语境（context_texts）承接跨句语气；additions 为「转义后的 JSON 字符串」，非嵌套对象。
+          ...buildAdditions(request.contextText)
         }
       })
     });
@@ -168,6 +172,54 @@ function decodeUnidirectionalStreamAudio(rawBody: string, mimeType: string): Blo
   }
 
   return new Blob(audioChunks, { type: mimeType });
+}
+
+// 豆包 audio_params 的 speech_rate / loudness_rate 是「百分比增量整数」（int32，0=正常，范围约 [-50,100]），
+// 不是 1.0 基准的浮点倍率。policy 产出的是相对倍率（如 1.08），这里统一转成整数增量并 clamp，
+// 否则豆包会因 int32 反序列化失败而整段合成报错。
+const DOUBAO_RATE_MIN = -50;
+const DOUBAO_RATE_MAX = 100;
+
+function toDoubaoRate(multiplier: number) {
+  const increment = Math.round((multiplier - 1) * 100);
+  return Math.min(DOUBAO_RATE_MAX, Math.max(DOUBAO_RATE_MIN, increment));
+}
+
+/**
+ * 组装 audio_params：基础封装参数恒定；情绪表达参数（speech_rate/loudness_rate）仅在本轮
+ * 情绪派生出对应值时才写入整数增量。pitch 不在豆包标准 audio_params 内，故不落参。
+ */
+function buildAudioParams(expression?: VoiceSynthesisExpression) {
+  const audioParams: Record<string, unknown> = {
+    format: DOUBAO_TTS_AUDIO_FORMAT,
+    sample_rate: DOUBAO_TTS_AUDIO_SAMPLE_RATE
+  };
+
+  if (expression) {
+    if (typeof expression.speechRate === "number") {
+      audioParams.speech_rate = toDoubaoRate(expression.speechRate);
+    }
+    if (typeof expression.loudnessRate === "number") {
+      audioParams.loudness_rate = toDoubaoRate(expression.loudnessRate);
+    }
+  }
+
+  return audioParams;
+}
+
+/**
+ * 组装 additions（上文语境）。豆包要求 additions 为「转义后的 JSON 字符串」，
+ * 内含 context_texts 数组。无上文时不加该字段，维持现状。
+ */
+function buildAdditions(contextText?: string) {
+  const trimmedContext = contextText?.trim();
+  if (!trimmedContext) {
+    return {};
+  }
+
+  return {
+    additions: JSON.stringify({ context_texts: [trimmedContext] })
+  };
 }
 
 function isAsrResourceId(resourceId: string) {

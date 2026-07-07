@@ -46,12 +46,13 @@ export async function sendVoidMessage(
   conversationHistory: VoidConversationMessage[],
   modelConfig: ModelConfig,
   attachments: VoidConversationAttachment[] = [],
-  onToken?: (token: string) => void
+  onToken?: (token: string) => void,
+  emotionContext?: string
 ) {
   const provider = getModelProvider(modelConfig.provider);
   const normalizedUserInput = buildUserInputWithAttachments(userInput, attachments);
   const messages: ProviderMessage[] = [
-    { role: "system", content: buildSystemPrompt(modelConfig) },
+    { role: "system", content: buildSystemPrompt(modelConfig, emotionContext) },
     ...buildRequestConversationHistory(conversationHistory),
     { role: "user", content: normalizedUserInput }
   ];
@@ -67,12 +68,19 @@ export async function sendVoidMessage(
   }
 }
 
-function buildSystemPrompt(modelConfig: ModelConfig) {
-  if (!modelConfig.thinkingModeEnabled) {
-    return VOID_SYSTEM_PROMPT;
+function buildSystemPrompt(modelConfig: ModelConfig, emotionContext?: string) {
+  const sections = [VOID_SYSTEM_PROMPT];
+
+  if (modelConfig.thinkingModeEnabled) {
+    sections.push(THINKING_MODE_SYSTEM_SUFFIX);
   }
 
-  return `${VOID_SYSTEM_PROMPT}\n\n${THINKING_MODE_SYSTEM_SUFFIX}`;
+  // 情绪系统的本轮情绪上下文（可选）。缺省则完全退回原有行为，零副作用。
+  if (emotionContext && emotionContext.trim()) {
+    sections.push(emotionContext.trim());
+  }
+
+  return sections.join("\n\n");
 }
 
 export function createPendingAssistantConversation(

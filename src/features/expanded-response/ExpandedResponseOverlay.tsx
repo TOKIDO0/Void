@@ -3,6 +3,7 @@ import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { Icon } from "@iconify/react";
 import type { VoidConversationMessage } from "../agent/voidConversation";
+import { stripStageDirections } from "../agent/responseTextDisplay";
 import { ExpandedDialogueLine } from "./ExpandedDialogueLine";
 
 gsap.registerPlugin(useGSAP);
@@ -200,7 +201,11 @@ export function ExpandedResponseOverlay({
   }
 
   const handleCopyMessage = async (message: VoidConversationMessage, index: number) => {
-    await navigator.clipboard.writeText(message.content);
+    // assistant 消息复制时同样剥离括号旁白，与显示层保持一致；用户消息原样复制
+    const copyText = message.role === "assistant"
+      ? stripStageDirections(message.content)
+      : message.content;
+    await navigator.clipboard.writeText(copyText);
     window.clearTimeout(copyBubbleTimeoutRef.current);
     setCopiedMessageIndex(index);
     copyBubbleTimeoutRef.current = window.setTimeout(() => {

@@ -12,6 +12,7 @@ import {
   type VoidConversationAttachment,
   type VoidConversationMessage
 } from "../agent/voidConversation";
+import { stripStageDirections } from "../agent/responseTextDisplay";
 import { ExpandedResponseOverlay } from "../expanded-response/ExpandedResponseOverlay";
 import { VoidResponseLayer } from "../response-layer/VoidResponseLayer";
 import { loadModelConfig, updateThinkingModeEnabled } from "../settings/modelConfig";
@@ -27,6 +28,23 @@ import { DoubaoStreamingSttProvider } from "../voice/stt/doubaoStreamingSttProvi
 import { VoiceTtsOrchestrator } from "../voice/tts/voiceTtsOrchestrator";
 import { VoicePlaybackController } from "../voice/tts/voicePlaybackController";
 import { ProviderRequestError } from "../../lib/model-providers/providerErrors";
+import { recognizeUserEmotion } from "../emotion/userEmotionRecognizer";
+import { evolveAgentEmotion } from "../emotion/agentEmotionEngine";
+import {
+  deriveEmotionResponsePolicy,
+  type EmotionResponsePolicy,
+  type VisualProfileHint
+} from "../emotion/emotionToResponsePolicy";
+import { loadAgentEmotionState, saveAgentEmotionState } from "../emotion/emotionStore";
+import type { AgentEmotionState } from "../emotion/emotionTypes";
+import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
+
+// 情绪视觉偏移的中性初值：各字段乘性系数为 1，即不偏移（等价于纯 profile）。
+const NEUTRAL_VISUAL_HINT: VisualProfileHint = {
+  noiseSpeedScale: 1,
+  edgeBoostScale: 1,
+  amplitudeScale: 1
+};
 
 type ResponseLayerTone = "quiet" | "thinking" | "error";
 type ResponseLayerSource = "text" | "voice-transcript" | "voice-reply";
@@ -76,6 +94,12 @@ export function VoidStage() {
 
   const conversationHistoryRef = useRef<VoidConversationMessage[]>(conversationHistory);
   const textExchangeActiveRef = useRef(false);
+  // Agent 情绪状态（带惯性/衰减）：从本地持久化载入，随每轮对话演化后回写。
+  const agentEmotionStateRef = useRef<AgentEmotionState>(loadAgentEmotionState());
+  // 本轮情绪派生的 TTS 表达参数：整轮一致，供流式/整段合成透传给豆包 audio_params。
+  const turnTtsExpressionRef = useRef<VoiceSynthesisExpression>({});
+  // 情绪视觉偏移：驱动中央流体 profile 的乘性偏移，需触发重渲染故用 state。
+  const [emotionVisualHint, setEmotionVisualHint] = useState<VisualProfileHint>(NEUTRAL_VISUAL_HINT);
   const responseLayerHideTimeoutRef = useRef(0);
   const expandedProgressRafRef = useRef(0);
   const expandedResponseProgressRef = useRef({ value: 0 });
@@ -215,11 +239,27 @@ export function VoidStage() {
     tryCompleteVoiceOutputSession(nextVisualState);
   }, [tryCompleteVoiceOutputSession]);
 
+  // 本轮情绪结算：识别用户情绪 → 演化 Agent 情绪 → 持久化 → 派生策略。
+  // 必须在创建语音批处理器之前调用，使 TTS 表达参数（整轮一致）在首句合成前就绪。
+  // 一期只用文本；语音链路的声学线索后续接入 recognizeUserEmotion 第二参。
+  const resolveTurnEmotion = useCallback((message: string): EmotionResponsePolicy => {
+    const emotionReading = recognizeUserEmotion(message);
+    const nextAgentEmotion = evolveAgentEmotion(agentEmotionStateRef.current, emotionReading);
+    agentEmotionStateRef.current = nextAgentEmotion;
+    saveAgentEmotionState(nextAgentEmotion);
+    const emotionPolicy = deriveEmotionResponsePolicy(nextAgentEmotion, emotionReading);
+    // TTS 表达走 ref（整轮一致，合成时读取）；视觉偏移走 state（驱动中央流体重渲染）。
+    turnTtsExpressionRef.current = emotionPolicy.ttsExpression;
+    setEmotionVisualHint(emotionPolicy.visualHint);
+    return emotionPolicy;
+  }, []);
+
   const requestVoidResponse = useCallback((
     message: string,
     history: VoidConversationMessage[],
     attachments: VoidConversationAttachment[] = [],
-    onStreamContent?: (content: string) => void
+    onStreamContent: ((content: string) => void) | undefined,
+    emotionSystemPromptSuffix: string
   ) => {
     const modelConfig = {
       ...loadModelConfig(),
@@ -237,14 +277,15 @@ export function VoidStage() {
         streamedContent += token;
         onStreamContent?.(streamedContent);
         showResponseLayer({
-          text: streamedContent,
+          // 显示层剥离括号旁白（术语括号保留）；历史与合成走各自净化，互不影响
+          text: stripStageDirections(streamedContent),
           tone: "quiet",
           source: "text",
           pulseKey: didStartStreaming ? "streaming-active" : "streaming-start"
         });
         didStartStreaming = true;
       }
-      : undefined);
+      : undefined, emotionSystemPromptSuffix);
   }, [showResponseLayer, thinkingModeEnabled]);
 
   const handleThinkingModeChange = useCallback((nextThinkingModeEnabled: boolean) => {
@@ -256,7 +297,7 @@ export function VoidStage() {
 
   const completeTextResponse = useCallback(async (responseText: string, pulseKey: string) => {
     showResponseLayer({
-      text: responseText,
+      text: stripStageDirections(responseText),
       tone: "quiet",
       source: "text",
       pulseKey
@@ -283,7 +324,9 @@ export function VoidStage() {
       requestMode: runtimeConfig.requestMode,
       voiceMode: "default",
       preferredGender: "female",
-      scene: "default"
+      scene: "default",
+      // 本轮情绪表达（整轮一致）：非流式整段路径同样透传
+      expression: turnTtsExpressionRef.current
     });
     if (!synthesisResult) {
       setVisualState("idle");
@@ -359,7 +402,9 @@ export function VoidStage() {
         requestMode: runtimeConfig.requestMode,
         voiceMode: "default",
         preferredGender: "female",
-        scene: "default"
+        scene: "default",
+        // 本轮情绪表达（整轮一致）：resolveTurnEmotion 已在本批处理器创建前写入 ref
+        expression: turnTtsExpressionRef.current
       },
       ({ result }) => {
         if (signal.aborted) {
@@ -524,6 +569,8 @@ export function VoidStage() {
       thinkingModeEnabled
     };
     const canStream = modelConfig.streamEnabled && modelConfig.provider === "openai-compatible";
+    // 情绪先结算：使 TTS 表达参数在批处理器创建前就绪，整轮一致，避免逐句变造成忽高忽低
+    const emotionPolicy = resolveTurnEmotion(message);
     const streamingVoiceBatcher = canStream ? createStreamingVoiceBatcher() : null;
 
     try {
@@ -538,7 +585,7 @@ export function VoidStage() {
         streamingVoiceBatcher?.push(content);
       };
 
-      const assistantResponse = await requestVoidResponse(message, previousHistory, attachments, syncStreamingAssistantMessage);
+      const assistantResponse = await requestVoidResponse(message, previousHistory, attachments, syncStreamingAssistantMessage, emotionPolicy.systemPromptSuffix);
       if (activeExchangeIdRef.current !== exchangeId) {
         return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）
       }
@@ -547,7 +594,7 @@ export function VoidStage() {
       if (streamingVoiceBatcher) {
         await streamingVoiceBatcher.complete(assistantResponse.content);
         showResponseLayer({
-          text: assistantResponse.content,
+          text: stripStageDirections(assistantResponse.content),
           tone: "quiet",
           source: "text",
           pulseKey: "complete"
@@ -563,7 +610,7 @@ export function VoidStage() {
       }
       failTextResponse(error, "error", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [beginExchange, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
+  }, [beginExchange, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
 
   const handleRegenerateLatestUserMessage = useCallback(async (messageIndex: number, content: string) => {
     const currentHistory = conversationHistoryRef.current;
@@ -591,6 +638,8 @@ export function VoidStage() {
       thinkingModeEnabled
     };
     const canStream = modelConfig.streamEnabled && modelConfig.provider === "openai-compatible";
+    // 情绪先结算：使 TTS 表达参数在批处理器创建前就绪，整轮一致
+    const emotionPolicy = resolveTurnEmotion(content);
     const streamingVoiceBatcher = canStream ? createStreamingVoiceBatcher() : null;
 
     try {
@@ -609,7 +658,8 @@ export function VoidStage() {
         content,
         historyBeforeEditedMessage,
         targetMessage.attachments ?? [],
-        syncStreamingAssistantMessage
+        syncStreamingAssistantMessage,
+        emotionPolicy.systemPromptSuffix
       );
       if (activeExchangeIdRef.current !== exchangeId) {
         return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）
@@ -619,7 +669,7 @@ export function VoidStage() {
       if (streamingVoiceBatcher) {
         await streamingVoiceBatcher.complete(assistantResponse.content);
         showResponseLayer({
-          text: assistantResponse.content,
+          text: stripStageDirections(assistantResponse.content),
           tone: "quiet",
           source: "text",
           pulseKey: "complete-regenerate"
@@ -635,7 +685,7 @@ export function VoidStage() {
       }
       failTextResponse(error, "error-regenerate", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [beginExchange, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
+  }, [beginExchange, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
 
   const handleVoiceInputToggle = useCallback(() => {
     const nextVoiceInputEnabled = !voicePreferences.voiceInputEnabled;
@@ -774,6 +824,7 @@ export function VoidStage() {
         isExpandedResponseClosing={isExpandedResponseClosing}
         thinkingModePulseEventId={thinkingModePulseEventId}
         thinkingModePulseDirection={thinkingModePulseDirection}
+        emotionVisualHint={emotionVisualHint}
       />
       <VoidResponseLayer
         isVisible={responseLayer.isVisible}
@@ -849,9 +900,11 @@ function resolveTtsErrorMessage(error: unknown) {
 // 渐进式分块（progressive chunking）：首块尽量短以最小化首字发声延迟（TTFA），
 // 后续块逐渐变长——此时首句已在播放，有余量从容合成，换取更少请求与更自然的韵律。
 // 数组按「本轮已产出的合成块序号」取阈值，越靠后越长，末位为封顶值。
-const SYNTHESIS_CHUNK_MIN_CHARS_RAMP = [6, 14, 24];
+// 首块保低延迟（TTFA 只由第 0 块决定），后续块显著加长使其更接近完整句，
+// 减少「半句起调」造成的跨句语气突变（依据见 21 号文档 §0 根因 B2）。
+const SYNTHESIS_CHUNK_MIN_CHARS_RAMP = [8, 18, 30];
 // 软切封顶：无强标点（。！？；换行）的超长串，达到此长度即允许在弱停顿（逗号、顿号）处切，避免一口气憋太长
-const SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS = 40;
+const SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS = 48;
 
 function resolveChunkMinChars(chunkIndex: number) {
   const rampIndex = Math.min(chunkIndex, SYNTHESIS_CHUNK_MIN_CHARS_RAMP.length - 1);
@@ -883,11 +936,26 @@ function extractReadySentences(text: string, includeRemainder: boolean, emittedC
   const sentences: string[] = [];
   let consumedLength = 0;
   let chunkStartIndex = 0;
+  // 括号嵌套深度：进入括号内不切句，保证成对括号（含内部标点）整体落在同一块，
+  // 之后 sanitizeTextForSpeech 才能把旁白整体剥离，避免旁白被切散后残留文字被朗读。
+  let bracketDepth = 0;
 
   for (let index = 0; index < text.length; index += 1) {
-    const isStrongBoundary = isSentenceDelimiter(text[index]);
-    const isSoftBoundary = isSoftSentenceDelimiter(text[index]);
+    const character = text[index];
+    if (isOpenBracket(character)) {
+      bracketDepth += 1;
+    } else if (isCloseBracket(character) && bracketDepth > 0) {
+      bracketDepth -= 1;
+    }
+
+    const isStrongBoundary = isSentenceDelimiter(character);
+    const isSoftBoundary = isSoftSentenceDelimiter(character);
     if (!isStrongBoundary && !isSoftBoundary) {
+      continue;
+    }
+
+    // 括号内的标点一律不作为切分边界；仅当块已超软切封顶（异常超长未闭合括号）才放弃保护，防卡死
+    if (bracketDepth > 0 && index + 1 - chunkStartIndex < SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS) {
       continue;
     }
 
@@ -930,4 +998,13 @@ function isSentenceDelimiter(character: string) {
 
 function isSoftSentenceDelimiter(character: string) {
   return character === "，" || character === "、" || character === ",";
+}
+
+// 开/闭括号判定：供切句阶段的括号保护使用，覆盖中文（）、英文 ()、【】、[]。
+function isOpenBracket(character: string) {
+  return character === "（" || character === "(" || character === "【" || character === "[";
+}
+
+function isCloseBracket(character: string) {
+  return character === "）" || character === ")" || character === "】" || character === "]";
 }

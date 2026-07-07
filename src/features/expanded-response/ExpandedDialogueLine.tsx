@@ -1,6 +1,7 @@
 import { Icon } from "@iconify/react";
 import type { CSSProperties, FormEvent } from "react";
 import type { VoidConversationMessage } from "../agent/voidConversation";
+import { stripStageDirections } from "../agent/responseTextDisplay";
 
 type ExpandedDialogueLineProps = {
   message: VoidConversationMessage;
@@ -37,6 +38,10 @@ export function ExpandedDialogueLine({
   const isPendingAssistantMessage = message.role === "assistant" && !message.content.trim();
   const canCopyMessage = Boolean(message.content.trim());
   const attachments = message.attachments ?? [];
+  // assistant 回复显示时剥离括号旁白（用户消息原样显示）；历史存储仍保留原文，仅呈现层净化
+  const displayedContent = message.role === "assistant"
+    ? stripStageDirections(message.content)
+    : message.content;
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -97,7 +102,7 @@ export function ExpandedDialogueLine({
       ) : (
         <>
           <p className={isPendingAssistantMessage ? "expanded-dialogue-line__pending" : undefined}>
-            {isPendingAssistantMessage ? "..." : message.content}
+            {isPendingAssistantMessage ? "..." : displayedContent}
           </p>
           {attachments.length ? (
             <div className="expanded-dialogue-line__attachments">

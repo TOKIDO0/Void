@@ -4,6 +4,7 @@ import { Mesh, ShaderMaterial } from "three";
 import { blobFragmentShader, blobVertexShader, createBlobUniforms } from "./blobShader";
 import { useBlobStateAnimation } from "./useBlobStateAnimation";
 import type { VoidVisualState } from "../void-state/voidVisualState";
+import type { VisualProfileHint } from "../emotion/emotionToResponsePolicy";
 
 type VoidBlobProps = {
   visualState: VoidVisualState;
@@ -11,16 +12,25 @@ type VoidBlobProps = {
   isExpandedResponseClosing: boolean;
   thinkingModePulseEventId: number;
   thinkingModePulseDirection: "on" | "off";
+  emotionVisualHint: VisualProfileHint;
 };
 
 const THINKING_MODE_PULSE_DURATION_MS = 860;
+// 情绪视觉偏移的安全区间：乘性系数 clamp 到 [0.6, 1.4]，防止极端情绪把形变推出可视稳定范围。
+const EMOTION_VISUAL_SCALE_MIN = 0.6;
+const EMOTION_VISUAL_SCALE_MAX = 1.4;
+
+function clampVisualScale(scale: number) {
+  return Math.min(EMOTION_VISUAL_SCALE_MAX, Math.max(EMOTION_VISUAL_SCALE_MIN, scale));
+}
 
 export function VoidBlob({
   visualState,
   expandedResponseProgress,
   isExpandedResponseClosing,
   thinkingModePulseEventId,
-  thinkingModePulseDirection
+  thinkingModePulseDirection,
+  emotionVisualHint
 }: VoidBlobProps) {
   const meshRef = useRef<Mesh | null>(null);
   const materialRef = useRef<ShaderMaterial | null>(null);
@@ -78,11 +88,18 @@ export function VoidBlob({
     mesh.rotation.y += delta * 0.08;
     mesh.rotation.x = Math.sin(clock.elapsedTime * 0.22) * 0.04;
 
+    // 情绪视觉偏移：对基础 profile 的三项形变做 clamp 后的乘性叠加（情绪是正交维度，不新增 visual state）
+    const emotionAmplitudeScale = clampVisualScale(emotionVisualHint.amplitudeScale);
+    const emotionNoiseSpeedScale = clampVisualScale(emotionVisualHint.noiseSpeedScale);
+    const emotionEdgeBoostScale = clampVisualScale(emotionVisualHint.edgeBoostScale);
+
     material.uniforms.uTime.value = clock.elapsedTime;
     material.uniforms.uAmplitude.value =
-      animatedValues.amplitude + animatedValues.audioLevel * 0.025 + animatedValues.transitionEnergy * 0.035;
-    material.uniforms.uNoiseSpeed.value = animatedValues.noiseSpeed + animatedValues.transitionEnergy * 0.035;
-    material.uniforms.uEdgeBoost.value = animatedValues.edgeBoost + speakingLift;
+      (animatedValues.amplitude + animatedValues.audioLevel * 0.025 + animatedValues.transitionEnergy * 0.035)
+      * emotionAmplitudeScale;
+    material.uniforms.uNoiseSpeed.value =
+      (animatedValues.noiseSpeed + animatedValues.transitionEnergy * 0.035) * emotionNoiseSpeedScale;
+    material.uniforms.uEdgeBoost.value = (animatedValues.edgeBoost + speakingLift) * emotionEdgeBoostScale;
     material.uniforms.uInternalFlow.value = animatedValues.innerFlow;
     material.uniforms.uIrregularity.value = animatedValues.irregularity;
     material.uniforms.uTransitionEnergy.value = animatedValues.transitionEnergy;
