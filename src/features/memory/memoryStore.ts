@@ -72,6 +72,62 @@ export function upsertMemory(entry: MemoryEntry): MemoryEntry {
   return clean;
 }
 
+/** 去重合并选项。 */
+export type DedupeOptions = {
+  /**
+   * 合并时间窗（毫秒）。仅当命中的重复条目 updatedAt 落在 [now - mergeWindowMs, now] 内才合并，
+   * 否则视为新的趋势点、追加新条目。用于情绪趋势按窗合并（同一情绪 2 小时内并一条）。
+   * 不传则不设窗：任何同主体同内容的旧条目都直接合并（普通记忆去重）。
+   */
+  mergeWindowMs?: number;
+};
+
+/**
+ * 去重写入：按「主体 + 分区 + 归一化内容」查重，命中则更新既有条目而非新增，
+ * 避免同类记忆随对话堆积（对齐 25 号 §2.3 优化点 3 / 4）。
+ * - 命中重复：刷新 updatedAt、取较高 confidence、采用最新内容表述，createdAt 不变。
+ * - 未命中：作为新条目追加。
+ */
+export function upsertMemoryDeduped(entry: MemoryEntry, options: DedupeOptions = {}): MemoryEntry {
+  const clean = sanitizeEntry(entry);
+  if (!clean) {
+    throw new Error("upsertMemoryDeduped: 记忆条目字段非法，拒绝写入");
+  }
+
+  const entries = listMemories();
+  const normalizedContent = normalizeContent(clean.content);
+  const windowStart =
+    typeof options.mergeWindowMs === "number" ? clean.updatedAt - options.mergeWindowMs : null;
+
+  const duplicateIndex = entries.findIndex(
+    (item) =>
+      item.subjectType === clean.subjectType &&
+      item.subjectName === clean.subjectName &&
+      item.memoryType === clean.memoryType &&
+      normalizeContent(item.content) === normalizedContent &&
+      (windowStart === null || item.updatedAt >= windowStart)
+  );
+
+  if (duplicateIndex >= 0) {
+    const existing = entries[duplicateIndex];
+    const merged: MemoryEntry = {
+      ...existing,
+      content: clean.content,
+      confidence: Math.max(existing.confidence, clean.confidence),
+      sensitivity: clean.sensitivity,
+      source: clean.source,
+      updatedAt: clean.updatedAt
+    };
+    entries[duplicateIndex] = merged;
+    persist(entries);
+    return merged;
+  }
+
+  entries.push(clean);
+  persist(entries);
+  return clean;
+}
+
 /** 删除单条记忆，返回是否命中删除。 */
 export function removeMemory(id: string): boolean {
   const entries = listMemories();
@@ -91,6 +147,14 @@ export function clearMemories(): void {
 // ---------------------------------------------------------------------------
 // 内部工具
 // ---------------------------------------------------------------------------
+
+/**
+ * 内容归一化，用于去重比较：剥离所有空白与标点，
+ * 使「我喜欢猫」与「我喜欢猫。」判为同一条，避免标点差异造成重复堆积。
+ */
+function normalizeContent(text: string): string {
+  return text.replace(/[\s\p{P}]/gu, "");
+}
 
 /** 写盘：统一封装信封并序列化。 */
 function persist(entries: MemoryEntry[]): void {

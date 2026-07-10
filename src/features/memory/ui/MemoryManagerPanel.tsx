@@ -12,7 +12,7 @@ import {
   SUBJECT_TYPE_LABELS,
   SENSITIVITY_LABELS
 } from "../memoryTypes";
-import { listMemories, removeMemory } from "../memoryStore";
+import { listMemories, removeMemory, clearMemories } from "../memoryStore";
 
 interface MemoryManagerPanelProps {
   isOpen: boolean;
@@ -59,6 +59,16 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
     },
     [refresh]
   );
+
+  // 清空全部记忆：破坏性操作，先二次确认再执行。
+  const handleClearAll = useCallback(() => {
+    const confirmed = window.confirm("确定要清空全部记忆吗？此操作不可撤销。");
+    if (!confirmed) {
+      return;
+    }
+    clearMemories();
+    refresh();
+  }, [refresh]);
 
   if (!isOpen) {
     return null;
@@ -122,6 +132,14 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
             ))
           )}
         </div>
+
+        {groups.length > 0 && (
+          <div style={footerStyle}>
+            <button style={clearAllButtonStyle} onClick={handleClearAll}>
+              清空全部记忆
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -325,6 +343,24 @@ const removeButtonStyle: CSSProperties = {
   padding: "4px 10px",
   background: "rgba(40, 14, 10, 0.4)",
   color: "rgba(255, 190, 160, 0.85)",
+  fontSize: 12,
+  cursor: "pointer"
+};
+
+// 底部全局操作区：与列表用描边分隔，清空全部按钮靠右。
+const footerStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  marginTop: 16,
+  paddingTop: 14,
+  borderTop: "1px solid rgba(132, 226, 255, 0.18)"
+};
+
+const clearAllButtonStyle: CSSProperties = {
+  border: "1px solid rgba(255, 154, 103, 0.45)",
+  padding: "6px 14px",
+  background: "rgba(40, 14, 10, 0.45)",
+  color: "rgba(255, 190, 160, 0.9)",
   fontSize: 12,
   cursor: "pointer"
 };

@@ -13,6 +13,12 @@ export type ClassifyResult = {
   subjectType: SubjectType;
   subjectName: string;
   sensitivity: Sensitivity;
+  /**
+   * 是否命中「真实强分区」规则（而非兜底归入 userProfile）。
+   * 准入闸（memorySalience）据此复用同一套规则表判断「有无实义信号」，
+   * 避免规则表在两处重复维护。
+   */
+  matchedRealType: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -89,24 +95,26 @@ const SELF_TERMS: readonly string[] = ["我", "自己", "本人", "我的"];
  * @param source  来源标记（哪次对话 / 用户确认），透传，不参与分类
  */
 export function classifyMemory(content: string): ClassifyResult {
-  const memoryType = resolveMemoryType(content);
+  const matchedType = matchStrongMemoryType(content);
+  const memoryType = matchedType ?? DEFAULT_MEMORY_TYPE;
   const { subjectType, subjectName } = resolveSubject(content);
   const sensitivity = assessSensitivity(memoryType, content);
 
-  return { memoryType, subjectType, subjectName, sensitivity };
+  return { memoryType, subjectType, subjectName, sensitivity, matchedRealType: matchedType !== null };
 }
 
 // ---------------------------------------------------------------------------
-// 内部：分区判定
+// 分区判定：命中强分区规则返回该分区，否则返回 null（交由调用方决定是否兜底）。
+// 独立导出供准入闸复用同一套规则表，杜绝规则在两处漂移。
 // ---------------------------------------------------------------------------
 
-function resolveMemoryType(content: string): MemoryType {
+export function matchStrongMemoryType(content: string): MemoryType | null {
   for (const rule of MEMORY_TYPE_RULES) {
     if (rule.keywords.some((keyword) => content.includes(keyword))) {
       return rule.memoryType;
     }
   }
-  return DEFAULT_MEMORY_TYPE;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
