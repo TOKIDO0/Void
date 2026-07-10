@@ -1,9 +1,20 @@
 import { ProviderRequestError } from "../../../lib/model-providers/providerErrors";
+import { DOUBAO_TTS_RESOURCE_ID } from "../voiceProviderConfig";
 import type { VoiceRuntimeConfig } from "../voiceRuntimeConfig";
-import { DoubaoTtsProvider } from "./doubaoTtsProvider";
+import { synthesizeBidirectional } from "./doubaoBidirectional/doubaoBidirectionalSession";
+import { DoubaoTtsProvider, toDoubaoAudioRate } from "./doubaoTtsProvider";
 import { FishAudioTtsProvider } from "./fishAudioTtsProvider";
 import { MiniMaxTtsProvider } from "./minimaxTtsProvider";
-import type { VoiceSynthesisRequest, VoiceSynthesisResult, VoiceTtsProvider } from "./voiceTtsContract";
+import type {
+  VoiceSynthesisExpression,
+  VoiceSynthesisRequest,
+  VoiceSynthesisResult,
+  VoiceTtsProvider
+} from "./voiceTtsContract";
+
+// 双向流式回吐 mp3；与 doubaoBidirectionalSession / StartSession audio_params.format 一致。
+const DOUBAO_BIDIRECTIONAL_AUDIO_FORMAT = "mp3";
+const DOUBAO_BIDIRECTIONAL_SAMPLE_RATE = 24000;
 
 type VoiceTtsProviderRegistration = {
   kind: VoiceSynthesisResult["provider"];
@@ -123,6 +134,12 @@ export class VoiceTtsOrchestrator {
     onSentenceReady: (sentenceResult: VoiceSentenceSynthesisResult) => Promise<void> | void,
     signal?: AbortSignal
   ): VoiceStreamingSynthesisSession {
+    // 双向流式分支：主供应商豆包 + 开关开启 + 凭据齐全时，整轮走单一 WS session 连续合成（消灭句界）。
+    // 不满足则落入下方现有逐句 HTTP 路径（Fish/MiniMax 及豆包 HTTP 原样保留）。
+    if (this.shouldUseBidirectional()) {
+      return this.createBidirectionalStreamingSession(request, onSentenceReady, signal);
+    }
+
     const pendingTasks: { index: number; text: string }[] = [];
     // 按 index 记录每句净化文本，供 worker 取「上一句」作为 contextText（滑动窗口=1 句）。
     const taskTextByIndex = new Map<number, string>();
@@ -232,6 +249,80 @@ export class VoiceTtsOrchestrator {
     };
   }
 
+  /** 是否走豆包双向流式：开关开启 + 主供应商豆包凭据齐全（appId/apiKey/speaker）。 */
+  private shouldUseBidirectional(): boolean {
+    return (
+      this.runtimeConfig.doubaoTtsMode === "bidirectional" &&
+      Boolean(this.runtimeConfig.doubaoApiKey.trim()) &&
+      Boolean(this.runtimeConfig.doubaoAppId.trim()) &&
+      Boolean(this.runtimeConfig.doubaoSpeakerId.trim())
+    );
+  }
+
+  /**
+   * 双向流式合成会话（播放选型 A：整段单音频）。
+   * 整轮所有句子累积后，在 complete() 时于单一 WS session 内连续合成，得到一条连续音频，
+   * 单次 onSentenceReady({index:0}) 回调播放 —— 架构上没有句界，根治句界音调跳变。
+   * 上层 push/complete 契约与逐句 HTTP 路径完全一致，播放层零改动。
+   */
+  private createBidirectionalStreamingSession(
+    request: Omit<VoiceSynthesisRequest, "signal" | "text">,
+    onSentenceReady: (sentenceResult: VoiceSentenceSynthesisResult) => Promise<void> | void,
+    signal?: AbortSignal
+  ): VoiceStreamingSynthesisSession {
+    const collectedSentences: string[] = [];
+
+    return {
+      push: (sentences: string[]) => {
+        for (const rawSentence of sentences) {
+          const text = rawSentence.trim();
+          if (text) {
+            collectedSentences.push(text);
+          }
+        }
+      },
+      complete: async () => {
+        if (signal?.aborted || collectedSentences.length === 0) {
+          return;
+        }
+
+        try {
+          const audioBlob = await synthesizeBidirectional(
+            collectedSentences,
+            {
+              appId: this.runtimeConfig.doubaoAppId.trim(),
+              accessKey: this.runtimeConfig.doubaoApiKey.trim(),
+              resourceId: this.runtimeConfig.doubaoResourceId.trim() || DOUBAO_TTS_RESOURCE_ID,
+              speaker: this.runtimeConfig.doubaoSpeakerId.trim(),
+              audioParams: buildBidirectionalAudioParams(request.expression)
+            },
+            signal
+          );
+
+          // 中断可能在合成返回后、回调前发生：此时丢弃音频，不入播放队列。
+          if (signal?.aborted) {
+            URL.revokeObjectURL(URL.createObjectURL(audioBlob));
+            return;
+          }
+
+          await onSentenceReady({
+            index: 0,
+            result: {
+              audioUrl: URL.createObjectURL(audioBlob),
+              mimeType: audioBlob.type,
+              provider: "doubao"
+            }
+          });
+        } catch (error) {
+          // best-effort：与逐句 HTTP 路径一致，语音失败不阻断文字回合；开发期打印便于联调定位。
+          if (import.meta.env.DEV) {
+            console.warn("[VOID TTS bidirectional session]", error);
+          }
+        }
+      }
+    };
+  }
+
   /**
    * 句子级批量合成（非流式整段兜底路径使用）。内部同样走单一会话，全局并发受控。
    */
@@ -296,6 +387,34 @@ export class VoiceTtsOrchestrator {
       }
     }
   }
+}
+
+/**
+ * 组装双向流式的 audio_params：基础封装恒定；情绪表达（speech_rate/loudness_rate）仅在本轮
+ * 情绪派生出对应值时才写入整数增量（复用 toDoubaoAudioRate，与 HTTP 路径数值一致）。
+ * 这些参数在 StartSession 时对整段生效，从而全段情绪一致（阶段 5）。
+ */
+function buildBidirectionalAudioParams(expression?: VoiceSynthesisExpression) {
+  const audioParams = {
+    format: DOUBAO_BIDIRECTIONAL_AUDIO_FORMAT,
+    sampleRate: DOUBAO_BIDIRECTIONAL_SAMPLE_RATE
+  } as {
+    format: string;
+    sampleRate: number;
+    speechRate?: number;
+    loudnessRate?: number;
+  };
+
+  if (expression) {
+    if (typeof expression.speechRate === "number") {
+      audioParams.speechRate = toDoubaoAudioRate(expression.speechRate);
+    }
+    if (typeof expression.loudnessRate === "number") {
+      audioParams.loudnessRate = toDoubaoAudioRate(expression.loudnessRate);
+    }
+  }
+
+  return audioParams;
 }
 
 function isRateLimitError(error: unknown) {

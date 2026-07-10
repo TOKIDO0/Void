@@ -18,6 +18,8 @@ export const DOUBAO_TTS_RESOURCE_ID = "seed-tts-2.0";
 export const DOUBAO_TTS_MODEL = "seed-tts-2.0-standard";
 export const DOUBAO_TTS_ENDPOINT = "wss://openspeech.bytedance.com/api/v3/tts/unidirectional/stream";
 export const DOUBAO_TTS_HTTP_ENDPOINT = "https://openspeech.bytedance.com/api/v3/tts/unidirectional";
+// 双向流式（整段单 session 连续合成，根治句界音调跳变）。官方「WebSocket 双向流式-V3」端点。
+export const DOUBAO_TTS_BIDIRECTIONAL_ENDPOINT = "wss://openspeech.bytedance.com/api/v3/tts/bidirection";
 // 双向流式（每包即返，实时性最优）。资源号对应豆包流式语音识别模型 1.0 小时版（账号实测开通的档位）。
 // 若将来账号开通 2.0（Seed），改为 volc.seedasr.sauc.duration。
 export const DOUBAO_ASR_ENDPOINT = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel";

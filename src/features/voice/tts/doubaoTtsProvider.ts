@@ -180,7 +180,11 @@ function decodeUnidirectionalStreamAudio(rawBody: string, mimeType: string): Blo
 const DOUBAO_RATE_MIN = -50;
 const DOUBAO_RATE_MAX = 100;
 
-function toDoubaoRate(multiplier: number) {
+/**
+ * 把 policy 产出的相对倍率（如 1.08）转成豆包 audio_params 的整数增量并 clamp 到 [-50,100]。
+ * HTTP 与双向流式两条路径共用同一转换，保证情绪表达在两种模式下数值一致。
+ */
+export function toDoubaoAudioRate(multiplier: number) {
   const increment = Math.round((multiplier - 1) * 100);
   return Math.min(DOUBAO_RATE_MAX, Math.max(DOUBAO_RATE_MIN, increment));
 }
@@ -197,10 +201,10 @@ function buildAudioParams(expression?: VoiceSynthesisExpression) {
 
   if (expression) {
     if (typeof expression.speechRate === "number") {
-      audioParams.speech_rate = toDoubaoRate(expression.speechRate);
+      audioParams.speech_rate = toDoubaoAudioRate(expression.speechRate);
     }
     if (typeof expression.loudnessRate === "number") {
-      audioParams.loudness_rate = toDoubaoRate(expression.loudnessRate);
+      audioParams.loudness_rate = toDoubaoAudioRate(expression.loudnessRate);
     }
   }
 
