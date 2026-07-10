@@ -92,6 +92,18 @@ function handleBrowserConnection(browserSocket: WebSocket) {
   // 浏览器已发过 finish 但握手/合成尚未走到可收尾的时点，置位后在合适阶段补发 FinishSession
   let finishRequested = false;
   let startEvent: StartEvent | null = null;
+  // done 是否已发给浏览器：豆包对不同 speaker 收尾事件不一（部分发 TTSEnded(359)，
+  // 部分直接 SessionFinished(152) 收尾而不发 359）。两处都触发 done，此标志防双发。
+  let doneSent = false;
+
+  // 会话音频吐完，通知浏览器可结算整段 Blob（幂等）
+  const emitDone = () => {
+    if (doneSent) {
+      return;
+    }
+    doneSent = true;
+    sendToBrowser({ type: "done" });
+  };
 
   const sendToBrowser = (event: Record<string, unknown>) => {
     if (browserSocket.readyState === WebSocket.OPEN) {
@@ -290,12 +302,16 @@ function handleBrowserConnection(browserSocket: WebSocket) {
           return;
         }
         case EventType.TTSEnded: {
-          // 整段音频合成结束
-          sendToBrowser({ type: "done" });
+          // 整段音频合成结束（部分 speaker 会发此事件；发 done 幂等）
+          emitDone();
           return;
         }
         case EventType.SessionFinished: {
-          // 会话收尾 → 关闭连接
+          // 会话收尾：此刻整段音频已全部经 AudioOnlyServer 帧回吐完毕。
+          // 部分 speaker（如 zh_female_xiaohe_uranus_bigtts）不发 TTSEnded(359)，
+          // 直接以 SessionFinished(152) 收尾，故必须在此补发 done，否则浏览器永远等不到
+          // 结算信号、丢弃已收全的音频（表现为「没有任何声音」）。emitDone 幂等防双发。
+          emitDone();
           sendFinishConnection();
           return;
         }
