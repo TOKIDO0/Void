@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import type { IncomingMessage } from "node:http";
 import { attachVoiceSttBridge } from "./server/voiceSttBridge";
+import { attachVoiceTtsBridge } from "./server/voiceTtsBridge";
 
 export default defineConfig({
   plugins: [
@@ -10,8 +11,10 @@ export default defineConfig({
       name: "void-model-proxy",
       configureServer(server) {
         // 挂载豆包流式语音识别 WebSocket 桥接（/void-voice-proxy/stt）
+        // 与豆包双向流式 TTS 桥接（/void-voice-proxy/tts）
         if (server.httpServer) {
           attachVoiceSttBridge(server.httpServer);
+          attachVoiceTtsBridge(server.httpServer);
         }
 
         server.middlewares.use("/void-model-proxy", async (request, response) => {
