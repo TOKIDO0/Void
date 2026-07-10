@@ -40,8 +40,9 @@ import type { AgentEmotionState, EmotionLabel, UserEmotionReading } from "../emo
 import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
 import { classifyMemory } from "../memory/memoryClassifier";
+import { assessSalience } from "../memory/memorySalience";
 import { assessSensitivity, resolveWriteDecision } from "../memory/memoryPolicy";
-import { upsertMemory } from "../memory/memoryStore";
+import { upsertMemoryDeduped } from "../memory/memoryStore";
 import type { MemoryType, SubjectType, Sensitivity } from "../memory/memoryTypes";
 
 // 情绪视觉偏移的中性初值：各字段乘性系数为 1，即不偏移（等价于纯 profile）。
@@ -60,6 +61,10 @@ const VOICE_FINAL_DEDUP_WINDOW_MS = 1500;
 function normalizeVoiceFinal(text: string) {
   return text.replace(/[\s\p{P}]/gu, "");
 }
+
+// 情绪趋势记忆的合并时间窗：同一情绪标签在此窗内再次显著时，合并/更新为一条而非新增，
+// 只保留趋势而非流水账（25 号 §2.3 优化点 4）。窗外再现则作为新的趋势点。
+const EMOTION_MEMORY_MERGE_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 // 情绪标签中文措辞：仅用于 emotionTrend 记忆内容的自然表述（D4）。neutral 不写记忆，故不含。
 const EMOTION_LABEL_TEXT: Record<Exclude<EmotionLabel, "neutral">, string> = {
@@ -122,6 +127,9 @@ export function VoidStage() {
   const agentEmotionStateRef = useRef<AgentEmotionState>(loadAgentEmotionState());
   // 本轮用户情绪识别结果：供对话成功结束后判定「显著情绪」并写入 emotionTrend 记忆（D4）。
   const lastEmotionReadingRef = useRef<UserEmotionReading | null>(null);
+  // 语音 final 幂等护栏：记录上一条已发送定稿的归一化文本与时间戳，
+  // 与桥接解耦地拦截任何上游抖动导致的「同一句短时间内重复 final」，防止双发双回复。
+  const lastVoiceFinalRef = useRef<{ normalized: string; at: number } | null>(null);
   // 本轮情绪派生的 TTS 表达参数：整轮一致，供流式/整段合成透传给豆包 audio_params。
   const turnTtsExpressionRef = useRef<VoiceSynthesisExpression>({});
   // 情绪视觉偏移：驱动中央流体 profile 的乘性偏移，需触发重渲染故用 state。
@@ -292,6 +300,8 @@ export function VoidStage() {
     subjectName: string;
     content: string;
     sensitivity: Sensitivity;
+    /** 去重合并时间窗（毫秒）；情绪趋势按窗合并，普通记忆不传即永久去重。 */
+    mergeWindowMs?: number;
   }) => {
     const decision = resolveWriteDecision({
       memoryType: candidate.memoryType,
@@ -304,18 +314,22 @@ export function VoidStage() {
     }
 
     const now = Date.now();
-    upsertMemory({
-      id: crypto.randomUUID(),
-      memoryType: candidate.memoryType,
-      subjectType: candidate.subjectType,
-      subjectName: candidate.subjectName,
-      content: candidate.content,
-      confidence: 0.6,
-      source: "conversation",
-      sensitivity: candidate.sensitivity,
-      createdAt: now,
-      updatedAt: now
-    });
+    // 去重写入：同主体同内容命中既有条目则更新而非新增，避免记忆堆积。
+    upsertMemoryDeduped(
+      {
+        id: crypto.randomUUID(),
+        memoryType: candidate.memoryType,
+        subjectType: candidate.subjectType,
+        subjectName: candidate.subjectName,
+        content: candidate.content,
+        confidence: 0.6,
+        source: "conversation",
+        sensitivity: candidate.sensitivity,
+        createdAt: now,
+        updatedAt: now
+      },
+      { mergeWindowMs: candidate.mergeWindowMs }
+    );
   }, []);
 
   // D2 用户输入自动写入：对本轮用户输入分类后走统一写入通道。
@@ -323,6 +337,12 @@ export function VoidStage() {
   const captureMemoryFromUserMessage = useCallback((message: string) => {
     const content = message.trim();
     if (!content) {
+      return;
+    }
+
+    // 准入闸：先判「值不值得长期记住」，拦掉纯社交 / 闲聊 / 情绪宣泄 / 问句，
+    // 再交给分类器决定分区。这是根治「几乎每句话都被记下来」的第一道闸。
+    if (!assessSalience(content).worth) {
       return;
     }
 
@@ -353,7 +373,9 @@ export function VoidStage() {
       subjectType: "self",
       subjectName: "用户本人",
       content,
-      sensitivity: assessSensitivity("emotionTrend", content)
+      sensitivity: assessSensitivity("emotionTrend", content),
+      // 同一情绪 2 小时内合并为一条，避免情绪流水账。
+      mergeWindowMs: EMOTION_MEMORY_MERGE_WINDOW_MS
     });
   }, [persistCandidateMemory]);
 
@@ -849,6 +871,14 @@ export function VoidStage() {
         },
         onFinalTranscript: (text) => {
           setVoiceTranscriptPreview("");
+          // 幂等护栏：若本条定稿与上一条归一化后相同且落在去重窗口内，视为上游重复，直接丢弃。
+          const normalized = normalizeVoiceFinal(text);
+          const now = Date.now();
+          const previous = lastVoiceFinalRef.current;
+          if (previous && previous.normalized === normalized && now - previous.at < VOICE_FINAL_DEDUP_WINDOW_MS) {
+            return;
+          }
+          lastVoiceFinalRef.current = { normalized, at: now };
           void handleTextMessage(text, []);
         },
         onError: handleVoiceSessionError

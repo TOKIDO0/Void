@@ -22,12 +22,12 @@ export class VoiceSessionController {
 
   async start() {
     await this.sttProvider.start({
+      // 实时预览：仅更新界面识别文字，绝不在此触发发送。
+      // 定稿（发送给模型）统一走唯一的 onFinalResult 通道，避免出现第二条 final 触发源导致双发。
       onPartialResult: (result) => {
         this.onInterimTranscript(result.text);
-        if (!result.isInterim && result.text.trim()) {
-          this.onFinalTranscript(result.text.trim());
-        }
       },
+      // 唯一的定稿发送通道：由桥接的整段停顿/关麦末包判定驱动。
       onFinalResult: (text) => {
         if (text.trim()) {
           this.onFinalTranscript(text.trim());

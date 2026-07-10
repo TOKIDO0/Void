@@ -72,15 +72,17 @@ function handleBrowserConnection(browserSocket: WebSocket) {
   let hasSentFinal = false;
   // 上游就绪前浏览器已推来的音频，先缓存，就绪后按序补发
   const pendingAudioChunks: Buffer[] = [];
-  // 已定稿（definite）句子的去重键集合。豆包每帧会回传历史全部定稿句，
-  // 不去重会把同一句反复累积。
-  const seenDefiniteKeys = new Set<string>();
-
   // —— 整段停顿提交（endpointing）——
   // 豆包的 definite 是「句子级」VAD 分句；而「用户说完了、可以发给 AI」是更高层的
   // 「整段停顿」判定。若把每个 definite 直接当作发送边界，说长句时中间的自然换气就会被
   // 切断误发。因此这里：定稿句只累积与实时预览，直到识别文本静默超过阈值（用户真正停顿）
   // 才把累积内容合并成一条 final 发出。
+  //
+  // 【定稿去重的权威结构】committedSentences 与豆包累积返回的「定稿句序列」按下标一一对齐：
+  // 豆包每帧回传历史全部定稿句且顺序稳定，故第 i 个定稿永远对应第 i 句。由此：
+  //   - 同一句的「无标点稿 → 带标点定稿」再次回传时下标不变 → 只更新该下标的文本，绝不新增；
+  //   - 用户真正重复同一短语（如两次「好的」）是新的下标 → 正常追加、不误删。
+  // 该对齐不依赖 start_time，从结构上杜绝「同一句被 push 两次」的双发根因。
   const committedSentences: string[] = [];
   // committedSentences 中已作为 final 发出的句子数（水位线）
   let flushedCount = 0;
@@ -181,15 +183,26 @@ function handleBrowserConnection(browserSocket: WebSocket) {
       flushPendingAudio();
     }
 
-    const { finals: newDefinites, partial } = extractUtteranceResults(decoded.payload, seenDefiniteKeys);
-    for (const definiteText of newDefinites) {
-      // 兜底跳过：该定稿句此前已作为未定稿尾句兜底发出过，跳过一次避免重复。
-      // 用归一化比较：兜底发的是无标点尾句，稍后豆包补的定稿带标点，裸字符串不相等会漏跳导致重复。
-      if (skipOnceDefiniteText && normalizeForDedup(definiteText) === normalizeForDedup(skipOnceDefiniteText)) {
-        skipOnceDefiniteText = "";
+    const { definites, partial } = extractUtteranceResults(decoded.payload);
+    // 按下标把本帧定稿句序列对齐进 committedSentences：
+    //   - 已存在且尚未发送的下标：用最新文本覆盖（吸收后补的标点/纠错），已发送的下标不动；
+    //   - 超出现有长度的下标：是新句，追加。
+    for (let index = 0; index < definites.length; index += 1) {
+      const definiteText = definites[index];
+      if (index < committedSentences.length) {
+        if (index >= flushedCount) {
+          committedSentences[index] = definiteText;
+        }
         continue;
       }
+
       committedSentences.push(definiteText);
+      // 兜底跳过：该新定稿句此前已作为未定稿尾句兜底发出过（停顿时它尚未定稿）。
+      // 归一化比较（兜底稿无标点、定稿带标点），命中则把水位线推过它，使其不再被二次发送。
+      if (skipOnceDefiniteText && normalizeForDedup(definiteText) === normalizeForDedup(skipOnceDefiniteText)) {
+        skipOnceDefiniteText = "";
+        flushedCount = committedSentences.length;
+      }
     }
     lastPartial = partial ?? "";
 
@@ -335,26 +348,29 @@ function buildRecognitionConfig(startEvent: StartEvent) {
   };
 }
 
-/** 单帧解析结果：本帧新定稿的完整句 + 当前未定稿的尾句 */
+/** 单帧解析结果：本帧全部定稿句（按序）+ 当前未定稿的尾句 */
 type UtteranceExtraction = {
-  /** 本帧新出现（去重后）的 definite 定稿句，交由调用方累积、按停顿合并发出 */
-  finals: string[];
+  /**
+   * 本帧全部 definite 定稿句，按豆包返回的原始顺序排列（累积、含历史句）。
+   * 调用方按下标与 committedSentences 对齐，从而区分「同句补标点」与「真正新句」。
+   */
+  definites: string[];
   /** 当前仍在累积、未定稿的尾句，作为 partial 实时预览；无则为 null */
   partial: string | null;
 };
 
 /**
- * 从 full server response 的 payload 中解析定稿句与未定稿尾句。
+ * 从 full server response 的 payload 中解析定稿句序列与未定稿尾句。
  *
  * 官方结构：`{ result: { text: "累积文本", utterances: [{ definite, start_time, end_time, text, words }] } }`。
  * `definite:true` 表示服务端 VAD 判定该句已说完（正道分句信号）。
  * result 既可能是对象也可能是数组，两种都兼容；无 utterances 时回退用累积 text 作为 partial。
  *
- * @param seenDefiniteKeys 跨帧去重集合（豆包每帧回传历史全部定稿句，须去重）
+ * 去重不在此处做：本函数只忠实返回「当前定稿句序列」，由调用方按下标对齐 committedSentences
+ * 完成「同句补标点＝更新、新句＝追加」的判定（见 handleUpstreamFrame）。
  */
 function extractUtteranceResults(
-  payload: Record<string, unknown>,
-  seenDefiniteKeys: Set<string>
+  payload: Record<string, unknown>
 ): UtteranceExtraction {
   const result = payload.result;
   const resultRecord = Array.isArray(result)
@@ -362,17 +378,17 @@ function extractUtteranceResults(
     : (result as Record<string, unknown> | undefined);
 
   if (!resultRecord) {
-    return { finals: [], partial: null };
+    return { definites: [], partial: null };
   }
 
   const utterances = resultRecord.utterances;
   if (!Array.isArray(utterances)) {
     // 兜底：无分句信息时，用累积 text 作为 partial 预览（不作为 final，避免整段误发）
     const text = resultRecord.text;
-    return { finals: [], partial: typeof text === "string" && text.trim() ? text : null };
+    return { definites: [], partial: typeof text === "string" && text.trim() ? text : null };
   }
 
-  const finals: string[] = [];
+  const definites: string[] = [];
   let partial: string | null = null;
 
   for (const item of utterances) {
@@ -383,20 +399,15 @@ function extractUtteranceResults(
     }
 
     if (utterance.definite === true) {
-      // 去重键＝起始时间 + 归一化文本：同一句被先后以「无标点/带标点」两版定稿回传时判为同键去重；
-      // 起始时间保证不同时刻说的相同短语（如两次「好的」）仍各自保留。
-      const deduplicationKey = `${utterance.start_time ?? ""}-${normalizeForDedup(text)}`;
-      if (!seenDefiniteKeys.has(deduplicationKey)) {
-        seenDefiniteKeys.add(deduplicationKey);
-        finals.push(text);
-      }
+      // 忠实按序收集定稿句，去重交由调用方的下标对齐完成。
+      definites.push(text);
     } else {
       // 未定稿尾句：只保留最后一个作为当前预览
       partial = text;
     }
   }
 
-  return { finals, partial };
+  return { definites, partial };
 }
 
 /** 兼容 ws message 可能给出的 Buffer / ArrayBuffer / 分片数组 */
