@@ -316,7 +316,10 @@ function handleBrowserConnection(browserSocket: WebSocket) {
 
     const upstream = new WebSocket(DOUBAO_TTS_BIDIRECTIONAL_ENDPOINT, {
       headers: {
-        // 豆包 openspeech v3 鉴权：与 STT/HTTP 同一套 X-Api-* 头（旧版控制台三件套）。
+        // 豆包 openspeech v3 鉴权：与 STT/HTTP 同一套三件套。App-Key 是项目已验证可用的头名
+        // （见 18 号：STT/TTS 必须同一套鉴权），App-Id 是官方双向流式文档头名——二者为同一 appId
+        // 的别名，同发两者以防头名分叉导致 401（与 vite.config buildForwardedHeaders 放行策略一致）。
+        "X-Api-App-Key": start.appId,
         "X-Api-App-Id": start.appId,
         "X-Api-Access-Key": start.accessKey,
         "X-Api-Resource-Id": start.resourceId,
