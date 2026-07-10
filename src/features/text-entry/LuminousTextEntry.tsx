@@ -29,6 +29,7 @@ type LuminousTextEntryProps = {
   onVoiceOutputToggle: () => void;
   onOpenModelConfig: () => void;
   onOpenConversationHistory: () => void;
+  onOpenMemoryManager: () => void;
 };
 
 type LuminousCapsuleProps = {
@@ -152,7 +153,8 @@ export function LuminousTextEntry({
   onVoiceInputToggle,
   onVoiceOutputToggle,
   onOpenModelConfig,
-  onOpenConversationHistory
+  onOpenConversationHistory,
+  onOpenMemoryManager
 }: LuminousTextEntryProps) {
   const [inputValue, setInputValue] = useState("");
   const rootRef = useRef<HTMLFormElement | null>(null);
@@ -417,7 +419,7 @@ export function LuminousTextEntry({
     pinOpen();
   };
 
-  const handleAgentActionClick = (action: "thinking" | "voice-input" | "voice-output" | "upload" | "history" | "settings") => {
+  const handleAgentActionClick = (action: "thinking" | "voice-input" | "voice-output" | "upload" | "history" | "memory" | "settings") => {
     pinOpen();
     if (action === "thinking") {
       onThinkingModeChange(!thinkingModeEnabled);
@@ -437,6 +439,11 @@ export function LuminousTextEntry({
     if (action === "history") {
       setIsAgentMenuOpen(false);
       onOpenConversationHistory();
+    }
+
+    if (action === "memory") {
+      setIsAgentMenuOpen(false);
+      onOpenMemoryManager();
     }
 
     if (action === "settings") {
@@ -630,6 +637,9 @@ export function LuminousTextEntry({
             </button>
             <button type="button" onClick={() => handleAgentActionClick("history")}>
               History
+            </button>
+            <button type="button" onClick={() => handleAgentActionClick("memory")}>
+              Memory
             </button>
             <button type="button" onClick={() => handleAgentActionClick("settings")}>
               Settings

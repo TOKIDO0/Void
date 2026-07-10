@@ -2,6 +2,8 @@ import type { ModelConfig } from "../settings/modelConfig";
 import type { ProviderMessage } from "../../lib/model-providers/providerContract";
 import { getModelProvider } from "../../lib/model-providers/providerRegistry";
 import { VOID_SYSTEM_PROMPT } from "./voidSystemPrompt";
+import { retrieveMemories } from "../memory/memoryRetriever";
+import { projectMemories } from "../memory/memoryProjection";
 
 export type VoidConversationAttachment = {
   id: string;
@@ -51,8 +53,11 @@ export async function sendVoidMessage(
 ) {
   const provider = getModelProvider(modelConfig.provider);
   const normalizedUserInput = buildUserInputWithAttachments(userInput, attachments);
+  // 记忆召回：按本轮用户输入的话题只取相关分区的少量长期记忆，投影成一段可注入文本。
+  // 空召回时 projectMemories 返回空串，buildSystemPrompt 据此跳过注入，零副作用。
+  const memoryContext = projectMemories(retrieveMemories(userInput));
   const messages: ProviderMessage[] = [
-    { role: "system", content: buildSystemPrompt(modelConfig, emotionContext) },
+    { role: "system", content: buildSystemPrompt(modelConfig, emotionContext, memoryContext) },
     ...buildRequestConversationHistory(conversationHistory),
     { role: "user", content: normalizedUserInput }
   ];
@@ -68,8 +73,14 @@ export async function sendVoidMessage(
   }
 }
 
-function buildSystemPrompt(modelConfig: ModelConfig, emotionContext?: string) {
+function buildSystemPrompt(modelConfig: ModelConfig, emotionContext?: string, memoryContext?: string) {
   const sections = [VOID_SYSTEM_PROMPT];
+
+  // 长期记忆召回上下文（可选）：排在人格之后、情绪与思考模式之前，
+  // 让模型先建立「关于用户的已知事实」底座，再叠加本轮情绪与思考策略。缺省则不注入。
+  if (memoryContext && memoryContext.trim()) {
+    sections.push(memoryContext.trim());
+  }
 
   if (modelConfig.thinkingModeEnabled) {
     sections.push(THINKING_MODE_SYSTEM_SUFFIX);

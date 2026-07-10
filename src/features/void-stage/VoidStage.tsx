@@ -36,14 +36,37 @@ import {
   type VisualProfileHint
 } from "../emotion/emotionToResponsePolicy";
 import { loadAgentEmotionState, saveAgentEmotionState } from "../emotion/emotionStore";
-import type { AgentEmotionState } from "../emotion/emotionTypes";
+import type { AgentEmotionState, EmotionLabel, UserEmotionReading } from "../emotion/emotionTypes";
 import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
+import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
+import { classifyMemory } from "../memory/memoryClassifier";
+import { assessSensitivity, resolveWriteDecision } from "../memory/memoryPolicy";
+import { upsertMemory } from "../memory/memoryStore";
+import type { MemoryType, SubjectType, Sensitivity } from "../memory/memoryTypes";
 
 // 情绪视觉偏移的中性初值：各字段乘性系数为 1，即不偏移（等价于纯 profile）。
 const NEUTRAL_VISUAL_HINT: VisualProfileHint = {
   noiseSpeedScale: 1,
   edgeBoostScale: 1,
   amplitudeScale: 1
+};
+
+// 语音 final 去重窗口：同一句被 STT 先后以「无标点稿→带标点定稿」重复定稿时，
+// 落在此窗口内的第二条视为重复，只发一次，根治语音「一句话被发两遍、回复被覆盖」。
+const VOICE_FINAL_DEDUP_WINDOW_MS = 1500;
+
+// 归一化语音定稿文本用于等价去重：剥离所有空白与标点，
+// 使「我觉得你好虚伪啊」与「我觉得你好虚伪啊。」判为同一句。
+function normalizeVoiceFinal(text: string) {
+  return text.replace(/[\s\p{P}]/gu, "");
+}
+
+// 情绪标签中文措辞：仅用于 emotionTrend 记忆内容的自然表述（D4）。neutral 不写记忆，故不含。
+const EMOTION_LABEL_TEXT: Record<Exclude<EmotionLabel, "neutral">, string> = {
+  happy: "开心",
+  stressed: "压力",
+  sad: "低落",
+  angry: "不满"
 };
 
 type ResponseLayerTone = "quiet" | "thinking" | "error";
@@ -74,6 +97,7 @@ type ThinkingModePulseDirection = "on" | "off";
 export function VoidStage() {
   const [visualState, setVisualState] = useState<VoidVisualState>("idle");
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
+  const [isMemoryPanelOpen, setIsMemoryPanelOpen] = useState(false);
   const [isExpandedResponseOpen, setIsExpandedResponseOpen] = useState(false);
   const [isExpandedResponseClosing, setIsExpandedResponseClosing] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<VoidConversationMessage[]>(() => loadCurrentConversationHistory());
@@ -96,6 +120,8 @@ export function VoidStage() {
   const textExchangeActiveRef = useRef(false);
   // Agent 情绪状态（带惯性/衰减）：从本地持久化载入，随每轮对话演化后回写。
   const agentEmotionStateRef = useRef<AgentEmotionState>(loadAgentEmotionState());
+  // 本轮用户情绪识别结果：供对话成功结束后判定「显著情绪」并写入 emotionTrend 记忆（D4）。
+  const lastEmotionReadingRef = useRef<UserEmotionReading | null>(null);
   // 本轮情绪派生的 TTS 表达参数：整轮一致，供流式/整段合成透传给豆包 audio_params。
   const turnTtsExpressionRef = useRef<VoiceSynthesisExpression>({});
   // 情绪视觉偏移：驱动中央流体 profile 的乘性偏移，需触发重渲染故用 state。
@@ -244,6 +270,8 @@ export function VoidStage() {
   // 一期只用文本；语音链路的声学线索后续接入 recognizeUserEmotion 第二参。
   const resolveTurnEmotion = useCallback((message: string): EmotionResponsePolicy => {
     const emotionReading = recognizeUserEmotion(message);
+    // 暂存本轮识别结果，供对话成功结束后的 emotionTrend 记忆写入判定（D4）。
+    lastEmotionReadingRef.current = emotionReading;
     const nextAgentEmotion = evolveAgentEmotion(agentEmotionStateRef.current, emotionReading);
     agentEmotionStateRef.current = nextAgentEmotion;
     saveAgentEmotionState(nextAgentEmotion);
@@ -253,6 +281,81 @@ export function VoidStage() {
     setEmotionVisualHint(emotionPolicy.visualHint);
     return emotionPolicy;
   }, []);
+
+  // 记忆写入统一底层通道：接收已定分区/主体/敏感的候选记忆，走 policy 裁决后落库。
+  // - auto：直接写入；confirm：项目暂无确认 UI，本次保守跳过（敏感/健康信息不自动落库）；
+  // - blocked：policy 层已硬拦截永不名单与高敏，直接丢弃。
+  // classifier/policy/store 只 import 不改，接线处只负责生成 id/时间戳与来源。
+  const persistCandidateMemory = useCallback((candidate: {
+    memoryType: MemoryType;
+    subjectType: SubjectType;
+    subjectName: string;
+    content: string;
+    sensitivity: Sensitivity;
+  }) => {
+    const decision = resolveWriteDecision({
+      memoryType: candidate.memoryType,
+      subjectType: candidate.subjectType,
+      content: candidate.content,
+      sensitivity: candidate.sensitivity
+    });
+    if (decision.action !== "auto") {
+      return;
+    }
+
+    const now = Date.now();
+    upsertMemory({
+      id: crypto.randomUUID(),
+      memoryType: candidate.memoryType,
+      subjectType: candidate.subjectType,
+      subjectName: candidate.subjectName,
+      content: candidate.content,
+      confidence: 0.6,
+      source: "conversation",
+      sensitivity: candidate.sensitivity,
+      createdAt: now,
+      updatedAt: now
+    });
+  }, []);
+
+  // D2 用户输入自动写入：对本轮用户输入分类后走统一写入通道。
+  // 仅对用户本人说的话建档，不含 AI 回复（避免把模型推测当事实记忆）。
+  const captureMemoryFromUserMessage = useCallback((message: string) => {
+    const content = message.trim();
+    if (!content) {
+      return;
+    }
+
+    const classified = classifyMemory(content);
+    persistCandidateMemory({
+      memoryType: classified.memoryType,
+      subjectType: classified.subjectType,
+      subjectName: classified.subjectName,
+      content,
+      sensitivity: classified.sensitivity
+    });
+  }, [persistCandidateMemory]);
+
+  // D4 情绪联动：本轮情绪「显著」时写入一条 emotionTrend 记忆（分区固定，不过分类器）。
+  // 显著性口径：非 neutral 且 intensity ≥ 0.6 且 confidence ≥ 0.5。
+  const captureEmotionTrendMemory = useCallback(() => {
+    const reading = lastEmotionReadingRef.current;
+    if (!reading || reading.label === "neutral") {
+      return;
+    }
+    if (reading.intensity < 0.6 || reading.confidence < 0.5) {
+      return;
+    }
+
+    const content = `用户情绪偏${EMOTION_LABEL_TEXT[reading.label as Exclude<EmotionLabel, "neutral">]}`;
+    persistCandidateMemory({
+      memoryType: "emotionTrend",
+      subjectType: "self",
+      subjectName: "用户本人",
+      content,
+      sensitivity: assessSensitivity("emotionTrend", content)
+    });
+  }, [persistCandidateMemory]);
 
   const requestVoidResponse = useCallback((
     message: string,
@@ -591,6 +694,9 @@ export function VoidStage() {
       }
       const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
       commitConversationHistory(finalConversationHistory);
+      // 本回合成功结束（未被打断）：把用户输入建档，并按显著性写入情绪趋势记忆。
+      captureMemoryFromUserMessage(message);
+      captureEmotionTrendMemory();
       if (streamingVoiceBatcher) {
         await streamingVoiceBatcher.complete(assistantResponse.content);
         showResponseLayer({
@@ -610,7 +716,7 @@ export function VoidStage() {
       }
       failTextResponse(error, "error", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [beginExchange, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
+  }, [beginExchange, captureEmotionTrendMemory, captureMemoryFromUserMessage, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
 
   const handleRegenerateLatestUserMessage = useCallback(async (messageIndex: number, content: string) => {
     const currentHistory = conversationHistoryRef.current;
@@ -770,6 +876,10 @@ export function VoidStage() {
     setIsModelSettingsOpen(true);
   }, []);
 
+  const handleOpenMemoryManager = useCallback(() => {
+    setIsMemoryPanelOpen(true);
+  }, []);
+
   useEffect(() => {
     conversationHistoryRef.current = conversationHistory;
   }, [conversationHistory]);
@@ -843,6 +953,7 @@ export function VoidStage() {
         onVoiceOutputToggle={handleVoiceOutputToggle}
         onOpenModelConfig={handleOpenModelConfig}
         onOpenConversationHistory={openExpandedResponse}
+        onOpenMemoryManager={handleOpenMemoryManager}
       />
       <ExpandedResponseOverlay
         isOpen={isExpandedResponseOpen}
@@ -853,6 +964,7 @@ export function VoidStage() {
         onRegenerateLatestUserMessage={handleRegenerateLatestUserMessage}
       />
       <ModelSettingsModal isOpen={isModelSettingsOpen} onClose={() => setIsModelSettingsOpen(false)} />
+      <MemoryManagerPanel isOpen={isMemoryPanelOpen} onClose={() => setIsMemoryPanelOpen(false)} />
     </main>
   );
 }
