@@ -52,10 +52,6 @@ const NEUTRAL_VISUAL_HINT: VisualProfileHint = {
   amplitudeScale: 1
 };
 
-// 语音 final 去重窗口：同一句被 STT 先后以「无标点稿→带标点定稿」重复定稿时，
-// 落在此窗口内的第二条视为重复，只发一次，根治语音「一句话被发两遍、回复被覆盖」。
-const VOICE_FINAL_DEDUP_WINDOW_MS = 1500;
-
 // 归一化语音定稿文本用于等价去重：剥离所有空白与标点，
 // 使「我觉得你好虚伪啊」与「我觉得你好虚伪啊。」判为同一句。
 function normalizeVoiceFinal(text: string) {
@@ -127,9 +123,10 @@ export function VoidStage() {
   const agentEmotionStateRef = useRef<AgentEmotionState>(loadAgentEmotionState());
   // 本轮用户情绪识别结果：供对话成功结束后判定「显著情绪」并写入 emotionTrend 记忆（D4）。
   const lastEmotionReadingRef = useRef<UserEmotionReading | null>(null);
-  // 语音 final 幂等护栏：记录上一条已发送定稿的归一化文本与时间戳，
-  // 与桥接解耦地拦截任何上游抖动导致的「同一句短时间内重复 final」，防止双发双回复。
-  const lastVoiceFinalRef = useRef<{ normalized: string; at: number } | null>(null);
+  // 语音 final 内容闩锁：记录「上一条已发送定稿」的归一化文本（空串＝闩锁开放，允许下条放行）。
+  // 与桥接/豆包分句时序完全解耦地拦截同一句的重复 final（无标点稿↔带标点定稿、上游抖动重发），
+  // 根治双发双回复；闩锁在 onInterimTranscript 检出「明显是新一句」时开放。见 26 号 §4.1。
+  const sentVoiceUtteranceNormalizedRef = useRef<string>("");
   // 本轮情绪派生的 TTS 表达参数：整轮一致，供流式/整段合成透传给豆包 audio_params。
   const turnTtsExpressionRef = useRef<VoiceSynthesisExpression>({});
   // 情绪视觉偏移：驱动中央流体 profile 的乘性偏移，需触发重渲染故用 state。
@@ -858,6 +855,18 @@ export function VoidStage() {
             return;
           }
 
+          // 内容闩锁开放判据（仅在 AI 空闲、非回声抑制路径评估，避免播报期回声幻觉误开闩锁）：
+          // 实时预览出现「明显是新一句」——归一化后已不再是「上一条已发送定稿」的前缀（含不相等），
+          // 说明用户开始说不同内容，遂开放闩锁让下一条 final 正常放行。同一句的补标点/续说预览
+          // 仍是其前缀，不会误开；与豆包时序、下标、标点全解耦。
+          const sentNormalized = sentVoiceUtteranceNormalizedRef.current;
+          if (sentNormalized && trimmedText) {
+            const interimNormalized = normalizeVoiceFinal(trimmedText);
+            if (interimNormalized && !sentNormalized.startsWith(interimNormalized)) {
+              sentVoiceUtteranceNormalizedRef.current = "";
+            }
+          }
+
           // AI 空闲：正常显示识别预览。
           setVoiceTranscriptPreview(text);
           if (trimmedText) {
@@ -871,14 +880,14 @@ export function VoidStage() {
         },
         onFinalTranscript: (text) => {
           setVoiceTranscriptPreview("");
-          // 幂等护栏：若本条定稿与上一条归一化后相同且落在去重窗口内，视为上游重复，直接丢弃。
+          // 内容闩锁（正确性基石，与豆包分句/标点/时序解耦）：本条定稿归一化后若与「上一条已发送
+          // 定稿」相同，即判为同一句的重复发射（无标点稿→带标点定稿、上游抖动重发），直接丢弃。
+          // 不设时间窗——无论两条 final 间隔多久、豆包是否把补标点当新句重新分句，都不会双发。
           const normalized = normalizeVoiceFinal(text);
-          const now = Date.now();
-          const previous = lastVoiceFinalRef.current;
-          if (previous && previous.normalized === normalized && now - previous.at < VOICE_FINAL_DEDUP_WINDOW_MS) {
+          if (normalized && normalized === sentVoiceUtteranceNormalizedRef.current) {
             return;
           }
-          lastVoiceFinalRef.current = { normalized, at: now };
+          sentVoiceUtteranceNormalizedRef.current = normalized;
           void handleTextMessage(text, []);
         },
         onError: handleVoiceSessionError
