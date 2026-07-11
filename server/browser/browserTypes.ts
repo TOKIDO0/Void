@@ -160,8 +160,8 @@ export type BrowserExtractItem = {
   href?: string;
   tagName?: string;
   /**
-   * 当能生成较稳的唯一选择器时给出，供后续 browser.click 使用。
-   * 不保证永远唯一；多匹配时模型应先 waitFor 或收窄。
+   * 仅当 Playwright locator.count()===1 时给出，供后续 browser.click 直接使用。
+   * 多匹配 / 无法拼稳选择器时省略，模型应改用 extract 文案/href 或再收窄。
    */
   suggestedSelector?: string;
 };

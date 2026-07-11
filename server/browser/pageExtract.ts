@@ -5,7 +5,7 @@
  * - 不引入 Stagehand / 额外 LLM（见 18 调研 4 格）
  * - 在页面上下文跑纯函数，返回稳定 JSON
  * - 链接优先；text 模式抽可见标题/段落；both 合并
- * - 尽量给出 suggestedSelector，辅助后续 click（不保证 100% 唯一）
+ * - suggestedSelector 仅在 Playwright locator.count()===1 时输出（N1）
  *
  * 重要：不要把 evaluate 回调直接写成 TS 箭头/function——tsx 会注入 __name，
  * 浏览器端 ReferenceError。使用 new Function(字符串) 在运行时生成函数体。
@@ -157,6 +157,7 @@ function createBrowserExtractFunction(): (payload: ExtractPayload) => RawExtract
 
 /**
  * 在 Page 上执行抽取。异常由调用方映射为 PARSE_FAILED。
+ * suggestedSelector 仅在页面上 count===1 时保留。
  */
 export async function extractPageStructure(
   page: Page,
@@ -177,27 +178,36 @@ export async function extractPageStructure(
     throw new Error("页面抽取返回非数组");
   }
 
-  return rawItems.map((item, index) => ({
-    index: index + 1,
-    kind: item.kind,
-    text: item.text,
-    href: item.href,
-    tagName: item.tagName,
-    suggestedSelector: buildSuggestedSelector(item)
-  }));
+  const items: BrowserExtractItem[] = [];
+  for (let index = 0; index < rawItems.length; index += 1) {
+    const item = rawItems[index];
+    const suggestedSelector = await pickUniqueSuggestedSelector(page, item);
+    items.push({
+      index: index + 1,
+      kind: item.kind,
+      text: item.text,
+      href: item.href,
+      tagName: item.tagName,
+      ...(suggestedSelector ? { suggestedSelector } : {})
+    });
+  }
+  return items;
 }
 
 /**
- * 用稳定属性拼选择器；无法拼出则返回 undefined。
- * 不做 document 唯一性校验；调用方 click 时仍有单匹配门禁。
+ * 按优先级生成候选选择器；调用方再做唯一性校验。
+ * 越靠前越稳（testid / id > 路径+文案 > 路径 > 文案）。
  */
-function buildSuggestedSelector(item: RawExtractItem): string | undefined {
+function buildSuggestedSelectorCandidates(item: RawExtractItem): string[] {
+  const candidates: string[] = [];
+
   if (item.testId) {
-    return `[data-testid="${escapeAttr(item.testId)}"]`;
+    candidates.push(`[data-testid="${escapeAttr(item.testId)}"]`);
   }
   if (item.id && /^[A-Za-z][\w:-]*$/.test(item.id)) {
-    return `#${item.id}`;
+    candidates.push(`#${item.id}`);
   }
+
   if (item.kind === "link" && item.href) {
     try {
       const url = new URL(item.href);
@@ -205,21 +215,23 @@ function buildSuggestedSelector(item: RawExtractItem): string | undefined {
       if (path && path.length <= 120) {
         const hrefSelector = `a[href*="${escapeAttr(path)}"]`;
         if (item.text && item.text.length <= 40 && !item.text.includes('"')) {
-          return `${hrefSelector}:has-text("${item.text}")`;
+          candidates.push(`${hrefSelector}:has-text("${item.text}")`);
         }
-        return hrefSelector;
+        candidates.push(hrefSelector);
       }
     } catch {
       // fall through
     }
     if (item.text && item.text.length <= 40 && !item.text.includes('"')) {
-      return `a:has-text("${item.text}")`;
+      candidates.push(`a:has-text("${item.text}")`);
     }
   }
+
   if (item.ariaLabel && item.ariaLabel.length <= 60) {
     const tag = item.tagName && /^[a-z0-9]+$/.test(item.tagName) ? item.tagName : "";
-    return `${tag || "*"}[aria-label="${escapeAttr(item.ariaLabel)}"]`;
+    candidates.push(`${tag || "*"}[aria-label="${escapeAttr(item.ariaLabel)}"]`);
   }
+
   if (
     item.kind === "text"
     && item.tagName
@@ -228,7 +240,38 @@ function buildSuggestedSelector(item: RawExtractItem): string | undefined {
     && item.text.length <= 40
     && !item.text.includes('"')
   ) {
-    return `${item.tagName}:has-text("${item.text}")`;
+    candidates.push(`${item.tagName}:has-text("${item.text}")`);
+  }
+
+  // 去重保序
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const selector of candidates) {
+    if (seen.has(selector)) continue;
+    seen.add(selector);
+    unique.push(selector);
+  }
+  return unique;
+}
+
+/**
+ * 在真实 Page 上用 locator.count() 校验：仅 count===1 才采纳。
+ * 非法选择器 / 0 匹配 / 多匹配 一律降级为省略。
+ */
+async function pickUniqueSuggestedSelector(
+  page: Page,
+  item: RawExtractItem
+): Promise<string | undefined> {
+  const candidates = buildSuggestedSelectorCandidates(item);
+  for (const selector of candidates) {
+    try {
+      const count = await page.locator(selector).count();
+      if (count === 1) {
+        return selector;
+      }
+    } catch {
+      // 非法或 Playwright 不支持的写法：跳过该候选
+    }
   }
   return undefined;
 }

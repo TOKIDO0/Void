@@ -109,6 +109,7 @@ export type BrowserExtractItem = {
   text: string;
   href?: string;
   tagName?: string;
+  /** 仅 count===1 时返回；多匹配省略 */
   suggestedSelector?: string;
 };
 
