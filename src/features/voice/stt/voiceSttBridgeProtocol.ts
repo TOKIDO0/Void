@@ -1,9 +1,6 @@
 export type VoiceSttBridgeClientEvent =
   | {
       type: "start";
-      appKey: string;
-      accessKey: string;
-      resourceId: string;
       sampleRate: number;
       format: "pcm_s16le";
     }

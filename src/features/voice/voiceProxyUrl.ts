@@ -1,4 +1,5 @@
 import { createProxyUnavailableError } from "../../lib/model-providers/providerErrors";
+import { isTauriRuntime, resolveBridgeHttpUrl } from "../../lib/runtime/voidBridgeRuntime";
 import type { VoiceRequestMode } from "./voiceProviderConfig";
 
 type VoiceFetchTarget = {
@@ -12,6 +13,19 @@ const DEVELOPMENT_VOICE_PROXY_PATH = "/void-voice-proxy";
 const PRODUCTION_VOICE_PROXY_PATH = "/api/voice";
 
 export function buildVoiceFetchTarget(endpointUrl: string, requestMode: VoiceRequestMode): VoiceFetchTarget {
+  // Tauri 环境：语音转发由 sidecar 在回环端口提供，路径与开发代理一致（/void-voice-proxy），
+  // 指向 sidecar 绝对地址。
+  if (isTauriRuntime()) {
+    return {
+      url: resolveBridgeHttpUrl(DEVELOPMENT_VOICE_PROXY_PATH),
+      directUrl: endpointUrl,
+      mode: "development-proxy",
+      headers: {
+        "X-VOID-Target-URL": endpointUrl
+      }
+    };
+  }
+
   if (requestMode === "production-proxy" || !import.meta.env.DEV) {
     return {
       url: PRODUCTION_VOICE_PROXY_PATH,

@@ -23,9 +23,6 @@ export type DoubaoBidirectionalAudioParams = {
 export type DoubaoBidirectionalClientEvent =
   | {
       type: "start";
-      appId: string;
-      accessKey: string;
-      resourceId: string;
       speaker: string;
       audioParams: DoubaoBidirectionalAudioParams;
     }

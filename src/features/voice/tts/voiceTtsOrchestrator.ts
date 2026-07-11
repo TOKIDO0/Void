@@ -1,10 +1,7 @@
 import { ProviderRequestError } from "../../../lib/model-providers/providerErrors";
-import { DOUBAO_TTS_RESOURCE_ID } from "../voiceProviderConfig";
 import type { VoiceRuntimeConfig } from "../voiceRuntimeConfig";
 import { synthesizeBidirectional } from "./doubaoBidirectional/doubaoBidirectionalSession";
-import { DoubaoTtsProvider, toDoubaoAudioRate } from "./doubaoTtsProvider";
-import { FishAudioTtsProvider } from "./fishAudioTtsProvider";
-import { MiniMaxTtsProvider } from "./minimaxTtsProvider";
+import { toDoubaoAudioRate } from "./doubaoTtsProvider";
 import type {
   VoiceSynthesisExpression,
   VoiceSynthesisRequest,
@@ -39,8 +36,6 @@ export type VoiceStreamingSynthesisSession = {
 };
 
 // 主供应商（豆包，国内直连零 VPN）给宽松超时；回退供应商短超时快速降级。
-const PRIMARY_PROVIDER_TIMEOUT_MS = 12000;
-const FALLBACK_PROVIDER_TIMEOUT_MS = 7000;
 // 全局句子级合成并发上限：FishAudio 免费档实测支持 5 并发，这里压到 2 留足安全边际，防 429
 const STREAMING_SENTENCE_CONCURRENCY = 2;
 // 命中 429（Too Many Requests）时的退避重试次数与基准间隔
@@ -54,41 +49,8 @@ export class VoiceTtsOrchestrator {
     // 供应商尝试顺序 = 数组顺序。豆包（openspeech.bytedance.com，国内直连、单价极低、无需 VPN）
     // 作为主供应商置于首位；FishAudio（国内需 VPN）、MiniMax 依次作为回退。
     // 主供应商未配置/合成失败时自动向下回退，行为对旧默认只增不减。
-    this.providerRegistrations = [
-      {
-        kind: "doubao",
-        timeoutMs: PRIMARY_PROVIDER_TIMEOUT_MS,
-        createProvider: () => this.runtimeConfig.doubaoApiKey
-          ? new DoubaoTtsProvider({
-            appId: this.runtimeConfig.doubaoAppId,
-            apiKey: this.runtimeConfig.doubaoApiKey,
-            speakerId: this.runtimeConfig.doubaoSpeakerId,
-            resourceId: this.runtimeConfig.doubaoResourceId
-          })
-          : null
-      },
-      {
-        kind: "fishaudio",
-        timeoutMs: FALLBACK_PROVIDER_TIMEOUT_MS,
-        createProvider: () => this.runtimeConfig.fishAudioApiKey
-          ? new FishAudioTtsProvider({
-            apiKey: this.runtimeConfig.fishAudioApiKey,
-            voiceId: this.runtimeConfig.fishAudioVoiceId,
-            model: this.runtimeConfig.fishAudioModel
-          })
-          : null
-      },
-      {
-        kind: "minimax",
-        timeoutMs: FALLBACK_PROVIDER_TIMEOUT_MS,
-        createProvider: () => this.runtimeConfig.minimaxApiKey
-          ? new MiniMaxTtsProvider({
-            apiKey: this.runtimeConfig.minimaxApiKey,
-            groupId: this.runtimeConfig.minimaxGroupId
-          })
-          : null
-      }
-    ];
+    // 豆包语音已改为托管 Worker 双向流式服务，不再从客户端构造带密钥的 HTTP 供应商。
+    this.providerRegistrations = [];
   }
 
   /**
@@ -249,14 +211,9 @@ export class VoiceTtsOrchestrator {
     };
   }
 
-  /** 是否走豆包双向流式：开关开启 + 主供应商豆包凭据齐全（appId/apiKey/speaker）。 */
+  /** 托管豆包双向流式恒开；客户端仅需提供非敏感的音色 ID。 */
   private shouldUseBidirectional(): boolean {
-    return (
-      this.runtimeConfig.doubaoTtsMode === "bidirectional" &&
-      Boolean(this.runtimeConfig.doubaoApiKey.trim()) &&
-      Boolean(this.runtimeConfig.doubaoAppId.trim()) &&
-      Boolean(this.runtimeConfig.doubaoSpeakerId.trim())
-    );
+    return Boolean(this.runtimeConfig.doubaoSpeakerId.trim());
   }
 
   /**
@@ -290,9 +247,6 @@ export class VoiceTtsOrchestrator {
           const audioBlob = await synthesizeBidirectional(
             collectedSentences,
             {
-              appId: this.runtimeConfig.doubaoAppId.trim(),
-              accessKey: this.runtimeConfig.doubaoApiKey.trim(),
-              resourceId: this.runtimeConfig.doubaoResourceId.trim() || DOUBAO_TTS_RESOURCE_ID,
               speaker: this.runtimeConfig.doubaoSpeakerId.trim(),
               audioParams: buildBidirectionalAudioParams(request.expression)
             },

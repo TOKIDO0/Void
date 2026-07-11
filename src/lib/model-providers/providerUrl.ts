@@ -1,5 +1,6 @@
 import type { ModelRequestMode } from "../../features/settings/modelConfig";
 import { createNetworkError, createProxyUnavailableError } from "./providerErrors";
+import { isTauriRuntime, resolveBridgeHttpUrl } from "../runtime/voidBridgeRuntime";
 
 type ProviderFetchTarget = {
   url: string;
@@ -28,6 +29,19 @@ export function buildProviderEndpointUrl(baseUrl: string, terminalPath: string) 
 }
 
 export function buildFetchTarget(endpointUrl: string, requestMode: ModelRequestMode) {
+  // Tauri 环境：模型转发由 sidecar 在回环端口提供，路径与开发代理一致（/void-model-proxy），
+  // 指向 sidecar 绝对地址；保留 development-proxy 模式以便直连兜底仍然可用。
+  if (isTauriRuntime()) {
+    return {
+      url: resolveBridgeHttpUrl(DEVELOPMENT_PROXY_PATH),
+      directUrl: endpointUrl,
+      mode: "development-proxy",
+      headers: {
+        "X-VOID-Target-URL": endpointUrl
+      }
+    } satisfies ProviderFetchTarget;
+  }
+
   if (requestMode === "production-proxy") {
     return {
       url: PRODUCTION_PROXY_PATH,

@@ -1,45 +1,23 @@
 import { createNetworkError } from "../../../lib/model-providers/providerErrors";
-import { DOUBAO_ASR_ENDPOINT, DOUBAO_ASR_RESOURCE_ID } from "../voiceProviderConfig";
+import { DOUBAO_ASR_ENDPOINT, MANAGED_VOICE_PROXY_WS_ORIGIN } from "../voiceProviderConfig";
 import { VoicePcmEncoder } from "./voicePcmEncoder";
 import type { VoiceSttProvider, VoiceSttStartOptions } from "./voiceSttContract";
 import { isVoiceSttBridgeServerEvent, type VoiceSttBridgeClientEvent } from "./voiceSttBridgeProtocol";
 
-type DoubaoStreamingSttProviderConfig = {
-  appKey: string;
-  accessKey: string;
-  resourceId?: string;
-  endpointUrl?: string;
-};
-
-// 桥接路径挂在 vite dev 同源上，用 location 推导，避免写死端口
+// 托管 Worker 上的 STT 路径，浏览器与 Tauri 使用同一服务。
 const STT_BRIDGE_PATH = "/void-voice-proxy/stt";
 
 export class DoubaoStreamingSttProvider implements VoiceSttProvider {
-  private readonly appKey: string;
-  private readonly accessKey: string;
-  private readonly resourceId: string;
-  private readonly endpointUrl: string;
+  private readonly endpointUrl = DOUBAO_ASR_ENDPOINT;
   private readonly bridgeUrl: string;
   private websocket: WebSocket | null = null;
   private encoder: VoicePcmEncoder | null = null;
 
-  constructor(config: DoubaoStreamingSttProviderConfig) {
-    this.appKey = config.appKey.trim();
-    this.accessKey = config.accessKey.trim();
-    this.resourceId = config.resourceId?.trim() || DOUBAO_ASR_RESOURCE_ID;
-    this.endpointUrl = config.endpointUrl?.trim() || DOUBAO_ASR_ENDPOINT;
+  constructor() {
     this.bridgeUrl = resolveBridgeUrl();
   }
 
   async start(options: VoiceSttStartOptions) {
-    if (!this.appKey || !this.accessKey) {
-      throw createNetworkError("Doubao 流式语音识别缺少 App ID 或 Access Token。", this.endpointUrl);
-    }
-
-    if (!import.meta.env.DEV) {
-      throw createNetworkError("生产环境 STT 桥接尚未部署。", this.endpointUrl);
-    }
-
     let microphoneStream: MediaStream;
     try {
       microphoneStream = await navigator.mediaDevices.getUserMedia({
@@ -58,7 +36,7 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
       this.websocket = new WebSocket(this.bridgeUrl);
     } catch (error) {
       microphoneStream.getTracks().forEach((track) => track.stop());
-      throw createNetworkError("开发环境 STT 桥接未部署，请先实现 /void-voice-proxy/stt。", this.bridgeUrl, error);
+      throw createNetworkError("托管 STT 服务连接失败。", this.bridgeUrl, error);
     }
 
     try {
@@ -74,9 +52,6 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
         websocket.addEventListener("open", () => {
           const startEvent: VoiceSttBridgeClientEvent = {
             type: "start",
-            appKey: this.appKey,
-            accessKey: this.accessKey,
-            resourceId: this.resourceId,
             sampleRate: 16000,
             format: "pcm_s16le"
           };
@@ -116,7 +91,7 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
         });
 
         websocket.addEventListener("error", () => {
-          reject(createNetworkError("开发环境 STT 桥接未部署，请先实现 /void-voice-proxy/stt。", this.bridgeUrl));
+          reject(createNetworkError("托管 STT 服务连接失败。", this.bridgeUrl));
         }, { once: true });
 
         websocket.addEventListener("close", () => {
@@ -160,8 +135,9 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
   }
 }
 
-/** 用当前页面同源推导桥接 WebSocket 地址，避免写死开发端口 */
+/**
+ * 返回托管 STT WebSocket 地址。鉴权由 Worker Secret 注入。
+ */
 function resolveBridgeUrl() {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}${STT_BRIDGE_PATH}`;
+  return `${MANAGED_VOICE_PROXY_WS_ORIGIN}${STT_BRIDGE_PATH}`;
 }

@@ -1,0 +1,15 @@
+{
+  // VOID 托管语音代理（spike 阶段）。
+  // 目标：验证 Cloudflare Workers 能否带自定义握手头（X-Api-*）中转豆包
+  // 二进制双向流式 WebSocket，且免费配额够一次完整语音会话。
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "void-voice-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  // 复用 server/doubaoSaucProtocol.ts 的 Buffer + node:zlib（STT gzip 编解码）。
+  "compatibility_flags": ["nodejs_compat"],
+  // 观测：spike 期间打开日志，便于 wrangler tail 看握手/透传是否正常。
+  "observability": {
+    "enabled": true
+  }
+}

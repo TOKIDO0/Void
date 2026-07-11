@@ -1,3 +1,5 @@
+import { getSecret, setSecret } from "../../lib/runtime/secretStore";
+
 export type ModelProviderType = "openai-compatible" | "anthropic";
 
 export type ModelRequestMode = "development-proxy" | "production-proxy";
@@ -159,12 +161,12 @@ export const MAX_OUTPUT_LEVELS: readonly LevelOption[] = [
 
 export function loadModelConfig(): ModelConfig {
   const rawConfig = window.localStorage.getItem(MODEL_CONFIG_STORAGE_KEY);
-  const sessionApiKey = window.sessionStorage.getItem(MODEL_API_KEY_STORAGE_KEY) ?? "";
+  const persistedApiKey = getSecret(MODEL_API_KEY_STORAGE_KEY);
 
   if (!rawConfig) {
     return {
       ...DEFAULT_MODEL_CONFIG,
-      apiKey: sessionApiKey,
+      apiKey: persistedApiKey,
       requestMode: resolveDefaultRequestMode()
     };
   }
@@ -182,7 +184,7 @@ export function loadModelConfig(): ModelConfig {
     return {
       provider,
       presetId,
-      apiKey: sessionApiKey,
+      apiKey: persistedApiKey,
       baseUrl: normalizeBaseUrl(parsedConfig.baseUrl, provider),
       modelName,
       modelStrength: normalizeModelStrength(parsedConfig.modelStrength),
@@ -195,7 +197,7 @@ export function loadModelConfig(): ModelConfig {
   } catch {
     return {
       ...DEFAULT_MODEL_CONFIG,
-      apiKey: sessionApiKey,
+      apiKey: persistedApiKey,
       requestMode: resolveDefaultRequestMode()
     };
   }
@@ -218,11 +220,7 @@ export function saveModelConfig(modelConfig: ModelConfig) {
   };
 
   window.localStorage.setItem(MODEL_CONFIG_STORAGE_KEY, JSON.stringify(storedConfig));
-  if (modelConfig.apiKey.trim()) {
-    window.sessionStorage.setItem(MODEL_API_KEY_STORAGE_KEY, modelConfig.apiKey.trim());
-  } else {
-    window.sessionStorage.removeItem(MODEL_API_KEY_STORAGE_KEY);
-  }
+  setSecret(MODEL_API_KEY_STORAGE_KEY, modelConfig.apiKey);
 }
 
 export function updateThinkingModeEnabled(thinkingModeEnabled: boolean) {

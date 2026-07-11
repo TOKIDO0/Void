@@ -821,10 +821,7 @@ export function VoidStage() {
     });
 
     if (nextVoiceInputEnabled) {
-      const sttProvider = new DoubaoStreamingSttProvider({
-        appKey: runtimeConfig.doubaoAppId,
-        accessKey: runtimeConfig.doubaoApiKey
-      });
+      const sttProvider = new DoubaoStreamingSttProvider();
 
       voiceSessionControllerRef.current = new VoiceSessionController({
         sttProvider,

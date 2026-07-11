@@ -9,21 +9,19 @@
  * 上层 orchestrator 据此在 createStreamingSession 的 complete() 时单次回调播放。
  */
 import { createNetworkError } from "../../../../lib/model-providers/providerErrors";
+import { MANAGED_VOICE_PROXY_WS_ORIGIN } from "../../voiceProviderConfig";
 import type { DoubaoBidirectionalAudioParams } from "./doubaoBidirectionalProtocol";
 import {
   isDoubaoBidirectionalServerEvent,
   type DoubaoBidirectionalClientEvent
 } from "./doubaoBidirectionalProtocol";
 
-// 桥接路径（挂在 vite dev 同源上，与 STT 同规则用 location 推导，避免写死端口）
+// 托管 Worker 上的 TTS 路径，浏览器与 Tauri 使用同一服务。
 const TTS_BRIDGE_PATH = "/void-voice-proxy/tts";
 // 双向流式回吐 mp3 音频（与 StartSession audio_params.format 一致）
 const DOUBAO_TTS_AUDIO_MIME_TYPE = "audio/mpeg";
 
 export type DoubaoBidirectionalSessionConfig = {
-  appId: string;
-  accessKey: string;
-  resourceId: string;
   speaker: string;
   audioParams: DoubaoBidirectionalAudioParams;
 };
@@ -53,7 +51,7 @@ export function synthesizeBidirectional(
     try {
       websocket = new WebSocket(bridgeUrl);
     } catch (error) {
-      reject(createNetworkError("开发环境 TTS 桥接未部署，请先实现 /void-voice-proxy/tts。", bridgeUrl, error));
+      reject(createNetworkError("托管 TTS 服务连接失败。", bridgeUrl, error));
       return;
     }
 
@@ -103,9 +101,6 @@ export function synthesizeBidirectional(
     websocket.addEventListener("open", () => {
       send({
         type: "start",
-        appId: config.appId,
-        accessKey: config.accessKey,
-        resourceId: config.resourceId,
         speaker: config.speaker,
         audioParams: config.audioParams
       });
@@ -164,10 +159,11 @@ export function synthesizeBidirectional(
   });
 }
 
-/** 用当前页面同源推导桥接 WebSocket 地址，避免写死开发端口 */
+/**
+ * 返回托管 TTS WebSocket 地址。鉴权由 Worker Secret 注入。
+ */
 function resolveBridgeUrl() {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}${TTS_BRIDGE_PATH}`;
+  return `${MANAGED_VOICE_PROXY_WS_ORIGIN}${TTS_BRIDGE_PATH}`;
 }
 
 /** base64 音频块解码为字节 */

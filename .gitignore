@@ -20,3 +20,7 @@ vite.config.d.ts
 
 # 编辑器/工具本地配置
 .claude/settings.local.json
+
+# 桥接 sidecar 构建产物（每次由 npm run sidecar:build 生成，不入库）
+.sidecar-build/
+src-tauri/binaries/

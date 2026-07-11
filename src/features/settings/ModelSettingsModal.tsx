@@ -139,7 +139,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     };
   };
 
-  const updateVoiceRuntimeField = (fieldName: "doubaoAppId" | "doubaoApiKey" | "doubaoSpeakerId" | "doubaoResourceId" | "fishAudioApiKey" | "fishAudioVoiceId" | "fishAudioModel" | "minimaxApiKey" | "minimaxGroupId") => {
+  const updateVoiceRuntimeField = (fieldName: "doubaoSpeakerId") => {
     return (event: ChangeEvent<HTMLInputElement>) => {
       const nextValue = event.target.value;
       setVoiceRuntimeConfig((currentConfig) => ({
@@ -263,15 +263,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       streamEnabled: draftConfig.provider === "openai-compatible" && draftConfig.streamEnabled
     });
     saveVoiceRuntimeConfig({
-      doubaoAppId: voiceRuntimeConfig.doubaoAppId,
-      doubaoApiKey: voiceRuntimeConfig.doubaoApiKey,
-      doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId,
-      doubaoResourceId: voiceRuntimeConfig.doubaoResourceId,
-      fishAudioApiKey: voiceRuntimeConfig.fishAudioApiKey,
-      fishAudioVoiceId: voiceRuntimeConfig.fishAudioVoiceId,
-      fishAudioModel: voiceRuntimeConfig.fishAudioModel,
-      minimaxApiKey: voiceRuntimeConfig.minimaxApiKey,
-      minimaxGroupId: voiceRuntimeConfig.minimaxGroupId
+      doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId
     });
     onClose();
   };
@@ -425,30 +417,6 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
             </label>
 
             <label className="model-settings-modal__field">
-              <span>{copy.doubaoAppId}</span>
-              <input
-                type="text"
-                value={voiceRuntimeConfig.doubaoAppId}
-                autoComplete="off"
-                placeholder={copy.doubaoAppIdHint}
-                onChange={updateVoiceRuntimeField("doubaoAppId")}
-              />
-              <small>{copy.doubaoAppIdHint}</small>
-            </label>
-
-            <label className="model-settings-modal__field">
-              <span>{copy.doubaoVoiceApiKey}</span>
-              <input
-                type="password"
-                value={voiceRuntimeConfig.doubaoApiKey}
-                autoComplete="off"
-                placeholder={copy.doubaoVoiceApiKeyHint}
-                onChange={updateVoiceRuntimeField("doubaoApiKey")}
-              />
-              <small>{copy.doubaoVoiceApiKeyHint}</small>
-            </label>
-
-            <label className="model-settings-modal__field">
               <span>{copy.doubaoSpeakerId}</span>
               <input
                 type="text"
@@ -460,77 +428,6 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
               <small>{copy.doubaoSpeakerIdHint}</small>
             </label>
 
-            <label className="model-settings-modal__field">
-              <span>{copy.doubaoResourceId}</span>
-              <input
-                type="text"
-                value={voiceRuntimeConfig.doubaoResourceId}
-                autoComplete="off"
-                placeholder={copy.doubaoResourceIdHint}
-                onChange={updateVoiceRuntimeField("doubaoResourceId")}
-              />
-              <small>{copy.doubaoResourceIdHint}</small>
-            </label>
-
-            <label className="model-settings-modal__field">
-              <span>{copy.fishAudioApiKey}</span>
-              <input
-                type="password"
-                value={voiceRuntimeConfig.fishAudioApiKey}
-                autoComplete="off"
-                placeholder={copy.fishAudioApiKeyHint}
-                onChange={updateVoiceRuntimeField("fishAudioApiKey")}
-              />
-              <small>{copy.fishAudioApiKeyHint}</small>
-            </label>
-
-            <label className="model-settings-modal__field">
-              <span>{copy.fishAudioVoiceId}</span>
-              <input
-                type="text"
-                value={voiceRuntimeConfig.fishAudioVoiceId}
-                autoComplete="off"
-                placeholder={copy.fishAudioVoiceIdHint}
-                onChange={updateVoiceRuntimeField("fishAudioVoiceId")}
-              />
-              <small>{copy.fishAudioVoiceIdHint}</small>
-            </label>
-
-            <label className="model-settings-modal__field">
-              <span>{copy.fishAudioModel}</span>
-              <input
-                type="text"
-                value={voiceRuntimeConfig.fishAudioModel}
-                autoComplete="off"
-                placeholder={copy.fishAudioModelHint}
-                onChange={updateVoiceRuntimeField("fishAudioModel")}
-              />
-              <small>{copy.fishAudioModelHint}</small>
-            </label>
-
-            <label className="model-settings-modal__field">
-              <span>{copy.minimaxVoiceApiKey}</span>
-              <input
-                type="password"
-                value={voiceRuntimeConfig.minimaxApiKey}
-                autoComplete="off"
-                placeholder={copy.minimaxVoiceApiKeyHint}
-                onChange={updateVoiceRuntimeField("minimaxApiKey")}
-              />
-              <small>{copy.minimaxVoiceApiKeyHint}</small>
-            </label>
-
-            <label className="model-settings-modal__field">
-              <span>{copy.minimaxGroupId}</span>
-              <input
-                type="text"
-                value={voiceRuntimeConfig.minimaxGroupId}
-                autoComplete="off"
-                placeholder={copy.minimaxGroupIdHint}
-                onChange={updateVoiceRuntimeField("minimaxGroupId")}
-              />
-              <small>{copy.minimaxGroupIdHint}</small>
-            </label>
           </section>
 
           <section className="model-settings-modal__section">
