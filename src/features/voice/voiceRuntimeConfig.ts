@@ -7,6 +7,14 @@ export type VoiceRuntimeConfig = {
 };
 
 const DOUBAO_SPEAKER_ID_STORAGE_KEY = "void.voice.doubaoSpeakerId";
+
+/**
+ * 托管语音默认音色。
+ * 语音密钥已上移到 Cloudflare Worker，客户端只需要非敏感的 speakerId。
+ * 若用户尚未在设置里填写，使用官方可用女声，避免「语音输出开着却整段无声」。
+ */
+export const DEFAULT_DOUBAO_SPEAKER_ID = "zh_female_xiaohe_uranus_bigtts";
+
 const LEGACY_CLIENT_VOICE_SECRET_KEYS = [
   "void.voice.doubaoAppId",
   "void.voice.doubaoApiKey",
@@ -17,9 +25,11 @@ const LEGACY_CLIENT_VOICE_SECRET_KEYS = [
 
 export function loadVoiceRuntimeConfig(): VoiceRuntimeConfig {
   clearLegacyClientVoiceSecrets();
+  const storedSpeakerId = window.localStorage.getItem(DOUBAO_SPEAKER_ID_STORAGE_KEY)?.trim() ?? "";
   return {
     requestMode: loadModelConfig().requestMode,
-    doubaoSpeakerId: window.localStorage.getItem(DOUBAO_SPEAKER_ID_STORAGE_KEY) ?? ""
+    // 设置里可覆盖；空值回落到默认音色，保证托管 TTS 可直接发声。
+    doubaoSpeakerId: storedSpeakerId || DEFAULT_DOUBAO_SPEAKER_ID
   };
 }
 

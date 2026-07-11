@@ -19,6 +19,9 @@ type AnthropicResponse = {
 };
 
 export const anthropicProvider: ModelProvider = {
+  // 阶段 E′ 先打通 OpenAI-compatible tool_calls；Anthropic tools 后置
+  supportsTools: false,
+
   validateConfig(config: ModelConfig): ProviderValidationResult {
     if (!config.apiKey.trim()) {
       return { valid: false, message: "需要先填写 API Key。" };
@@ -100,19 +103,20 @@ export const anthropicProvider: ModelProvider = {
 };
 
 function buildAnthropicMessages(messages: ProviderMessage[]) {
+  // Anthropic 路径暂不支持 tool 角色；只保留 user/assistant 文本
   return messages
-    .filter((message) => message.role !== "system")
+    .filter((message) => message.role === "user" || message.role === "assistant")
     .map((message) => ({
       role: message.role === "assistant" ? "assistant" : "user",
-      content: message.content
+      content: message.content ?? ""
     }));
 }
 
-function buildAnthropicRequestBody(request: ProviderRequest, config: ModelConfig, systemPrompt?: string) {
+function buildAnthropicRequestBody(request: ProviderRequest, config: ModelConfig, systemPrompt?: string | null) {
   const thinkingBudgetTokens = mapThinkingModeToBudgetTokens(config);
   const baseBody = {
     model: config.modelName,
-    system: systemPrompt,
+    system: systemPrompt ?? undefined,
     messages: buildAnthropicMessages(request.messages),
     max_tokens: config.maxOutputTokens,
     stream: false

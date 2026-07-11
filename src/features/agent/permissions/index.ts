@@ -11,3 +11,9 @@ export {
   requiresUserConfirmation,
   resolveEffectiveRiskLevel
 } from "./permissionGate";
+
+export {
+  parseVoiceConfirmationIntent,
+  normalizeVoiceConfirmationText,
+  type VoiceConfirmationIntent
+} from "./voiceConfirmationParser";

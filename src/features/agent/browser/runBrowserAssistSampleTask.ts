@@ -8,6 +8,7 @@
 
 import { runTask } from "../execution";
 import type { TaskRunResult } from "../execution";
+import type { TaskPlan } from "../planning";
 import type { ConfirmationDecision, ConfirmationRequest } from "../permissions";
 import { bootstrapAgentRuntime } from "../runtimeBootstrap";
 import type { BrowserSearchResultItem } from "./browserBridgeTypes";
@@ -27,13 +28,15 @@ export type BrowserAssistSampleTaskOptions = {
   overwritePolicy?: OverwritePolicy;
   /**
    * 实际下载 URL。
-   * 样板默认公开小 PDF，保证闭环可复现；产品侧应换成用户确认的资源链接。
+   * 样板默认公开小文件，保证闭环可复现；产品侧应换成用户确认的资源链接。
    */
   downloadUrl?: string;
   suggestedFileName?: string;
   requestConfirmation?: (
     request: ConfirmationRequest
   ) => Promise<ConfirmationDecision>;
+  /** 计划进度回调：UI 订阅用，不改变编排逻辑 */
+  onPlanUpdate?: (plan: TaskPlan) => void;
   signal?: AbortSignal;
   limit?: number;
 };
@@ -131,7 +134,8 @@ export async function runBrowserAssistSampleTask(
 
   const runnerOptions = {
     signal: options.signal,
-    requestConfirmation
+    requestConfirmation,
+    onPlanUpdate: options.onPlanUpdate
   };
 
   // 1) 搜索（L0）
@@ -147,7 +151,10 @@ export async function runBrowserAssistSampleTask(
         }
       ]
     },
-    { signal: options.signal }
+    {
+      signal: options.signal,
+      onPlanUpdate: options.onPlanUpdate
+    }
   );
   runs.push(searchRun);
 
@@ -338,7 +345,10 @@ export async function runBrowserAssistSampleTask(
           }
         ]
       },
-      { signal: options.signal }
+      {
+        signal: options.signal,
+        onPlanUpdate: options.onPlanUpdate
+      }
     );
     runs.push(verifyRun);
     const verifyStep = verifyRun.plan.steps.find((step) => step.id === "verify");

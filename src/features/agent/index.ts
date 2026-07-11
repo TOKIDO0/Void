@@ -1,7 +1,10 @@
 // Agent 工具运行时对外出口。
 // 对话层（voidConversation 等）保持平铺；工具系统按子目录导出。
 
-export { registerBuiltinTools } from "./tools";
+export { bootstrapAgentRuntime } from "./runtimeBootstrap";
+export { registerBuiltinTools, listModelToolDefinitions } from "./tools";
+export { runAgentToolLoop } from "./loop";
+export type { AgentToolLoopOptions, AgentToolLoopResult } from "./loop";
 export {
   clearToolRegistry,
   getTool,

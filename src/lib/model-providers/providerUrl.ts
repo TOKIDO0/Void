@@ -42,6 +42,17 @@ export function buildFetchTarget(endpointUrl: string, requestMode: ModelRequestM
     } satisfies ProviderFetchTarget;
   }
 
+  // Node 联调脚本 / 非浏览器：无 Vite 同源代理，直接打目标 API
+  if (typeof window === "undefined") {
+    const headers: Record<string, string> = {};
+    return {
+      url: endpointUrl,
+      directUrl: endpointUrl,
+      mode: requestMode,
+      headers
+    } satisfies ProviderFetchTarget;
+  }
+
   if (requestMode === "production-proxy") {
     return {
       url: PRODUCTION_PROXY_PATH,
@@ -53,7 +64,14 @@ export function buildFetchTarget(endpointUrl: string, requestMode: ModelRequestM
     } satisfies ProviderFetchTarget;
   }
 
-  if (!import.meta.env.DEV) {
+  // Vite 注入 import.meta.env；非 Vite 打包上下文可能没有，不能裸读 DEV
+  const isViteDev = Boolean(
+    typeof import.meta !== "undefined"
+    && import.meta.env
+    && import.meta.env.DEV
+  );
+
+  if (!isViteDev) {
     return {
       url: PRODUCTION_PROXY_PATH,
       directUrl: endpointUrl,

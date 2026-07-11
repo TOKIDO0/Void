@@ -211,9 +211,17 @@ export class VoiceTtsOrchestrator {
     };
   }
 
-  /** 托管豆包双向流式恒开；客户端仅需提供非敏感的音色 ID。 */
+  /**
+   * 托管豆包双向流式恒开；客户端仅需非敏感音色 ID。
+   * 缺音色时不应静默走空供应商列表，否则上层只会“有文字、无声音、无报错”。
+   */
   private shouldUseBidirectional(): boolean {
-    return Boolean(this.runtimeConfig.doubaoSpeakerId.trim());
+    const speakerId = this.runtimeConfig.doubaoSpeakerId.trim();
+    if (!speakerId) {
+      console.warn("[VOID TTS] 缺少 doubaoSpeakerId，已跳过语音合成。请在设置中填写音色 ID。");
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -268,10 +276,8 @@ export class VoiceTtsOrchestrator {
             }
           });
         } catch (error) {
-          // best-effort：与逐句 HTTP 路径一致，语音失败不阻断文字回合；开发期打印便于联调定位。
-          if (import.meta.env.DEV) {
-            console.warn("[VOID TTS bidirectional session]", error);
-          }
+          // best-effort：语音失败不阻断文字回合，但必须打日志，避免「整段无声且控制台空白」。
+          console.warn("[VOID TTS bidirectional session]", error);
         }
       }
     };

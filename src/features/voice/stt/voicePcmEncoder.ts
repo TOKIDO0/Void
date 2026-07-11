@@ -5,11 +5,22 @@ export type EncodedVoiceChunk = {
   sampleRate: number;
 };
 
+/**
+ * 麦克风 PCM 采集与 16k/s16le 编码。
+ *
+ * 约束：
+ * - 只在 STT 会话 ready 后创建，避免空推音频。
+ * - 创建后立即 resume AudioContext，防止「用户手势 → 异步握手」后 context 处于 suspended，
+ *   导致 onaudioprocess 不触发、表现为完全不识别。
+ * - ScriptProcessor 必须挂到可运行图上才会回调；经 0 增益节点接到 destination，
+ *   满足浏览器要求且不把麦克风直通到扬声器。
+ */
 export class VoicePcmEncoder {
   private readonly audioContext: AudioContext;
   private readonly mediaStream: MediaStream;
   private readonly sourceNode: MediaStreamAudioSourceNode;
   private readonly processorNode: ScriptProcessorNode;
+  private readonly silentGainNode: GainNode;
   private readonly onChunk: (chunk: EncodedVoiceChunk) => void;
 
   constructor(mediaStream: MediaStream, onChunk: (chunk: EncodedVoiceChunk) => void) {
@@ -18,6 +29,9 @@ export class VoicePcmEncoder {
     this.audioContext = new AudioContext();
     this.sourceNode = this.audioContext.createMediaStreamSource(mediaStream);
     this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
+    this.silentGainNode = this.audioContext.createGain();
+    this.silentGainNode.gain.value = 0;
+
     this.processorNode.onaudioprocess = (event) => {
       const inputChannel = event.inputBuffer.getChannelData(0);
       const downsampledBuffer = downsampleBuffer(inputChannel, this.audioContext.sampleRate, TARGET_SAMPLE_RATE);
@@ -32,12 +46,24 @@ export class VoicePcmEncoder {
     };
 
     this.sourceNode.connect(this.processorNode);
-    this.processorNode.connect(this.audioContext.destination);
+    this.processorNode.connect(this.silentGainNode);
+    this.silentGainNode.connect(this.audioContext.destination);
+  }
+
+  /**
+   * 确保 AudioContext 处于 running。
+   * 必须在 STT ready 后、开始依赖 PCM 前 await；否则 suspended 时完全无识别。
+   */
+  async ensureRunning() {
+    if (this.audioContext.state === "suspended") {
+      await this.audioContext.resume();
+    }
   }
 
   async stop() {
     this.processorNode.disconnect();
     this.sourceNode.disconnect();
+    this.silentGainNode.disconnect();
     this.mediaStream.getTracks().forEach((track) => track.stop());
     await this.audioContext.close();
   }

@@ -4,6 +4,8 @@ import { getModelProvider } from "../../lib/model-providers/providerRegistry";
 import { VOID_SYSTEM_PROMPT } from "./voidSystemPrompt";
 import { retrieveMemories } from "../memory/memoryRetriever";
 import { projectMemories } from "../memory/memoryProjection";
+import { runAgentToolLoop } from "./loop/agentToolLoop";
+import type { ConfirmationDecision, ConfirmationRequest } from "./permissions";
 
 export type VoidConversationAttachment = {
   id: string;
@@ -21,6 +23,17 @@ export type VoidConversationMessage = {
 export type VoidAssistantStreamState = {
   history: VoidConversationMessage[];
   assistantMessageIndex: number;
+};
+
+/** 对话层可选：工具循环的进度与确认宿主（语音/文本共用） */
+export type VoidMessageRuntimeOptions = {
+  requestConfirmation?: (
+    request: ConfirmationRequest
+  ) => Promise<ConfirmationDecision>;
+  onProgress?: (message: string) => void;
+  signal?: AbortSignal;
+  /** 默认 true：支持 tools 的 provider 走 agent loop */
+  enableTools?: boolean;
 };
 
 type StoredConversationPayload = {
@@ -43,24 +56,67 @@ const THINKING_MODE_SYSTEM_SUFFIX = [
   "不要为了显得有思考感而故意拖慢表达。"
 ].join("");
 
+/** 短约束：何时用工具。不把完整工具手册塞进 System Prompt。 */
+const TOOL_USE_SYSTEM_SUFFIX = [
+  "你可以通过函数工具操作浏览器与本机白名单目录。",
+  "当用户要求搜索、打开网页、看视频、下载文件时，必须调用工具，禁止假装已经操作。",
+  "找 B 站博主/视频：browser.search 必须设 engine=bilibili；不要只用全网搜索碰运气。",
+  "browser.open 只打开 Playwright 自动化窗口（用户可能在任务栏另见一个浏览器图标，不是日常浏览器）。",
+  "用户要「打开给我看 / 在我浏览器里看」时：拿到真实视频 URL 后必须再调 browser.revealInSystemBrowser，用系统默认浏览器打开；汇报时写明完整 URL，并说明请到常用浏览器查看。",
+  "不要空口说「打开了」——只有工具返回 openMode=system_default_browser 或 automation_window 成功后才能那样说，并带上标题与 URL。",
+  "普通聊天不要调工具。参数缺失时先一句话确认，不要猜测。",
+  "敏感步骤会请用户确认；拒绝后停止并如实说明。",
+  "同一工具失败或空结果时不要死循环重试；换策略或向用户说明卡点。",
+  "最终用简洁中文汇报，不要输出 JSON 或内部字段名。"
+].join("");
+
 export async function sendVoidMessage(
   userInput: string,
   conversationHistory: VoidConversationMessage[],
   modelConfig: ModelConfig,
   attachments: VoidConversationAttachment[] = [],
   onToken?: (token: string) => void,
-  emotionContext?: string
+  emotionContext?: string,
+  runtimeOptions: VoidMessageRuntimeOptions = {}
 ) {
   const provider = getModelProvider(modelConfig.provider);
   const normalizedUserInput = buildUserInputWithAttachments(userInput, attachments);
   // 记忆召回：按本轮用户输入的话题只取相关分区的少量长期记忆，投影成一段可注入文本。
   // 空召回时 projectMemories 返回空串，buildSystemPrompt 据此跳过注入，零副作用。
   const memoryContext = projectMemories(retrieveMemories(userInput));
+  const enableTools = runtimeOptions.enableTools !== false && Boolean(provider.supportsTools);
   const messages: ProviderMessage[] = [
-    { role: "system", content: buildSystemPrompt(modelConfig, emotionContext, memoryContext) },
+    {
+      role: "system",
+      content: buildSystemPrompt(modelConfig, emotionContext, memoryContext, enableTools)
+    },
     ...buildRequestConversationHistory(conversationHistory),
     { role: "user", content: normalizedUserInput }
   ];
+
+  // 支持 tools 的 provider：走 agent loop（非流式拿 tool_calls，最终回复一次性返回）
+  if (enableTools) {
+    try {
+      const loopResult = await runAgentToolLoop({
+        messages,
+        modelConfig: {
+          ...modelConfig,
+          // 工具循环内部统一非流式；避免半截 tool_calls
+          streamEnabled: false
+        },
+        requestConfirmation: runtimeOptions.requestConfirmation,
+        onProgress: runtimeOptions.onProgress,
+        signal: runtimeOptions.signal
+      });
+      // 兼容旧调用方：若有 onToken，把最终文本整段推一次，便于显示层刷新
+      if (onToken && loopResult.content) {
+        onToken(loopResult.content);
+      }
+      return { content: loopResult.content };
+    } catch (error) {
+      throw provider.mapError(error);
+    }
+  }
 
   try {
     if (modelConfig.streamEnabled && provider.streamMessage) {
@@ -73,7 +129,12 @@ export async function sendVoidMessage(
   }
 }
 
-function buildSystemPrompt(modelConfig: ModelConfig, emotionContext?: string, memoryContext?: string) {
+function buildSystemPrompt(
+  modelConfig: ModelConfig,
+  emotionContext?: string,
+  memoryContext?: string,
+  enableTools = false
+) {
   const sections = [VOID_SYSTEM_PROMPT];
 
   // 长期记忆召回上下文（可选）：排在人格之后、情绪与思考模式之前，
@@ -89,6 +150,11 @@ function buildSystemPrompt(modelConfig: ModelConfig, emotionContext?: string, me
   // 情绪系统的本轮情绪上下文（可选）。缺省则完全退回原有行为，零副作用。
   if (emotionContext && emotionContext.trim()) {
     sections.push(emotionContext.trim());
+  }
+
+  // 工具短约束：仅在本轮启用 tools 时注入，不罗列全部参数 schema
+  if (enableTools) {
+    sections.push(TOOL_USE_SYSTEM_SUFFIX);
   }
 
   return sections.join("\n\n");

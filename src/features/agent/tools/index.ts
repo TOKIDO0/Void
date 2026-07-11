@@ -34,6 +34,11 @@ export {
   toExecutionFailedError
 } from "./toolErrors";
 
+export {
+  fromModelToolName,
+  listModelToolDefinitions,
+  toModelToolName
+} from "./modelToolSchema";
 export { registerBuiltinTools } from "./registerBuiltinTools";
 export { echoTool } from "./builtin/echoTool";
 export type { EchoToolInput, EchoToolOutput } from "./builtin/echoTool";
@@ -41,6 +46,7 @@ export { browserOpenTool } from "./builtin/browserOpenTool";
 export { browserSearchTool } from "./builtin/browserSearchTool";
 export { browserReadResultTool } from "./builtin/browserReadResultTool";
 export { browserScreenshotTool } from "./builtin/browserScreenshotTool";
+export { browserRevealInSystemBrowserTool } from "./builtin/browserRevealInSystemBrowserTool";
 export type {
   BrowserOpenToolInput,
   BrowserOpenToolOutput

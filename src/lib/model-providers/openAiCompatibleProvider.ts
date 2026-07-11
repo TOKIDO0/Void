@@ -2,19 +2,33 @@ import type {
   ModelProvider,
   ProviderRequest,
   ProviderResponse,
+  ProviderToolCall,
   ProviderValidationResult
 } from "./providerContract";
 import type { ModelConfig } from "../../features/settings/modelConfig";
 import { ProviderRequestError, createHttpStatusError } from "./providerErrors";
 import { buildFetchTarget, buildProviderEndpointUrl, fetchWithProxyFallback } from "./providerUrl";
 
+type OpenAiCompatibleToolCall = {
+  id?: string;
+  type?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+  index?: number;
+};
+
 type OpenAiCompatibleChoice = {
   message?: {
-    content?: string;
+    content?: string | null;
+    tool_calls?: OpenAiCompatibleToolCall[];
   };
   delta?: {
-    content?: string;
+    content?: string | null;
+    tool_calls?: OpenAiCompatibleToolCall[];
   };
+  finish_reason?: string | null;
 };
 
 type OpenAiCompatibleResponse = {
@@ -22,6 +36,8 @@ type OpenAiCompatibleResponse = {
 };
 
 export const openAiCompatibleProvider: ModelProvider = {
+  supportsTools: true,
+
   validateConfig(config: ModelConfig): ProviderValidationResult {
     if (!config.apiKey.trim()) {
       return { valid: false, message: "需要先填写 API Key。" };
@@ -59,14 +75,7 @@ export const openAiCompatibleProvider: ModelProvider = {
         "Content-Type": "application/json",
         Authorization: buildBearerToken(config.apiKey)
       },
-      body: JSON.stringify({
-        model: config.modelName,
-        messages: request.messages,
-        temperature: normalizeOpenAiCompatibleTemperature(config.temperature),
-        max_tokens: config.maxOutputTokens,
-        ...buildOpenAiCompatibleReasoningOptions(config),
-        stream: false
-      })
+      body: JSON.stringify(buildOpenAiCompatibleBody(request, config, false))
     });
 
     if (!response.ok) {
@@ -87,6 +96,11 @@ export const openAiCompatibleProvider: ModelProvider = {
       throw new Error(validation.message);
     }
 
+    // 带 tools 的请求必须非流式，才能完整拿到 tool_calls；由上层 agent loop 走 sendMessage
+    if (request.tools && request.tools.length > 0) {
+      return this.sendMessage(request, config);
+    }
+
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
     const fetchTarget = buildFetchTarget(endpointUrl, config.requestMode);
     logOpenAiCompatibleRequest("stream", endpointUrl, config);
@@ -96,14 +110,7 @@ export const openAiCompatibleProvider: ModelProvider = {
         "Content-Type": "application/json",
         Authorization: buildBearerToken(config.apiKey)
       },
-      body: JSON.stringify({
-        model: config.modelName,
-        messages: request.messages,
-        temperature: normalizeOpenAiCompatibleTemperature(config.temperature),
-        max_tokens: config.maxOutputTokens,
-        ...buildOpenAiCompatibleReasoningOptions(config),
-        stream: true
-      })
+      body: JSON.stringify(buildOpenAiCompatibleBody(request, config, true))
     });
 
     if (!response.ok) {
@@ -124,13 +131,22 @@ export const openAiCompatibleProvider: ModelProvider = {
 
   normalizeResponse(response: unknown): ProviderResponse {
     const parsedResponse = response as OpenAiCompatibleResponse;
-    const content = parsedResponse.choices?.[0]?.message?.content?.trim();
+    const choice = parsedResponse.choices?.[0];
+    const message = choice?.message;
+    const rawContent = message?.content;
+    const content =
+      typeof rawContent === "string" ? rawContent.trim() : "";
+    const toolCalls = normalizeToolCalls(message?.tool_calls);
 
-    if (!content) {
+    if (!content && toolCalls.length === 0) {
       throw new Error("模型没有返回有效内容。");
     }
 
-    return { content };
+    return {
+      content,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      finishReason: choice?.finish_reason ?? undefined
+    };
   },
 
   mapError(error: unknown): Error {
@@ -145,6 +161,56 @@ export const openAiCompatibleProvider: ModelProvider = {
     return new Error("模型连接暂时不可用。");
   }
 };
+
+function buildOpenAiCompatibleBody(
+  request: ProviderRequest,
+  config: ModelConfig,
+  stream: boolean
+) {
+  const body: Record<string, unknown> = {
+    model: config.modelName,
+    messages: request.messages,
+    temperature: normalizeOpenAiCompatibleTemperature(config.temperature),
+    max_tokens: config.maxOutputTokens,
+    ...buildOpenAiCompatibleReasoningOptions(config),
+    stream
+  };
+
+  if (request.tools && request.tools.length > 0) {
+    body.tools = request.tools;
+    body.tool_choice = request.toolChoice ?? "auto";
+  }
+
+  return body;
+}
+
+function normalizeToolCalls(
+  raw: OpenAiCompatibleToolCall[] | undefined
+): ProviderToolCall[] {
+  if (!raw || raw.length === 0) {
+    return [];
+  }
+
+  const calls: ProviderToolCall[] = [];
+  for (const item of raw) {
+    const name = item.function?.name?.trim();
+    if (!name) {
+      continue;
+    }
+    calls.push({
+      id: item.id?.trim() || `call_${calls.length + 1}`,
+      type: "function",
+      function: {
+        name,
+        arguments:
+          typeof item.function?.arguments === "string"
+            ? item.function.arguments
+            : "{}"
+      }
+    });
+  }
+  return calls;
+}
 
 function normalizeOpenAiCompatibleTemperature(temperature: number) {
   return Math.min(Math.max(temperature, 0.01), 1);
@@ -236,7 +302,12 @@ function buildOpenAiCompatibleServiceMessage(status: number, errorMessage: strin
 }
 
 function logOpenAiCompatibleRequest(mode: "send" | "stream", endpointUrl: string, config: ModelConfig) {
-  if (!import.meta.env.DEV) {
+  const isViteDev = Boolean(
+    typeof import.meta !== "undefined"
+    && import.meta.env
+    && import.meta.env.DEV
+  );
+  if (!isViteDev) {
     return;
   }
 
@@ -263,6 +334,11 @@ async function readOpenAiCompatibleStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let content = "";
+  // 流式 tool_calls 按 index 累积（部分中转站会边流边吐 arguments）
+  const toolCallBuffers = new Map<
+    number,
+    { id: string; name: string; arguments: string }
+  >();
 
   while (true) {
     const { done, value } = await reader.read();
@@ -285,31 +361,62 @@ async function readOpenAiCompatibleStream(
         continue;
       }
 
-      const token = parseStreamToken(payload);
-      if (!token) {
-        continue;
-      }
+      try {
+        const parsedPayload = JSON.parse(payload) as OpenAiCompatibleResponse;
+        const delta = parsedPayload.choices?.[0]?.delta;
+        const token = typeof delta?.content === "string" ? delta.content : "";
+        if (token) {
+          content += token;
+          onToken?.(token);
+        }
 
-      content += token;
-      onToken?.(token);
+        if (delta?.tool_calls) {
+          for (const partial of delta.tool_calls) {
+            const index = typeof partial.index === "number" ? partial.index : 0;
+            const current = toolCallBuffers.get(index) ?? {
+              id: "",
+              name: "",
+              arguments: ""
+            };
+            if (partial.id) {
+              current.id = partial.id;
+            }
+            if (partial.function?.name) {
+              current.name += partial.function.name;
+            }
+            if (typeof partial.function?.arguments === "string") {
+              current.arguments += partial.function.arguments;
+            }
+            toolCallBuffers.set(index, current);
+          }
+        }
+      } catch {
+        // 忽略单行坏包
+      }
     }
   }
 
+  const toolCalls = Array.from(toolCallBuffers.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, item], index) => ({
+      id: item.id || `call_${index + 1}`,
+      type: "function" as const,
+      function: {
+        name: item.name,
+        arguments: item.arguments || "{}"
+      }
+    }))
+    .filter((item) => item.function.name.trim());
+
   const finalContent = content.trim();
-  if (!finalContent) {
+  if (!finalContent && toolCalls.length === 0) {
     throw new Error("模型没有返回有效内容。");
   }
 
-  return { content: finalContent };
-}
-
-function parseStreamToken(payload: string) {
-  try {
-    const parsedPayload = JSON.parse(payload) as OpenAiCompatibleResponse;
-    return parsedPayload.choices?.[0]?.delta?.content ?? "";
-  } catch {
-    return "";
-  }
+  return {
+    content: finalContent,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+  };
 }
 
 async function readErrorMessage(response: Response) {

@@ -24,9 +24,11 @@ const DOUBAO_SAUC_ENDPOINT = "wss://openspeech.bytedance.com/api/v3/sauc/bigmode
 // 浏览器侧连接的桥接路径
 const STT_BRIDGE_PATH = "/void-voice-proxy/stt";
 // 整段停顿提交阈值（endpointing）：识别文本静默超过此时长即判定「用户说完」，把累积内容发出。
-// 取值依据：行业 endpointing 静音区间约 300–800ms，400ms 起有卡顿感、满 1s 会觉得没反应；
-// 取上沿 800ms 既能容纳说长句时的自然换气（通常 <1s），又留足时间让豆包对尾句完成定稿。
-const UTTERANCE_COMMIT_SILENCE_MS = 800;
+// 800ms 过短会导致长句换气/思考时 AI 抢答；与托管 Worker 对齐为 1.5s。
+const UTTERANCE_COMMIT_SILENCE_MS = 1500;
+// 豆包强制静音判停窗口，与应用层阈值对齐。
+const DOUBAO_END_WINDOW_SIZE_MS = 1500;
+const DOUBAO_FORCE_TO_SPEECH_TIME_MS = 1200;
 
 /** 浏览器 → 桥接 的客户端事件 */
 type BridgeClientEvent =
@@ -343,7 +345,9 @@ function buildRecognitionConfig(startEvent: StartEvent) {
       enable_punc: true,
       enable_itn: true,
       show_utterances: true,
-      result_type: "full"
+      result_type: "full",
+      end_window_size: DOUBAO_END_WINDOW_SIZE_MS,
+      force_to_speech_time: DOUBAO_FORCE_TO_SPEECH_TIME_MS
     }
   };
 }

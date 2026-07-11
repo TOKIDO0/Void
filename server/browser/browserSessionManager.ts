@@ -17,13 +17,19 @@ import {
   type Page
 } from "playwright";
 import {
+  buildBilibiliSearchUrl,
+  extractBilibiliSearchResults
+} from "./bilibiliSearch";
+import {
   buildDuckDuckGoHtmlSearchUrl,
   extractDuckDuckGoResults
 } from "./duckduckgoSearch";
+import { openUrlInSystemBrowser } from "./systemBrowserOpen";
 import type {
   BrowserCloseSessionData,
   BrowserOpenData,
   BrowserReadResultData,
+  BrowserRevealInSystemBrowserData,
   BrowserScreenshotData,
   BrowserSearchData
 } from "./browserTypes";
@@ -45,7 +51,12 @@ type ManagedSession = {
 /** 默认可视窗口尺寸：桌面常见比例，避免移动端布局 */
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
 
-/** 无头开关：环境变量 VOID_BROWSER_HEADLESS=1 时无头；默认有头便于阶段 C 验收「真打开浏览器」 */
+/**
+ * 无头开关：
+ * - VOID_BROWSER_HEADLESS=1/true → 无头（仅冒烟脚本用）
+ * - 默认有头：用户要能在任务栏看到自动化窗
+ * 产品路径禁止默认无头。
+ */
 function resolveHeadless(): boolean {
   const raw = process.env.VOID_BROWSER_HEADLESS;
   if (raw === "1" || raw === "true") {
@@ -55,6 +66,10 @@ function resolveHeadless(): boolean {
     return false;
   }
   return false;
+}
+
+function isHeadlessMode(): boolean {
+  return resolveHeadless();
 }
 
 function makePageId() {
@@ -201,18 +216,34 @@ export class BrowserSessionManager {
     session.lastUsedAt = Date.now();
     session.activePageId = managedPage.pageId;
 
+    // 有头模式：尽量把自动化窗拉到前台，避免用户以为「没打开」
+    const headless = isHeadlessMode();
+    let broughtToFront = false;
+    if (!headless) {
+      try {
+        await managedPage.page.bringToFront();
+        broughtToFront = true;
+      } catch {
+        broughtToFront = false;
+      }
+    }
+
     return {
       taskId: session.taskId,
       pageId: managedPage.pageId,
       url: targetUrl,
       title: await managedPage.page.title(),
-      finalUrl: managedPage.page.url()
+      finalUrl: managedPage.page.url(),
+      openMode: "automation_window",
+      headless,
+      broughtToFront
     };
   }
 
   async search(input: {
     taskId: string;
     query: string;
+    engine?: "duckduckgo" | "bilibili";
     limit?: number;
   }): Promise<BrowserSearchData> {
     const query = input.query.trim();
@@ -220,8 +251,13 @@ export class BrowserSessionManager {
       throw createBrowserError("INVALID_REQUEST", "搜索关键词不能为空");
     }
 
+    const engine = input.engine === "bilibili" ? "bilibili" : "duckduckgo";
     const limit = clampLimit(input.limit, 8);
-    const resultPageUrl = buildDuckDuckGoHtmlSearchUrl(query);
+    const resultPageUrl =
+      engine === "bilibili"
+        ? buildBilibiliSearchUrl(query)
+        : buildDuckDuckGoHtmlSearchUrl(query);
+
     const opened = await this.open({
       taskId: input.taskId,
       url: resultPageUrl
@@ -232,12 +268,15 @@ export class BrowserSessionManager {
 
     let results;
     try {
-      results = await extractDuckDuckGoResults(managedPage.page, limit);
+      results =
+        engine === "bilibili"
+          ? await extractBilibiliSearchResults(managedPage.page, limit)
+          : await extractDuckDuckGoResults(managedPage.page, limit);
     } catch (error) {
       throw createBrowserError(
         "PARSE_FAILED",
         error instanceof Error ? error.message : "解析搜索结果失败",
-        { query }
+        { query, engine }
       );
     }
 
@@ -246,10 +285,47 @@ export class BrowserSessionManager {
     return {
       taskId: session.taskId,
       pageId: managedPage.pageId,
-      engine: "duckduckgo",
+      engine,
       query,
       resultPageUrl: managedPage.page.url(),
       results
+    };
+  }
+
+  /**
+   * 用系统默认浏览器打开 URL，让用户在常用浏览器里看到页面。
+   * 与 Playwright 自动化窗分离：自动化窗负责读页面；本方法负责「给用户看」。
+   */
+  async revealInSystemBrowser(input: {
+    taskId: string;
+    url: string;
+    titleHint?: string;
+  }): Promise<BrowserRevealInSystemBrowserData> {
+    const taskId = normalizeTaskId(input.taskId);
+    const openedUrl = assertHttpUrl(input.url);
+    try {
+      await openUrlInSystemBrowser(openedUrl);
+    } catch (error) {
+      throw createBrowserError(
+        "INTERNAL_ERROR",
+        error instanceof Error ? error.message : "系统浏览器打开失败",
+        { url: openedUrl }
+      );
+    }
+
+    // 若该 task 已有会话，更新活跃时间（不强依赖会话）
+    const session = this.sessions.get(taskId);
+    if (session) {
+      session.lastUsedAt = Date.now();
+    }
+
+    const titlePart = input.titleHint?.trim() ? `「${input.titleHint.trim()}」` : "目标页面";
+    return {
+      taskId,
+      openedUrl,
+      titleHint: input.titleHint,
+      openMode: "system_default_browser",
+      message: `已在你的系统默认浏览器中打开${titlePart}：${openedUrl}。请切换到你常用的浏览器窗口查看（不是自动化小窗）。`
     };
   }
 

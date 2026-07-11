@@ -2,6 +2,7 @@
 
 import { browserOpenTool } from "./builtin/browserOpenTool";
 import { browserReadResultTool } from "./builtin/browserReadResultTool";
+import { browserRevealInSystemBrowserTool } from "./builtin/browserRevealInSystemBrowserTool";
 import { browserScreenshotTool } from "./builtin/browserScreenshotTool";
 import { browserSearchTool } from "./builtin/browserSearchTool";
 import { browserSelectTargetTool } from "./builtin/browserSelectTargetTool";
@@ -23,6 +24,7 @@ export function registerBuiltinTools() {
     browserReadResultTool,
     browserScreenshotTool,
     browserSelectTargetTool,
+    browserRevealInSystemBrowserTool,
     fileDownloadToTempTool,
     filePlaceDownloadTool,
     fileVerifyTool

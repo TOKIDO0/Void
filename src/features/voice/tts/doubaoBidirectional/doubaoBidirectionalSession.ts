@@ -9,15 +9,15 @@
  * 上层 orchestrator 据此在 createStreamingSession 的 complete() 时单次回调播放。
  */
 import { createNetworkError } from "../../../../lib/model-providers/providerErrors";
-import { MANAGED_VOICE_PROXY_WS_ORIGIN } from "../../voiceProviderConfig";
+import {
+  MANAGED_VOICE_PROXY_TTS_PATH,
+  MANAGED_VOICE_PROXY_WS_ORIGIN
+} from "../../voiceProviderConfig";
 import type { DoubaoBidirectionalAudioParams } from "./doubaoBidirectionalProtocol";
 import {
   isDoubaoBidirectionalServerEvent,
   type DoubaoBidirectionalClientEvent
 } from "./doubaoBidirectionalProtocol";
-
-// 托管 Worker 上的 TTS 路径，浏览器与 Tauri 使用同一服务。
-const TTS_BRIDGE_PATH = "/void-voice-proxy/tts";
 // 双向流式回吐 mp3 音频（与 StartSession audio_params.format 一致）
 const DOUBAO_TTS_AUDIO_MIME_TYPE = "audio/mpeg";
 
@@ -163,7 +163,7 @@ export function synthesizeBidirectional(
  * 返回托管 TTS WebSocket 地址。鉴权由 Worker Secret 注入。
  */
 function resolveBridgeUrl() {
-  return `${MANAGED_VOICE_PROXY_WS_ORIGIN}${TTS_BRIDGE_PATH}`;
+  return `${MANAGED_VOICE_PROXY_WS_ORIGIN}${MANAGED_VOICE_PROXY_TTS_PATH}`;
 }
 
 /** base64 音频块解码为字节 */

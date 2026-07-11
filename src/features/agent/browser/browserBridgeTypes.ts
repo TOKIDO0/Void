@@ -17,15 +17,26 @@ export type BrowserOpenData = {
   url: string;
   title: string;
   finalUrl: string;
+  openMode: "automation_window";
+  headless: boolean;
+  broughtToFront: boolean;
 };
 
 export type BrowserSearchData = {
   taskId: string;
   pageId: string;
-  engine: "duckduckgo";
+  engine: "duckduckgo" | "bilibili";
   query: string;
   resultPageUrl: string;
   results: BrowserSearchResultItem[];
+};
+
+export type BrowserRevealInSystemBrowserData = {
+  taskId: string;
+  openedUrl: string;
+  titleHint?: string;
+  openMode: "system_default_browser";
+  message: string;
 };
 
 export type BrowserReadResultData = {

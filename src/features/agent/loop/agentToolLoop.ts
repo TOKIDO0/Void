@@ -1,0 +1,618 @@
+// 对话驱动的工具循环：模型 tool_calls → 权限门 → 执行 → 结果回灌。
+// 文本 / 语音共用；不提供菜单试跑入口。
+// 护栏：模型轮次上限 + 工具调用预算 + 同工具重复熔断 + 结果截断 + 终态收口。
+
+import type { ModelConfig } from "../../settings/modelConfig";
+import type {
+  ProviderMessage,
+  ProviderResponse,
+  ProviderToolCall,
+  ProviderToolDefinition
+} from "../../../lib/model-providers/providerContract";
+import { getModelProvider } from "../../../lib/model-providers/providerRegistry";
+import { executeToolCall } from "../execution/toolExecutor";
+import {
+  createConfirmationRequest,
+  DEFAULT_RISK_POLICY,
+  requiresUserConfirmation,
+  type ConfirmationDecision,
+  type ConfirmationRequest
+} from "../permissions";
+import { appendExecutionLog, setTaskProgress } from "../observability";
+import { sanitizeForAudit } from "../observability/auditSanitize";
+import { bootstrapAgentRuntime } from "../runtimeBootstrap";
+import { getTool } from "../tools";
+import {
+  fromModelToolName,
+  listModelToolDefinitions
+} from "../tools/modelToolSchema";
+import type { RiskLevel } from "../tools";
+import {
+  applyReplySpeechGuard,
+  inspectToolResultForOpenEvidence
+} from "./replySpeechGuard";
+import {
+  formatToolConfirmWaitMessage,
+  formatToolProgressMessage
+} from "./toolProgressCopy";
+
+export type AgentToolLoopOptions = {
+  /** 已含 system / 历史 / 本轮 user 的完整消息 */
+  messages: ProviderMessage[];
+  modelConfig: ModelConfig;
+  /** 覆盖默认工具列表；默认从注册表生成 */
+  tools?: ProviderToolDefinition[];
+  requestConfirmation?: (
+    request: ConfirmationRequest
+  ) => Promise<ConfirmationDecision>;
+  /** 轻量进度文案（给回复层 / 状态机，不是工具控制台） */
+  onProgress?: (message: string) => void;
+  signal?: AbortSignal;
+  /** 模型请求轮次上限（含最终回复轮）；默认 6 */
+  maxRounds?: number;
+  /** 单轮对话最多成功执行的工具次数；默认 8 */
+  maxToolInvocations?: number;
+};
+
+export type AgentToolLoopResult = {
+  content: string;
+  /** 本轮是否实际调用过工具 */
+  usedTools: boolean;
+  rounds: number;
+  taskId: string;
+};
+
+/** 模型请求次数：过大会刷爆 API；过小复杂任务完不成 */
+const DEFAULT_MAX_ROUNDS = 6;
+/** 工具实际执行次数预算（与模型轮次独立） */
+const DEFAULT_MAX_TOOL_INVOCATIONS = 8;
+/** 同一工具连续失败/空结果多少次后熔断 */
+const MAX_SAME_TOOL_STREAK = 3;
+/** 回灌模型的单条 tool 结果最大字符，防上下文膨胀 */
+const MAX_TOOL_RESULT_CHARS = 6000;
+
+/**
+ * 调用后通常可以结束并汇报的终态工具（仍允许模型再补一句，但优先收口）。
+ */
+const TERMINAL_SUCCESS_TOOLS = new Set([
+  "browser.revealInSystemBrowser",
+  "file.placeDownload",
+  "file.verify"
+]);
+
+/**
+ * 运行一轮「可调工具」的对话循环，返回最终对用户的自然语言回复。
+ */
+export async function runAgentToolLoop(
+  options: AgentToolLoopOptions
+): Promise<AgentToolLoopResult> {
+  bootstrapAgentRuntime();
+
+  const provider = getModelProvider(options.modelConfig.provider);
+  if (!provider.supportsTools) {
+    const response = await provider.sendMessage(
+      { messages: options.messages },
+      options.modelConfig
+    );
+    return {
+      content: response.content,
+      usedTools: false,
+      rounds: 1,
+      taskId: ""
+    };
+  }
+
+  const tools = options.tools ?? listModelToolDefinitions();
+  if (tools.length === 0) {
+    const response = await provider.sendMessage(
+      { messages: options.messages },
+      options.modelConfig
+    );
+    return {
+      content: response.content,
+      usedTools: false,
+      rounds: 1,
+      taskId: ""
+    };
+  }
+
+  const taskId = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
+  const maxToolInvocations = options.maxToolInvocations ?? DEFAULT_MAX_TOOL_INVOCATIONS;
+  const messages: ProviderMessage[] = options.messages.map((item) => ({ ...item }));
+  let usedTools = false;
+  let rounds = 0;
+  let toolInvocationCount = 0;
+  let sameToolStreakName = "";
+  let sameToolStreakCount = 0;
+  let lastTerminalSuccess: { toolName: string; summary: string } | null = null;
+  // 话术护栏证据：本轮是否真实 open/reveal 成功，以及最后一次打开的 URL。
+  let didRevealInSystemBrowser = false;
+  let didOpenAutomationWindow = false;
+  let lastOpenedUrl: string | undefined;
+
+  options.onProgress?.("正在理解你的需求…");
+  setTaskProgress({
+    taskId,
+    status: "running",
+    goal: "对话工具循环",
+    completedSteps: 0,
+    totalSteps: 0,
+    message: "正在理解你的需求…",
+    updatedAt: Date.now()
+  });
+
+  while (rounds < maxRounds) {
+    if (options.signal?.aborted) {
+      throw createAbortedError();
+    }
+
+    // 已达工具预算或已有终态成功：强制最后一轮纯文本，禁止继续 tool_calls
+    const forceFinalText =
+      toolInvocationCount >= maxToolInvocations
+      || Boolean(lastTerminalSuccess);
+
+    rounds += 1;
+    let response: ProviderResponse;
+    try {
+      response = await provider.sendMessage(
+        {
+          messages,
+          tools: forceFinalText ? undefined : tools,
+          toolChoice: forceFinalText ? "none" : "auto"
+        },
+        options.modelConfig
+      );
+    } catch (error) {
+      throw provider.mapError(error);
+    }
+
+    const toolCalls = forceFinalText ? [] : (response.toolCalls ?? []);
+    if (toolCalls.length === 0) {
+      let content = (response.content ?? "").trim();
+      if (!content && lastTerminalSuccess) {
+        content = lastTerminalSuccess.summary;
+      }
+      if (!content) {
+        throw new Error("模型没有返回有效内容。");
+      }
+      content = applyReplySpeechGuard(content, {
+        usedTools,
+        didRevealInSystemBrowser,
+        didOpenAutomationWindow,
+        lastOpenedUrl
+      });
+      options.onProgress?.(usedTools ? "已完成操作，正在整理回复…" : "");
+      setTaskProgress({
+        taskId,
+        status: "succeeded",
+        goal: "对话工具循环",
+        completedSteps: rounds,
+        totalSteps: rounds,
+        message: usedTools ? "任务完成" : "纯对话回复",
+        updatedAt: Date.now()
+      });
+      return { content, usedTools, rounds, taskId };
+    }
+
+    usedTools = true;
+    messages.push({
+      role: "assistant",
+      content: response.content?.trim() ? response.content : null,
+      tool_calls: toolCalls
+    });
+
+    for (const toolCall of toolCalls) {
+      if (options.signal?.aborted) {
+        throw createAbortedError();
+      }
+
+      if (toolInvocationCount >= maxToolInvocations) {
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: toolCall.function?.name || "unknown",
+          content: serializeToolFailure(
+            `已达到本轮工具调用上限（${maxToolInvocations}），请基于已有结果直接用中文回复用户，不要再调工具。`,
+            "TOOL_BUDGET_EXCEEDED"
+          )
+        });
+        continue;
+      }
+
+      const modelToolName = toolCall.function?.name?.trim() || "";
+      const toolName = fromModelToolName(modelToolName);
+      const stepId = toolCall.id || `step_${rounds}_${toolName}`;
+
+      // 同工具连续空转熔断
+      if (toolName === sameToolStreakName && sameToolStreakCount >= MAX_SAME_TOOL_STREAK) {
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: modelToolName || toolName,
+          content: serializeToolFailure(
+            `工具 ${toolName} 已连续调用 ${sameToolStreakCount} 次仍无有效推进，请换策略或直接向用户说明卡点，不要重复同一调用。`,
+            "TOOL_STREAK_BREAKER"
+          )
+        });
+        continue;
+      }
+
+      const progressMessage = formatToolProgressMessage(toolName);
+      options.onProgress?.(progressMessage);
+      setTaskProgress({
+        taskId,
+        status: "running",
+        goal: "对话工具循环",
+        currentStepId: stepId,
+        currentStepTitle: toolName,
+        currentToolName: toolName,
+        completedSteps: toolInvocationCount,
+        totalSteps: maxToolInvocations,
+        message: progressMessage,
+        updatedAt: Date.now()
+      });
+
+      const toolResultPayload = await runSingleToolCall({
+        taskId,
+        stepId,
+        toolName,
+        toolCall,
+        requestConfirmation: options.requestConfirmation,
+        signal: options.signal,
+        onProgress: options.onProgress
+      });
+
+      toolInvocationCount += 1;
+
+      const parsedForGuard = safeParseJson(toolResultPayload);
+      const ok = Boolean(parsedForGuard && parsedForGuard.ok === true);
+      if (toolName === sameToolStreakName) {
+        sameToolStreakCount += 1;
+      } else {
+        sameToolStreakName = toolName;
+        sameToolStreakCount = 1;
+      }
+      // 成功且有数据时重置 streak，避免「搜一次成功又搜」被误杀——仅失败/空结果累计
+      if (ok && hasUsefulToolData(parsedForGuard)) {
+        sameToolStreakCount = 0;
+        sameToolStreakName = "";
+      }
+
+      const openEvidence = inspectToolResultForOpenEvidence(toolName, parsedForGuard);
+      if (openEvidence.didReveal) {
+        didRevealInSystemBrowser = true;
+      }
+      if (openEvidence.didOpenAutomation) {
+        didOpenAutomationWindow = true;
+      }
+      if (openEvidence.url) {
+        lastOpenedUrl = openEvidence.url;
+      }
+
+      if (ok && TERMINAL_SUCCESS_TOOLS.has(toolName)) {
+        const summary =
+          typeof parsedForGuard?.summary === "string"
+            ? parsedForGuard.summary
+            : typeof parsedForGuard?.data === "object"
+              && parsedForGuard.data
+              && typeof (parsedForGuard.data as { message?: unknown }).message === "string"
+              ? String((parsedForGuard.data as { message: string }).message)
+              : `${toolName} 已完成`;
+        lastTerminalSuccess = { toolName, summary };
+      }
+
+      messages.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        name: modelToolName || toolName,
+        content: truncateToolResult(toolResultPayload)
+      });
+    }
+
+    // 终态成功后塞一条系统提示，下一轮强制纯文本
+    if (lastTerminalSuccess) {
+      messages.push({
+        role: "system",
+        content:
+          "关键操作已完成（例如已在系统浏览器打开页面或已落盘）。请立刻用简洁中文向用户汇报：做了什么、标题、完整 URL、用户应去哪里看；不要再调用任何工具。"
+      });
+    }
+  }
+
+  // 轮次耗尽：尽量给用户可读结论，而不是硬失败
+  if (lastTerminalSuccess) {
+    return {
+      content: applyReplySpeechGuard(lastTerminalSuccess.summary, {
+        usedTools,
+        didRevealInSystemBrowser,
+        didOpenAutomationWindow,
+        lastOpenedUrl
+      }),
+      usedTools,
+      rounds,
+      taskId
+    };
+  }
+
+  throw new Error(
+    `工具循环超过 ${maxRounds} 轮仍未给出最终回复。已执行工具 ${toolInvocationCount} 次。请缩小任务或重试。`
+  );
+}
+
+async function runSingleToolCall(params: {
+  taskId: string;
+  stepId: string;
+  toolName: string;
+  toolCall: ProviderToolCall;
+  requestConfirmation?: (
+    request: ConfirmationRequest
+  ) => Promise<ConfirmationDecision>;
+  signal?: AbortSignal;
+  onProgress?: (message: string) => void;
+}): Promise<string> {
+  const toolName = params.toolName;
+  const tool = getTool(toolName);
+
+  if (!tool) {
+    return serializeToolFailure(`未注册工具：${toolName}`, "TOOL_NOT_FOUND");
+  }
+
+  let parsedInput: unknown;
+  try {
+    parsedInput = parseToolArguments(params.toolCall.function?.arguments ?? "{}");
+  } catch (error) {
+    return serializeToolFailure(
+      error instanceof Error ? error.message : "工具参数不是合法 JSON",
+      "SCHEMA_INVALID"
+    );
+  }
+
+  const input = injectTaskId(parsedInput, params.taskId);
+  const riskLevel: RiskLevel = tool.riskLevel;
+
+  if (requiresUserConfirmation(riskLevel, DEFAULT_RISK_POLICY)) {
+    if (!params.requestConfirmation) {
+      return serializeToolFailure(
+        "该操作需要你确认，但当前没有可用的确认通道。",
+        "CONFIRMATION_REQUIRED"
+      );
+    }
+
+    const confirmation = createConfirmationRequest({
+      taskId: params.taskId,
+      stepId: params.stepId,
+      toolName,
+      riskLevel,
+      title: `确认：${toolName}`,
+      description: buildConfirmationDescription(toolName, riskLevel, input),
+      inputSummary: sanitizeForAudit(
+        input && typeof input === "object" ? (input as Record<string, unknown>) : { value: input },
+        tool.auditPolicy.redactInputKeys ?? []
+      ) as Record<string, unknown>
+    });
+
+    const confirmWaitMessage = formatToolConfirmWaitMessage(toolName);
+    params.onProgress?.(confirmWaitMessage);
+    setTaskProgress({
+      taskId: params.taskId,
+      status: "waiting_confirmation",
+      goal: "对话工具循环",
+      currentStepId: params.stepId,
+      currentStepTitle: toolName,
+      currentToolName: toolName,
+      completedSteps: 0,
+      totalSteps: 1,
+      message: confirmWaitMessage,
+      updatedAt: Date.now()
+    });
+
+    appendExecutionLog({
+      taskId: params.taskId,
+      stepId: params.stepId,
+      toolName,
+      event: "permission.confirmation.requested",
+      message: `等待用户确认：${toolName}`,
+      data: { confirmationId: confirmation.id, riskLevel }
+    });
+
+    const decision = await params.requestConfirmation(confirmation);
+    if (!decision.approved) {
+      appendExecutionLog({
+        level: "warn",
+        taskId: params.taskId,
+        stepId: params.stepId,
+        toolName,
+        event: "permission.confirmation.rejected",
+        message: "用户拒绝了该操作"
+      });
+      return serializeToolFailure(
+        decision.note === "任务已取消" ? "任务已取消" : "用户拒绝了该操作",
+        decision.note === "任务已取消" ? "CANCELLED" : "CONFIRMATION_REJECTED"
+      );
+    }
+
+    appendExecutionLog({
+      taskId: params.taskId,
+      stepId: params.stepId,
+      toolName,
+      event: "permission.confirmation.approved",
+      message: `用户已确认：${toolName}`
+    });
+  }
+
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (params.signal) {
+    if (params.signal.aborted) {
+      controller.abort();
+    } else {
+      params.signal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  try {
+    const result = await executeToolCall({
+      taskId: params.taskId,
+      stepId: params.stepId,
+      toolName,
+      input,
+      signal: controller.signal,
+      attempt: 1
+    });
+
+    if (result.ok) {
+      return JSON.stringify({
+        ok: true,
+        summary: result.summary,
+        data: result.data
+      });
+    }
+
+    return JSON.stringify({
+      ok: false,
+      error: {
+        code: result.error.code,
+        message: result.error.message
+      }
+    });
+  } finally {
+    params.signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+function parseToolArguments(raw: string): unknown {
+  const text = raw?.trim() || "{}";
+  return JSON.parse(text) as unknown;
+}
+
+function injectTaskId(input: unknown, taskId: string): unknown {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { taskId };
+  }
+  const record = input as Record<string, unknown>;
+  if (typeof record.taskId === "string" && record.taskId.trim()) {
+    return record;
+  }
+  return { ...record, taskId };
+}
+
+function buildConfirmationDescription(
+  toolName: string,
+  riskLevel: RiskLevel,
+  input: unknown
+) {
+  const record =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
+
+  if (toolName === "browser.selectTarget") {
+    const title = typeof record.title === "string" ? record.title : "(未命名目标)";
+    const url = typeof record.url === "string" ? record.url : "";
+    const rank = typeof record.rank === "number" ? record.rank : undefined;
+    return [
+      `将确认搜索结果目标（风险 ${riskLevel}）。`,
+      rank ? `候选序号：#${rank}` : undefined,
+      `标题：${title}`,
+      url ? `URL：${url}` : undefined,
+      "确认后才会打开该页面并进入后续下载流程；拒绝则任务停止。"
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  if (toolName === "file.placeDownload") {
+    const destinationDirectory =
+      typeof record.destinationDirectory === "string" ? record.destinationDirectory : "";
+    const fileName = typeof record.fileName === "string" ? record.fileName : "";
+    const overwritePolicy =
+      typeof record.overwritePolicy === "string" ? record.overwritePolicy : "refuse";
+    return [
+      `将把已下载的临时文件移动到最终目录（风险 ${riskLevel}）。`,
+      destinationDirectory ? `目标目录：${destinationDirectory}` : undefined,
+      fileName ? `文件名：${fileName}` : undefined,
+      `覆盖策略：${overwritePolicy}`,
+      "确认后才会写入最终目录；拒绝则不落盘。"
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  if (toolName === "file.downloadToTemp") {
+    const url = typeof record.url === "string" ? record.url : "";
+    return [
+      `将下载文件到任务临时目录（风险 ${riskLevel}）。`,
+      url ? `来源 URL：${url}` : undefined,
+      "文件先进入隔离临时目录，不会直接写入最终目录；仍请确认来源可信。"
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  if (toolName === "browser.open") {
+    const url = typeof record.url === "string" ? record.url : "";
+    return [
+      `将在自动化窗口打开网页（风险 ${riskLevel}）。`,
+      url ? `URL：${url}` : undefined,
+      "这不是你的日常浏览器；若要在常用浏览器查看，打开后还需 revealInSystemBrowser。"
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return `即将执行工具「${toolName}」（风险 ${riskLevel}）。请确认是否继续；拒绝则不会执行该步。`;
+}
+
+function serializeToolFailure(message: string, code: string) {
+  return JSON.stringify({
+    ok: false,
+    error: { code, message }
+  });
+}
+
+function truncateToolResult(payload: string) {
+  if (payload.length <= MAX_TOOL_RESULT_CHARS) {
+    return payload;
+  }
+  return `${payload.slice(0, MAX_TOOL_RESULT_CHARS)}\n…(结果已截断，请基于已有条目继续)`;
+}
+
+function safeParseJson(text: string): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(text) as unknown;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function hasUsefulToolData(parsed: Record<string, unknown> | null) {
+  if (!parsed || parsed.ok !== true) {
+    return false;
+  }
+  const data = parsed.data;
+  if (!data || typeof data !== "object") {
+    return Boolean(parsed.summary);
+  }
+  const record = data as Record<string, unknown>;
+  if (Array.isArray(record.results)) {
+    return record.results.length > 0;
+  }
+  if (typeof record.finalUrl === "string" && record.finalUrl) {
+    return true;
+  }
+  if (typeof record.openedUrl === "string" && record.openedUrl) {
+    return true;
+  }
+  return true;
+}
+
+function createAbortedError() {
+  const error = new Error("任务已取消");
+  error.name = "AbortError";
+  return error;
+}

@@ -176,10 +176,35 @@ export async function handleBrowserHttpRequest(
           browserCode: "INVALID_REQUEST"
         });
       }
+      const engineRaw = readString(body, "engine");
+      const engine =
+        engineRaw === "bilibili" || engineRaw === "duckduckgo"
+          ? engineRaw
+          : undefined;
       return browserSessionManager.search({
         taskId,
         query,
+        engine,
         limit: readNumber(body, "limit")
+      });
+    });
+    return true;
+  }
+
+  if (pathname === "/void-browser/reveal-system") {
+    await withBrowserHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const taskId = readString(body, "taskId");
+      const url = readString(body, "url");
+      if (!taskId || !url) {
+        throw Object.assign(new Error("缺少 taskId 或 url"), {
+          browserCode: "INVALID_REQUEST"
+        });
+      }
+      return browserSessionManager.revealInSystemBrowser({
+        taskId,
+        url,
+        titleHint: readString(body, "titleHint")
       });
     });
     return true;

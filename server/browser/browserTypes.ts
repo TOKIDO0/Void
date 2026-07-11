@@ -11,12 +11,12 @@ export type BrowserOpenRequest = {
   pageId?: string;
 };
 
-/** 搜索请求（阶段 C 默认 DuckDuckGo HTML，无登录） */
+/** 搜索请求：默认 DuckDuckGo HTML；B 站站内搜用 bilibili */
 export type BrowserSearchRequest = {
   taskId: string;
   query: string;
-  /** 预留；当前仅支持 duckduckgo */
-  engine?: "duckduckgo";
+  /** duckduckgo=全网 HTML；bilibili=B 站站内视频搜索 */
+  engine?: "duckduckgo" | "bilibili";
   /** 最多返回条数，默认 8，上限 20 */
   limit?: number;
 };
@@ -58,16 +58,33 @@ export type BrowserOpenData = {
   url: string;
   title: string;
   finalUrl: string;
+  /**
+   * 打开方式说明，给模型/用户看：
+   * automation_window = Playwright 独立窗（任务栏可能另有图标）
+   */
+  openMode: "automation_window";
+  headless: boolean;
+  /** 是否已尝试前置窗口 */
+  broughtToFront: boolean;
 };
 
 /** 搜索成功数据 */
 export type BrowserSearchData = {
   taskId: string;
   pageId: string;
-  engine: "duckduckgo";
+  engine: "duckduckgo" | "bilibili";
   query: string;
   resultPageUrl: string;
   results: BrowserSearchResultItem[];
+};
+
+/** 用系统默认浏览器打开（给用户看） */
+export type BrowserRevealInSystemBrowserData = {
+  taskId: string;
+  openedUrl: string;
+  titleHint?: string;
+  openMode: "system_default_browser";
+  message: string;
 };
 
 /** 读结果成功数据 */

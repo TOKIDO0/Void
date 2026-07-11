@@ -105,6 +105,11 @@ export function useVoiceInputMonitor({
         }
 
         audioContext = new AudioContext();
+        // 开麦手势与异步 getUserMedia 之间可能跨过 autoplay 策略窗口，
+        // suspended 时 analyser 读数恒静音，打断/listening 态会失效。
+        if (audioContext.state === "suspended") {
+          await audioContext.resume();
+        }
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 1024;
         analyser.smoothingTimeConstant = 0.82;

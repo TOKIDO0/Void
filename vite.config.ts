@@ -11,6 +11,12 @@ export default defineConfig({
   clearScreen: false,
   server: {
     strictPort: true,
+    // 开发期禁止浏览器强缓存依赖与源码模块，避免 Chrome 出现
+    // net::ERR_CACHE_READ_FAILURE（磁盘缓存索引损坏/被清理后读失败）。
+    // 仅影响 dev server，不影响生产 build。
+    headers: {
+      "Cache-Control": "no-store"
+    },
     watch: {
       ignored: ["**/src-tauri/**"]
     }

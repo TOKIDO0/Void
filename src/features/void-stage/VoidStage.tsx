@@ -13,6 +13,9 @@ import {
   type VoidConversationMessage
 } from "../agent/voidConversation";
 import { stripStageDirections } from "../agent/responseTextDisplay";
+import type { ConfirmationDecision, ConfirmationRequest } from "../agent/permissions";
+import { parseVoiceConfirmationIntent } from "../agent/permissions";
+import { AgentConfirmBar } from "../agent/ui/AgentConfirmBar";
 import { ExpandedResponseOverlay } from "../expanded-response/ExpandedResponseOverlay";
 import { VoidResponseLayer } from "../response-layer/VoidResponseLayer";
 import { loadModelConfig, updateThinkingModeEnabled } from "../settings/modelConfig";
@@ -99,6 +102,11 @@ export function VoidStage() {
   const [visualState, setVisualState] = useState<VoidVisualState>("idle");
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
   const [isMemoryPanelOpen, setIsMemoryPanelOpen] = useState(false);
+  // L2/L3 极简确认条（辅路径）；主路径仍是对话/语音驱动工具
+  const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationRequest | null>(null);
+  const confirmationResolverRef = useRef<((decision: ConfirmationDecision) => void) | null>(null);
+  // ref 镜像：STT final 回调可能闭包到旧 render，结算确认必须以最新 pending 为准。
+  const pendingConfirmationRef = useRef<ConfirmationRequest | null>(null);
   const [isExpandedResponseOpen, setIsExpandedResponseOpen] = useState(false);
   const [isExpandedResponseClosing, setIsExpandedResponseClosing] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<VoidConversationMessage[]>(() => loadCurrentConversationHistory());
@@ -212,7 +220,29 @@ export function VoidStage() {
   }, []);
 
   const handleVoiceSessionError = useCallback((error: Error) => {
+    // 握手失败 / 连接中断：立刻回滚「开麦」开关，避免 UI 显示在听实际已断。
+    void voiceSessionControllerRef.current?.stop();
+    voiceSessionControllerRef.current = null;
     setVoiceTranscriptPreview("");
+    setVoicePreferences((currentPreferences) => {
+      if (!currentPreferences.voiceInputEnabled) {
+        return currentPreferences;
+      }
+      const nextPreferences = {
+        ...currentPreferences,
+        voiceInputEnabled: false
+      };
+      saveVoicePreferences(nextPreferences);
+      return nextPreferences;
+    });
+    setVoiceState((currentState) => ({
+      ...currentState,
+      inputState: "mic_off",
+      activityLevel: "silent"
+    }));
+    if (!textExchangeActiveRef.current) {
+      setVisualState("idle");
+    }
     showResponseLayer({
       text: error.message,
       tone: "error",
@@ -376,6 +406,67 @@ export function VoidStage() {
     });
   }, [persistCandidateMemory]);
 
+  const settleConfirmation = useCallback((decision: ConfirmationDecision) => {
+    const resolve = confirmationResolverRef.current;
+    confirmationResolverRef.current = null;
+    pendingConfirmationRef.current = null;
+    setPendingConfirmation(null);
+    resolve?.(decision);
+  }, []);
+
+  /**
+   * 阶段 F2：当确认条挂起时，用户说「好/取消」或打同样文字，直接过权限门，
+   * 不再开一轮新的对话。解析不到明确意图时返回 false，走正常消息路径。
+   */
+  const trySettlePendingConfirmationByUtterance = useCallback((utterance: string) => {
+    const pending = pendingConfirmationRef.current;
+    if (!pending || !confirmationResolverRef.current) {
+      return false;
+    }
+
+    const intent = parseVoiceConfirmationIntent(utterance);
+    if (!intent) {
+      return false;
+    }
+
+    settleConfirmation({
+      requestId: pending.id,
+      approved: intent === "approve",
+      decidedAt: Date.now(),
+      note: intent === "approve" ? "用户口头/文字确认" : "用户口头/文字取消"
+    });
+    showResponseLayer({
+      text: intent === "approve" ? "已确认，继续执行…" : "已取消该操作。",
+      tone: "thinking",
+      source: "text",
+      pulseKey: intent === "approve" ? "tool-confirm-approved" : "tool-confirm-rejected"
+    });
+    return true;
+  }, [settleConfirmation, showResponseLayer]);
+
+  const requestConfirmation = useCallback((request: ConfirmationRequest) => {
+    return new Promise<ConfirmationDecision>((resolve) => {
+      // 若上一条未决，先按拒绝收口，避免悬挂
+      if (confirmationResolverRef.current) {
+        confirmationResolverRef.current({
+          requestId: pendingConfirmationRef.current?.id ?? request.id,
+          approved: false,
+          decidedAt: Date.now(),
+          note: "被新的确认请求替换"
+        });
+      }
+      confirmationResolverRef.current = resolve;
+      pendingConfirmationRef.current = request;
+      setPendingConfirmation(request);
+      showResponseLayer({
+        text: "需要你确认后才能继续。你可以说「好」或「取消」。",
+        tone: "thinking",
+        source: "text",
+        pulseKey: "tool-confirm"
+      });
+    });
+  }, [showResponseLayer]);
+
   const requestVoidResponse = useCallback((
     message: string,
     history: VoidConversationMessage[],
@@ -387,28 +478,52 @@ export function VoidStage() {
       ...loadModelConfig(),
       thinkingModeEnabled
     };
-    const canStream = modelConfig.streamEnabled && modelConfig.provider === "openai-compatible";
+    // 工具循环内部非流式；仅纯聊天且 openai-compatible 时流式
+    const canStream =
+      modelConfig.streamEnabled
+      && modelConfig.provider === "openai-compatible";
     let streamedContent = "";
     let didStartStreaming = false;
 
-    return sendVoidMessage(message, history, {
-      ...modelConfig,
-      streamEnabled: canStream
-    }, attachments, canStream
-      ? (token) => {
-        streamedContent += token;
-        onStreamContent?.(streamedContent);
-        showResponseLayer({
-          // 显示层剥离括号旁白（术语括号保留）；历史与合成走各自净化，互不影响
-          text: stripStageDirections(streamedContent),
-          tone: "quiet",
-          source: "text",
-          pulseKey: didStartStreaming ? "streaming-active" : "streaming-start"
-        });
-        didStartStreaming = true;
+    return sendVoidMessage(
+      message,
+      history,
+      {
+        ...modelConfig,
+        streamEnabled: canStream
+      },
+      attachments,
+      canStream
+        ? (token) => {
+          streamedContent += token;
+          onStreamContent?.(streamedContent);
+          showResponseLayer({
+            // 显示层剥离括号旁白（术语括号保留）；历史与合成走各自净化，互不影响
+            text: stripStageDirections(streamedContent),
+            tone: "quiet",
+            source: "text",
+            pulseKey: didStartStreaming ? "streaming-active" : "streaming-start"
+          });
+          didStartStreaming = true;
+        }
+        : undefined,
+      emotionSystemPromptSuffix,
+      {
+        requestConfirmation,
+        onProgress: (progressMessage) => {
+          if (!progressMessage.trim()) {
+            return;
+          }
+          showResponseLayer({
+            text: progressMessage,
+            tone: "thinking",
+            source: "text",
+            pulseKey: "tool-progress"
+          });
+        }
       }
-      : undefined, emotionSystemPromptSuffix);
-  }, [showResponseLayer, thinkingModeEnabled]);
+    );
+  }, [requestConfirmation, showResponseLayer, thinkingModeEnabled]);
 
   const handleThinkingModeChange = useCallback((nextThinkingModeEnabled: boolean) => {
     setThinkingModeEnabled(nextThinkingModeEnabled);
@@ -440,6 +555,12 @@ export function VoidStage() {
     }
 
     const runtimeConfig = loadVoiceRuntimeConfig();
+    if (!runtimeConfig.doubaoSpeakerId.trim()) {
+      console.warn("[VOID TTS] 语音输出已开启，但缺少 doubaoSpeakerId，无法合成。");
+      setVisualState("idle");
+      return;
+    }
+
     const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
     const synthesisResult = await orchestrator.synthesize({
       text: speechText,
@@ -451,6 +572,8 @@ export function VoidStage() {
       expression: turnTtsExpressionRef.current
     });
     if (!synthesisResult) {
+      // 双向流式路径不会走到这里；若落到空供应商列表，至少给出可诊断日志。
+      console.warn("[VOID TTS] 合成结果为空，已跳过播放。");
       setVisualState("idle");
       return;
     }
@@ -516,6 +639,11 @@ export function VoidStage() {
     }
 
     const runtimeConfig = loadVoiceRuntimeConfig();
+    if (!runtimeConfig.doubaoSpeakerId.trim()) {
+      console.warn("[VOID TTS] 语音输出已开启，但缺少 doubaoSpeakerId，流式语音不会发声。");
+      return null;
+    }
+
     const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
     const signal = startVoiceOutputSession();
     // 整轮语音输出只维护一个流式合成会话：全局并发受控，按 index 顺序入队，避免打爆供应商触发 429
@@ -673,6 +801,11 @@ export function VoidStage() {
   }, [stopVoicePlayback, updateVoicePreferences, voicePreferences]);
 
   const handleTextMessage = useCallback(async (message: string, attachments: VoidConversationAttachment[]) => {
+    // 确认门挂起时，短指令「好/取消」优先结算，不新开对话。
+    if (attachments.length === 0 && trySettlePendingConfirmationByUtterance(message)) {
+      return;
+    }
+
     const previousHistory = conversationHistoryRef.current;
     const exchangeId = beginExchange(previousHistory);
     stopVoicePlayback();
@@ -735,7 +868,7 @@ export function VoidStage() {
       }
       failTextResponse(error, "error", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [beginExchange, captureEmotionTrendMemory, captureMemoryFromUserMessage, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
+  }, [beginExchange, captureEmotionTrendMemory, captureMemoryFromUserMessage, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled, trySettlePendingConfirmationByUtterance]);
 
   const handleRegenerateLatestUserMessage = useCallback(async (messageIndex: number, content: string) => {
     const currentHistory = conversationHistoryRef.current;
@@ -1001,6 +1134,26 @@ export function VoidStage() {
       />
       <ModelSettingsModal isOpen={isModelSettingsOpen} onClose={() => setIsModelSettingsOpen(false)} />
       <MemoryManagerPanel isOpen={isMemoryPanelOpen} onClose={() => setIsMemoryPanelOpen(false)} />
+      {pendingConfirmation ? (
+        <AgentConfirmBar
+          request={pendingConfirmation}
+          onApprove={() => {
+            settleConfirmation({
+              requestId: pendingConfirmation.id,
+              approved: true,
+              decidedAt: Date.now()
+            });
+          }}
+          onReject={() => {
+            settleConfirmation({
+              requestId: pendingConfirmation.id,
+              approved: false,
+              decidedAt: Date.now(),
+              note: "用户拒绝了该操作"
+            });
+          }}
+        />
+      ) : null}
     </main>
   );
 }

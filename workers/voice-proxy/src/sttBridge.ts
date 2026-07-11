@@ -20,8 +20,14 @@ import type { Env } from "./index";
 
 // 逻辑上是 wss，Workers fetch 出站 WS 用 https:// scheme。
 const DOUBAO_SAUC_ENDPOINT = "https://openspeech.bytedance.com/api/v3/sauc/bigmodel";
-// 整段停顿提交阈值（endpointing）：与 sidecar 版一致。
-const UTTERANCE_COMMIT_SILENCE_MS = 800;
+// 整段停顿提交阈值（endpointing）。
+// 800ms 过短：用户长句换气/思考会被当成说完，AI 抢答并截断历史。
+// 1.5s 兼顾自然停顿与响应速度（OpenAI server_vad / 火山 end_window 同量级可调）。
+const UTTERANCE_COMMIT_SILENCE_MS = 1500;
+// 豆包强制静音判停窗口，与上面应用层阈值对齐，减少过早 definite。
+const DOUBAO_END_WINDOW_SIZE_MS = 1500;
+// 过短音频不急着判停，避免气口/语气词被切成独立回合。
+const DOUBAO_FORCE_TO_SPEECH_TIME_MS = 1200;
 
 type SttClientEvent =
   | { type: "start"; sampleRate: number; format: string }
@@ -319,7 +325,11 @@ function buildRecognitionConfig(startEvent: StartEvent) {
       enable_punc: true,
       enable_itn: true,
       show_utterances: true,
-      result_type: "full"
+      result_type: "full",
+      // 静音强制判停：与 UTTERANCE_COMMIT_SILENCE_MS 对齐，避免上游过早 definite。
+      end_window_size: DOUBAO_END_WINDOW_SIZE_MS,
+      // 配合 end_window_size：前若干毫秒内不急着输出 definite。
+      force_to_speech_time: DOUBAO_FORCE_TO_SPEECH_TIME_MS
     }
   };
 }

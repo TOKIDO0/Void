@@ -13,6 +13,7 @@ import type {
   BrowserEnsureSessionData,
   BrowserOpenData,
   BrowserReadResultData,
+  BrowserRevealInSystemBrowserData,
   BrowserScreenshotData,
   BrowserSearchData
 } from "./browserBridgeTypes";
@@ -185,10 +186,27 @@ export async function browserOpen(
 }
 
 export async function browserSearch(
-  input: { taskId: string; query: string; limit?: number },
+  input: {
+    taskId: string;
+    query: string;
+    engine?: "duckduckgo" | "bilibili";
+    limit?: number;
+  },
   signal?: AbortSignal
 ): Promise<BrowserSearchData> {
   return postBrowserApi<BrowserSearchData>("/void-browser/search", input, signal);
+}
+
+/** 用系统默认浏览器打开 URL，给用户在常用浏览器里查看 */
+export async function browserRevealInSystemBrowser(
+  input: { taskId: string; url: string; titleHint?: string },
+  signal?: AbortSignal
+): Promise<BrowserRevealInSystemBrowserData> {
+  return postBrowserApi<BrowserRevealInSystemBrowserData>(
+    "/void-browser/reveal-system",
+    input,
+    signal
+  );
 }
 
 export async function browserReadResult(

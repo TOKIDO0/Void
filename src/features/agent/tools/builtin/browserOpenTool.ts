@@ -27,8 +27,8 @@ export const browserOpenTool: ToolDefinition<
 > = {
   name: "browser.open",
   description:
-    "在任务独立的浏览器上下文中打开指定 http(s) 公开页面，返回最终 URL 与标题。只读，不下载。",
-  version: "1.0.0",
+    "在 Playwright 自动化窗口中打开 http(s) 页面并返回标题/最终 URL。这是独立自动化窗，不是用户日常浏览器；若要让用户在常用浏览器里看到页面，打开成功后必须再调 browser.revealInSystemBrowser。只读，不下载。",
+  version: "1.1.0",
   riskLevel: "L0",
   inputSchema: {
     type: "object",

@@ -28,6 +28,12 @@ export const DOUBAO_ASR_RESOURCE_ID = "volc.bigasr.sauc.duration";
 // 托管语音代理地址。豆包鉴权信息仅存在于 Cloudflare Worker Secret 中，
 // 浏览器与 Tauri 客户端都直接连接该地址，不再经过本地 sidecar。
 export const MANAGED_VOICE_PROXY_WS_ORIGIN = "wss://void-voice-proxy.gms1314520.workers.dev";
+// Worker 根路由（见 workers/voice-proxy/src/index.ts）：
+//   /stt  → 流式识别桥接
+//   /tts  → 双向流式合成桥接
+// 禁止再拼本地 sidecar 前缀 /void-voice-proxy/*，否则会 open 后立即 1008 关闭。
+export const MANAGED_VOICE_PROXY_STT_PATH = "/stt";
+export const MANAGED_VOICE_PROXY_TTS_PATH = "/tts";
 
 export const MINIMAX_TTS_ENDPOINT = "https://api.minimaxi.com/v1/t2a_v2";
 export const MINIMAX_TTS_MODEL = "speech-02-turbo";
