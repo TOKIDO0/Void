@@ -21,6 +21,7 @@
     "@react-three/postprocessing": "^3.0.4",
     "@tauri-apps/api": "^2.11.1",
     "gsap": "^3.13.0",
+    "playwright": "^1.61.1",
     "postprocessing": "^6.39.1",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",

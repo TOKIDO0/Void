@@ -3,13 +3,20 @@
  *
  * 生产环境没有 vite dev，因此文本模型请求仍由该进程负责跨域与流式转发。
  * 豆包 STT/TTS 已迁移至托管 Cloudflare Worker，不再经过本地 sidecar。
+ * 阶段 C：浏览器只读自动化（Playwright）也挂在本进程，前端经工具契约 HTTP 调用。
  *
  * 监听：默认 127.0.0.1:17872（仅回环，不对外暴露）。端口可由环境变量 VOID_BRIDGE_PORT 覆盖。
  * 挂载：
  *   HTTP /void-model-proxy → 模型接口转发（SSE 流式）
+ *   HTTP /void-browser/*   → Playwright 只读浏览器工具
+ *   HTTP /void-file/*      → 阶段 D 下载/落盘/校验
  */
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { browserSessionManager } from "./browser/browserSessionManager";
+import { handleBrowserHttpRequest } from "./browser/browserHttpHandlers";
+import { handleFileHttpRequest } from "./file/fileHttpHandlers";
+import { ensureRuntimeDirectories } from "./file/fileRuntimePaths";
 import { handleModelProxy } from "./voidProxyMiddleware";
 
 // 默认端口：固定回环端口，前端在 Tauri 环境下直连此端口。
@@ -63,11 +70,29 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
     return;
   }
 
+  // 阶段 C：浏览器只读自动化
+  if (pathname.startsWith("/void-browser")) {
+    void handleBrowserHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // 阶段 D：下载到临时目录 / 确认后落盘 / 校验
+  if (pathname.startsWith("/void-file")) {
+    void handleFileHttpRequest(request, response, pathname);
+    return;
+  }
+
   // 健康检查：供 Tauri 后端确认 sidecar 已就绪
   if (pathname === "/void-bridge/health") {
     response.statusCode = 200;
     response.setHeader("Content-Type", "application/json");
-    response.end(JSON.stringify({ status: "ok" }));
+    response.end(
+      JSON.stringify({
+        status: "ok",
+        browserReady: browserSessionManager.isBrowserReady(),
+        activeBrowserSessions: browserSessionManager.listActiveTaskIds().length
+      })
+    );
     return;
   }
 
@@ -76,6 +101,7 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
 }
 
 function startBridgeServer(): void {
+  ensureRuntimeDirectories();
   const port = resolvePort();
   const httpServer = createServer(handleHttpRequest);
 
@@ -91,7 +117,9 @@ function startBridgeServer(): void {
 
   // 收到终止信号时优雅退出（Tauri 回收 sidecar 时发送）。
   const shutdown = () => {
-    httpServer.close(() => process.exit(0));
+    void browserSessionManager.dispose().finally(() => {
+      httpServer.close(() => process.exit(0));
+    });
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);

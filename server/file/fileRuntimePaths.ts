@@ -1,0 +1,159 @@
+/**
+ * 阶段 D 文件落盘路径策略。
+ * 强制优先 D 盘 AI 运行时目录，避免写满 C 盘。
+ */
+
+import { mkdirSync } from "node:fs";
+import { isAbsolute, join, normalize, resolve, sep } from "node:path";
+
+/** 运行时根目录（可用 VOID_RUNTIME_ROOT 覆盖） */
+export function resolveRuntimeRoot(): string {
+  const fromEnv = process.env.VOID_RUNTIME_ROOT?.trim();
+  if (fromEnv) {
+    return normalize(fromEnv);
+  }
+  return "D:\\AI\\void-runtime";
+}
+
+export function resolveDownloadTempRoot(): string {
+  const fromEnv = process.env.VOID_DOWNLOAD_TEMP_DIR?.trim();
+  if (fromEnv) {
+    return normalize(fromEnv);
+  }
+  return join(resolveRuntimeRoot(), "downloads-temp");
+}
+
+export function resolveDownloadFinalRoot(): string {
+  const fromEnv = process.env.VOID_DOWNLOAD_DIR?.trim();
+  if (fromEnv) {
+    return normalize(fromEnv);
+  }
+  return join(resolveRuntimeRoot(), "downloads");
+}
+
+/**
+ * 允许的最终落盘根目录白名单。
+ * 默认仅 D:\\AI\\void-runtime\\downloads；可用 VOID_DOWNLOAD_ALLOW_ROOTS 以 ; 分隔追加。
+ */
+export function listAllowedDownloadRoots(): string[] {
+  const roots = [resolveDownloadFinalRoot()];
+  const extra = process.env.VOID_DOWNLOAD_ALLOW_ROOTS?.trim();
+  if (extra) {
+    for (const item of extra.split(";")) {
+      const trimmed = item.trim();
+      if (trimmed) {
+        roots.push(normalize(trimmed));
+      }
+    }
+  }
+  return roots.map((root) => resolve(root));
+}
+
+export function ensureRuntimeDirectories() {
+  mkdirSync(resolveDownloadTempRoot(), { recursive: true });
+  mkdirSync(resolveDownloadFinalRoot(), { recursive: true });
+  mkdirSync(join(resolveRuntimeRoot(), "browser-screenshots"), { recursive: true });
+}
+
+/**
+ * 判断 candidate 是否落在 allowedRoot 之下（规范化后）。
+ */
+export function isPathInsideRoot(candidate: string, allowedRoot: string): boolean {
+  const resolvedCandidate = resolve(candidate);
+  const resolvedRoot = resolve(allowedRoot);
+  if (resolvedCandidate === resolvedRoot) {
+    return true;
+  }
+  const prefix = resolvedRoot.endsWith(sep) ? resolvedRoot : resolvedRoot + sep;
+  return resolvedCandidate.startsWith(prefix);
+}
+
+/**
+ * 校验最终目标目录是否在白名单内。
+ */
+export function assertAllowedDestinationDirectory(directoryPath: string): string {
+  if (!directoryPath || !directoryPath.trim()) {
+    throw createFileError("INVALID_REQUEST", "目标目录不能为空");
+  }
+  if (!isAbsolute(directoryPath)) {
+    throw createFileError("INVALID_REQUEST", `目标目录必须是绝对路径：${directoryPath}`);
+  }
+
+  const resolved = resolve(directoryPath);
+  const allowed = listAllowedDownloadRoots();
+  const ok = allowed.some((root) => isPathInsideRoot(resolved, root));
+  if (!ok) {
+    throw createFileError(
+      "PATH_NOT_ALLOWED",
+      `目标目录不在白名单内：${resolved}`,
+      { allowedRoots: allowed }
+    );
+  }
+  return resolved;
+}
+
+export function createFileError(
+  code:
+    | "INVALID_REQUEST"
+    | "PATH_NOT_ALLOWED"
+    | "DOWNLOAD_FAILED"
+    | "FILE_NOT_FOUND"
+    | "MOVE_FAILED"
+    | "OVERWRITE_REFUSED"
+    | "VERIFY_FAILED"
+    | "INTERNAL_ERROR",
+  message: string,
+  details?: Record<string, unknown>
+) {
+  const error = new Error(message) as Error & {
+    fileCode: string;
+    details?: Record<string, unknown>;
+  };
+  error.fileCode = code;
+  error.details = details;
+  return error;
+}
+
+export function getFileErrorPayload(error: unknown): {
+  code:
+    | "INVALID_REQUEST"
+    | "PATH_NOT_ALLOWED"
+    | "DOWNLOAD_FAILED"
+    | "FILE_NOT_FOUND"
+    | "MOVE_FAILED"
+    | "OVERWRITE_REFUSED"
+    | "VERIFY_FAILED"
+    | "INTERNAL_ERROR";
+  message: string;
+  details?: Record<string, unknown>;
+} {
+  if (
+    typeof error === "object"
+    && error !== null
+    && "fileCode" in error
+    && typeof (error as { fileCode?: unknown }).fileCode === "string"
+  ) {
+    const coded = error as Error & {
+      fileCode:
+        | "INVALID_REQUEST"
+        | "PATH_NOT_ALLOWED"
+        | "DOWNLOAD_FAILED"
+        | "FILE_NOT_FOUND"
+        | "MOVE_FAILED"
+        | "OVERWRITE_REFUSED"
+        | "VERIFY_FAILED"
+        | "INTERNAL_ERROR";
+      details?: Record<string, unknown>;
+    };
+    return {
+      code: coded.fileCode,
+      message: coded.message,
+      details: coded.details
+    };
+  }
+
+  return {
+    code: "INTERNAL_ERROR",
+    message: error instanceof Error ? error.message : "文件操作内部错误"
+  };
+}

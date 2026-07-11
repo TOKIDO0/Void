@@ -1,0 +1,82 @@
+// L2：下载到任务临时目录（不直接写最终目录）。
+
+import {
+  downloadToTemp
+} from "../../file/fileBridgeClient";
+import type { FileDownloadToTempData } from "../../file/fileBridgeTypes";
+import {
+  FILE_STATIC_RESOURCES,
+  resolveTaskIdFromInput,
+  throwAsFileToolError
+} from "../../file/fileToolShared";
+import type { ToolDefinition } from "../toolTypes";
+
+export type FileDownloadToTempToolInput = {
+  url: string;
+  taskId?: string;
+  suggestedFileName?: string;
+};
+
+export type FileDownloadToTempToolOutput = FileDownloadToTempData;
+
+export const fileDownloadToTempTool: ToolDefinition<
+  FileDownloadToTempToolInput,
+  FileDownloadToTempToolOutput
+> = {
+  name: "file.downloadToTemp",
+  description:
+    "将 http(s) 资源下载到任务独立临时目录。不会写入最终目录；后续需 file.placeDownload 并经用户确认。",
+  version: "1.0.0",
+  riskLevel: "L2",
+  inputSchema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["url"],
+    properties: {
+      url: {
+        type: "string",
+        minLength: 8,
+        maxLength: 2000,
+        description: "下载地址"
+      },
+      taskId: {
+        type: "string",
+        minLength: 1,
+        maxLength: 120
+      },
+      suggestedFileName: {
+        type: "string",
+        minLength: 1,
+        maxLength: 180
+      }
+    }
+  },
+  requiredResources: FILE_STATIC_RESOURCES,
+  permissions: ["tool.file.downloadToTemp"],
+  timeoutMs: 120_000,
+  cancellable: true,
+  idempotency: "unknown",
+  auditPolicy: {
+    logInputSummary: true,
+    logOutputSummary: true,
+    redactInputKeys: ["cookie", "password", "token", "authorization"],
+    redactOutputKeys: ["cookie", "password", "token"]
+  },
+  enabled: true,
+  maxRetries: 1,
+  async execute(input, context) {
+    const taskId = resolveTaskIdFromInput(input, context);
+    try {
+      return await downloadToTemp(
+        {
+          taskId,
+          url: input.url.trim(),
+          suggestedFileName: input.suggestedFileName?.trim()
+        },
+        context.signal
+      );
+    } catch (error) {
+      throwAsFileToolError(error);
+    }
+  }
+};
