@@ -28,7 +28,7 @@ export const browserClickTool: ToolDefinition<
 > = {
   name: "browser.click",
   description:
-    "在当前任务的 Playwright 自动化窗口中，用 CSS/Playwright 选择器点击唯一匹配的元素。用于进入搜索结果、按钮等。禁止猜坐标。若匹配 0 个或多个元素会失败，请收窄 selector。",
+    "在当前任务自动化窗口内，用 Playwright 选择器点击唯一匹配的元素（非坐标）。优先使用 browser.extract 返回的 suggestedSelector；无则先 extract 或 waitFor 再点。0 匹配或多匹配会失败，禁止空猜 selector、禁止假装已点击。",
   version: "1.0.0",
   riskLevel: "L1",
   inputSchema: {

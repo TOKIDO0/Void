@@ -31,7 +31,7 @@ export const browserExtractTool: ToolDefinition<
 > = {
   name: "browser.extract",
   description:
-    "从当前（或指定）自动化页面抽取结构化内容：链接列表（title/href）或可见文案。用于在 click 前看清页面有什么、拿到 suggestedSelector。只读。mode 默认 links；需要正文用 text 或 both。不是搜索引擎专用解析（搜索结果优先 browser.readResult）。",
+    "从当前自动化页抽取结构化链接/文案（只读）。click/type 前若看不清结构或 selector 易飘，必须先 extract。mode 默认 links；正文用 text/both。返回 items[].suggestedSelector 仅在页面上唯一匹配时才有，可直接交给 click；若省略则用 text/href 收窄，禁止空猜选择器。搜索引擎结果优先 browser.readResult，不要用本工具代替。",
   version: "1.0.0",
   riskLevel: "L0",
   inputSchema: {

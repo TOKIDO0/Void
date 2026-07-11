@@ -31,7 +31,7 @@ export const browserTypeTool: ToolDefinition<
 > = {
   name: "browser.type",
   description:
-    "在当前任务自动化窗口中，向唯一匹配的输入框写入文本。默认清空后 fill；可 submit=true 按回车。不要用于密码库外的敏感凭证。",
+    "向自动化窗口内唯一匹配的输入框写入文本。selector 须唯一（优先 extract 的 suggestedSelector）；默认清空后 fill，submit=true 再按回车。不要用于密码等敏感凭证。",
   version: "1.0.0",
   riskLevel: "L1",
   inputSchema: {
