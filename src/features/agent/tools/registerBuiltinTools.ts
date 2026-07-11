@@ -1,11 +1,14 @@
 // 注册内置工具。真实工具与假工具都从这里挂载，不散落在 UI。
 
+import { browserClickTool } from "./builtin/browserClickTool";
 import { browserOpenTool } from "./builtin/browserOpenTool";
 import { browserReadResultTool } from "./builtin/browserReadResultTool";
 import { browserRevealInSystemBrowserTool } from "./builtin/browserRevealInSystemBrowserTool";
 import { browserScreenshotTool } from "./builtin/browserScreenshotTool";
 import { browserSearchTool } from "./builtin/browserSearchTool";
 import { browserSelectTargetTool } from "./builtin/browserSelectTargetTool";
+import { browserTypeTool } from "./builtin/browserTypeTool";
+import { browserWaitForTool } from "./builtin/browserWaitForTool";
 import { echoTool } from "./builtin/echoTool";
 import { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 import { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
@@ -25,6 +28,9 @@ export function registerBuiltinTools() {
     browserScreenshotTool,
     browserSelectTargetTool,
     browserRevealInSystemBrowserTool,
+    browserClickTool,
+    browserTypeTool,
+    browserWaitForTool,
     fileDownloadToTempTool,
     filePlaceDownloadTool,
     fileVerifyTool

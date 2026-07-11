@@ -11,11 +11,14 @@ import {
 } from "./browserSessionManager";
 import type {
   BrowserApiResponse,
+  BrowserClickData,
   BrowserCloseSessionData,
   BrowserOpenData,
   BrowserReadResultData,
   BrowserScreenshotData,
-  BrowserSearchData
+  BrowserSearchData,
+  BrowserTypeData,
+  BrowserWaitForData
 } from "./browserTypes";
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -237,6 +240,87 @@ export async function handleBrowserHttpRequest(
         taskId,
         pageId: readString(body, "pageId"),
         fullPage: readBoolean(body, "fullPage")
+      });
+    });
+    return true;
+  }
+
+  // 阶段 G1：窄动作 click / type / wait-for（Playwright Locator）
+  if (pathname === "/void-browser/click") {
+    await withBrowserHandler<BrowserClickData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const taskId = readString(body, "taskId");
+      const selector = readString(body, "selector");
+      if (!taskId || !selector) {
+        throw Object.assign(new Error("缺少 taskId 或 selector"), {
+          browserCode: "INVALID_REQUEST"
+        });
+      }
+      const buttonRaw = readString(body, "button");
+      const button =
+        buttonRaw === "right" || buttonRaw === "middle" || buttonRaw === "left"
+          ? buttonRaw
+          : undefined;
+      return browserSessionManager.click({
+        taskId,
+        pageId: readString(body, "pageId"),
+        selector,
+        button,
+        clickCount: readNumber(body, "clickCount")
+      });
+    });
+    return true;
+  }
+
+  if (pathname === "/void-browser/type") {
+    await withBrowserHandler<BrowserTypeData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const taskId = readString(body, "taskId");
+      const selector = readString(body, "selector");
+      if (!taskId || !selector) {
+        throw Object.assign(new Error("缺少 taskId 或 selector"), {
+          browserCode: "INVALID_REQUEST"
+        });
+      }
+      if (typeof body.text !== "string") {
+        throw Object.assign(new Error("缺少 text"), { browserCode: "INVALID_REQUEST" });
+      }
+      return browserSessionManager.type({
+        taskId,
+        pageId: readString(body, "pageId"),
+        selector,
+        text: body.text,
+        clear: readBoolean(body, "clear"),
+        submit: readBoolean(body, "submit")
+      });
+    });
+    return true;
+  }
+
+  if (pathname === "/void-browser/wait-for") {
+    await withBrowserHandler<BrowserWaitForData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const taskId = readString(body, "taskId");
+      const selector = readString(body, "selector");
+      if (!taskId || !selector) {
+        throw Object.assign(new Error("缺少 taskId 或 selector"), {
+          browserCode: "INVALID_REQUEST"
+        });
+      }
+      const stateRaw = readString(body, "state");
+      const state =
+        stateRaw === "attached"
+        || stateRaw === "detached"
+        || stateRaw === "visible"
+        || stateRaw === "hidden"
+          ? stateRaw
+          : undefined;
+      return browserSessionManager.waitFor({
+        taskId,
+        pageId: readString(body, "pageId"),
+        selector,
+        state,
+        timeoutMs: readNumber(body, "timeoutMs")
       });
     });
     return true;

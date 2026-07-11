@@ -9,13 +9,16 @@
 
 import type {
   BrowserBridgeResponse,
+  BrowserClickData,
   BrowserCloseSessionData,
   BrowserEnsureSessionData,
   BrowserOpenData,
   BrowserReadResultData,
   BrowserRevealInSystemBrowserData,
   BrowserScreenshotData,
-  BrowserSearchData
+  BrowserSearchData,
+  BrowserTypeData,
+  BrowserWaitForData
 } from "./browserBridgeTypes";
 
 const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
@@ -229,4 +232,47 @@ export async function browserScreenshot(
     input,
     signal
   );
+}
+
+/** 阶段 G1：点击（Playwright locator） */
+export async function browserClick(
+  input: {
+    taskId: string;
+    pageId?: string;
+    selector: string;
+    button?: "left" | "right" | "middle";
+    clickCount?: number;
+  },
+  signal?: AbortSignal
+): Promise<BrowserClickData> {
+  return postBrowserApi<BrowserClickData>("/void-browser/click", input, signal);
+}
+
+/** 阶段 G1：输入文本 */
+export async function browserType(
+  input: {
+    taskId: string;
+    pageId?: string;
+    selector: string;
+    text: string;
+    clear?: boolean;
+    submit?: boolean;
+  },
+  signal?: AbortSignal
+): Promise<BrowserTypeData> {
+  return postBrowserApi<BrowserTypeData>("/void-browser/type", input, signal);
+}
+
+/** 阶段 G1：等待元素状态 */
+export async function browserWaitFor(
+  input: {
+    taskId: string;
+    pageId?: string;
+    selector: string;
+    state?: "attached" | "detached" | "visible" | "hidden";
+    timeoutMs?: number;
+  },
+  signal?: AbortSignal
+): Promise<BrowserWaitForData> {
+  return postBrowserApi<BrowserWaitForData>("/void-browser/wait-for", input, signal);
 }

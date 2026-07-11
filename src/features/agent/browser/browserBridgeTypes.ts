@@ -69,6 +69,37 @@ export type BrowserEnsureSessionData = {
   created: boolean;
 };
 
+export type BrowserClickData = {
+  taskId: string;
+  pageId: string;
+  selector: string;
+  pageUrl: string;
+  pageTitle: string;
+  button: "left" | "right" | "middle";
+  clickCount: number;
+};
+
+export type BrowserTypeData = {
+  taskId: string;
+  pageId: string;
+  selector: string;
+  pageUrl: string;
+  pageTitle: string;
+  typedLength: number;
+  cleared: boolean;
+  submitted: boolean;
+};
+
+export type BrowserWaitForData = {
+  taskId: string;
+  pageId: string;
+  selector: string;
+  state: "attached" | "detached" | "visible" | "hidden";
+  pageUrl: string;
+  pageTitle: string;
+  waitedMs: number;
+};
+
 export type BrowserBridgeErrorCode =
   | "INVALID_REQUEST"
   | "SESSION_NOT_FOUND"

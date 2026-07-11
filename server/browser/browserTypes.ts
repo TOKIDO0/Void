@@ -115,6 +115,40 @@ export type BrowserCloseSessionData = {
   hadSession: boolean;
 };
 
+/** 窄动作：点击（Playwright locator.click） */
+export type BrowserClickData = {
+  taskId: string;
+  pageId: string;
+  selector: string;
+  pageUrl: string;
+  pageTitle: string;
+  button: "left" | "right" | "middle";
+  clickCount: number;
+};
+
+/** 窄动作：输入（Playwright locator.fill / pressSequentially） */
+export type BrowserTypeData = {
+  taskId: string;
+  pageId: string;
+  selector: string;
+  pageUrl: string;
+  pageTitle: string;
+  typedLength: number;
+  cleared: boolean;
+  submitted: boolean;
+};
+
+/** 窄动作：等待元素（Playwright locator.waitFor） */
+export type BrowserWaitForData = {
+  taskId: string;
+  pageId: string;
+  selector: string;
+  state: "attached" | "detached" | "visible" | "hidden";
+  pageUrl: string;
+  pageTitle: string;
+  waitedMs: number;
+};
+
 export type BrowserApiSuccess<T> = {
   ok: true;
   data: T;

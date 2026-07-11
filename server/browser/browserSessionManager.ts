@@ -26,12 +26,15 @@ import {
 } from "./duckduckgoSearch";
 import { openUrlInSystemBrowser } from "./systemBrowserOpen";
 import type {
+  BrowserClickData,
   BrowserCloseSessionData,
   BrowserOpenData,
   BrowserReadResultData,
   BrowserRevealInSystemBrowserData,
   BrowserScreenshotData,
-  BrowserSearchData
+  BrowserSearchData,
+  BrowserTypeData,
+  BrowserWaitForData
 } from "./browserTypes";
 
 type ManagedPage = {
@@ -94,6 +97,66 @@ function assertHttpUrl(url: string) {
     throw createBrowserError("INVALID_REQUEST", `仅允许 http/https：${url}`);
   }
   return parsed.toString();
+}
+
+function normalizeSelector(selector: string): string {
+  const trimmed = selector?.trim() ?? "";
+  if (!trimmed) {
+    throw createBrowserError("INVALID_REQUEST", "selector 不能为空");
+  }
+  if (trimmed.length > 500) {
+    throw createBrowserError("INVALID_REQUEST", "selector 不能超过 500 字符");
+  }
+  return trimmed;
+}
+
+/**
+ * 要求选择器只命中一个元素，避免误点列表中的其它项。
+ * 0 个：明确失败；多个：要求模型收窄选择器。
+ */
+async function assertSingleMatch(
+  locator: { count: () => Promise<number> },
+  selector: string
+) {
+  const count = await locator.count();
+  if (count === 0) {
+    throw createBrowserError(
+      "PARSE_FAILED",
+      `选择器未匹配到任何元素：${selector}`,
+      { selector, count }
+    );
+  }
+  if (count > 1) {
+    throw createBrowserError(
+      "INVALID_REQUEST",
+      `选择器匹配到 ${count} 个元素，请收窄后再点/输：${selector}`,
+      { selector, count }
+    );
+  }
+}
+
+function mapLocatorActionError(
+  error: unknown,
+  action: "click" | "type" | "waitFor",
+  selector: string
+) {
+  if (isBrowserCodedError(error)) {
+    return error;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+  if (lower.includes("timeout") || lower.includes("waiting for")) {
+    return createBrowserError(
+      "TIMEOUT",
+      `${action} 超时：${selector}（${message}）`,
+      { selector, action }
+    );
+  }
+  return createBrowserError(
+    "INTERNAL_ERROR",
+    `${action} 失败：${message}`,
+    { selector, action }
+  );
 }
 
 function createBrowserError(
@@ -389,6 +452,159 @@ export class BrowserSessionManager {
       width: viewport.width,
       height: fullPage ? viewport.height : viewport.height,
       fullPage
+    };
+  }
+
+  /**
+   * 窄动作：点击。使用官方 Locator API（自动等待可点），禁止坐标点击。
+   * 多元素命中严格失败，要求调用方收窄选择器。
+   */
+  async click(input: {
+    taskId: string;
+    pageId?: string;
+    selector: string;
+    button?: "left" | "right" | "middle";
+    clickCount?: number;
+  }): Promise<BrowserClickData> {
+    const selector = normalizeSelector(input.selector);
+    const button = input.button === "right" || input.button === "middle" ? input.button : "left";
+    const clickCount =
+      typeof input.clickCount === "number" && Number.isFinite(input.clickCount)
+        ? Math.min(3, Math.max(1, Math.floor(input.clickCount)))
+        : 1;
+
+    const session = this.requireSession(input.taskId);
+    const managedPage = this.requirePage(session, input.pageId ?? session.activePageId);
+    const locator = managedPage.page.locator(selector);
+
+    try {
+      // 先等到至少一个可见，再校验唯一性，避免动态页 count() 过早为 0。
+      await locator.first().waitFor({ state: "visible", timeout: 15_000 });
+      await assertSingleMatch(locator, selector);
+      await locator.click({
+        button,
+        clickCount,
+        timeout: 15_000
+      });
+    } catch (error) {
+      throw mapLocatorActionError(error, "click", selector);
+    }
+
+    session.lastUsedAt = Date.now();
+    session.activePageId = managedPage.pageId;
+
+    return {
+      taskId: session.taskId,
+      pageId: managedPage.pageId,
+      selector,
+      pageUrl: managedPage.page.url(),
+      pageTitle: await managedPage.page.title(),
+      button,
+      clickCount
+    };
+  }
+
+  /**
+   * 窄动作：输入文本。默认 fill（清空后写入）；clear=false 时用 pressSequentially 追加。
+   * submit=true 时在输入后按 Enter。
+   */
+  async type(input: {
+    taskId: string;
+    pageId?: string;
+    selector: string;
+    text: string;
+    clear?: boolean;
+    submit?: boolean;
+  }): Promise<BrowserTypeData> {
+    const selector = normalizeSelector(input.selector);
+    if (typeof input.text !== "string") {
+      throw createBrowserError("INVALID_REQUEST", "text 必须是字符串");
+    }
+    if (input.text.length > 4000) {
+      throw createBrowserError("INVALID_REQUEST", "单次输入不能超过 4000 字符");
+    }
+
+    const shouldClear = input.clear !== false;
+    const shouldSubmit = input.submit === true;
+    const session = this.requireSession(input.taskId);
+    const managedPage = this.requirePage(session, input.pageId ?? session.activePageId);
+    const locator = managedPage.page.locator(selector);
+
+    try {
+      await locator.first().waitFor({ state: "visible", timeout: 15_000 });
+      await assertSingleMatch(locator, selector);
+      if (shouldClear) {
+        await locator.fill(input.text, { timeout: 15_000 });
+      } else {
+        await locator.pressSequentially(input.text, { timeout: 15_000 });
+      }
+      if (shouldSubmit) {
+        await locator.press("Enter", { timeout: 5_000 });
+      }
+    } catch (error) {
+      throw mapLocatorActionError(error, "type", selector);
+    }
+
+    session.lastUsedAt = Date.now();
+    session.activePageId = managedPage.pageId;
+
+    return {
+      taskId: session.taskId,
+      pageId: managedPage.pageId,
+      selector,
+      pageUrl: managedPage.page.url(),
+      pageTitle: await managedPage.page.title(),
+      typedLength: input.text.length,
+      cleared: shouldClear,
+      submitted: shouldSubmit
+    };
+  }
+
+  /**
+   * 窄动作：等待选择器到达指定状态。默认 visible。
+   */
+  async waitFor(input: {
+    taskId: string;
+    pageId?: string;
+    selector: string;
+    state?: "attached" | "detached" | "visible" | "hidden";
+    timeoutMs?: number;
+  }): Promise<BrowserWaitForData> {
+    const selector = normalizeSelector(input.selector);
+    const state =
+      input.state === "attached"
+      || input.state === "detached"
+      || input.state === "hidden"
+        ? input.state
+        : "visible";
+    const timeoutMs =
+      typeof input.timeoutMs === "number" && Number.isFinite(input.timeoutMs)
+        ? Math.min(60_000, Math.max(200, Math.floor(input.timeoutMs)))
+        : 15_000;
+
+    const session = this.requireSession(input.taskId);
+    const managedPage = this.requirePage(session, input.pageId ?? session.activePageId);
+    const startedAt = Date.now();
+
+    try {
+      await managedPage.page.locator(selector).waitFor({
+        state,
+        timeout: timeoutMs
+      });
+    } catch (error) {
+      throw mapLocatorActionError(error, "waitFor", selector);
+    }
+
+    session.lastUsedAt = Date.now();
+
+    return {
+      taskId: session.taskId,
+      pageId: managedPage.pageId,
+      selector,
+      state,
+      pageUrl: managedPage.page.url(),
+      pageTitle: await managedPage.page.title(),
+      waitedMs: Date.now() - startedAt
     };
   }
 

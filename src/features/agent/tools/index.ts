@@ -47,6 +47,9 @@ export { browserSearchTool } from "./builtin/browserSearchTool";
 export { browserReadResultTool } from "./builtin/browserReadResultTool";
 export { browserScreenshotTool } from "./builtin/browserScreenshotTool";
 export { browserRevealInSystemBrowserTool } from "./builtin/browserRevealInSystemBrowserTool";
+export { browserClickTool } from "./builtin/browserClickTool";
+export { browserTypeTool } from "./builtin/browserTypeTool";
+export { browserWaitForTool } from "./builtin/browserWaitForTool";
 export type {
   BrowserOpenToolInput,
   BrowserOpenToolOutput
@@ -63,6 +66,18 @@ export type {
   BrowserScreenshotToolInput,
   BrowserScreenshotToolOutput
 } from "./builtin/browserScreenshotTool";
+export type {
+  BrowserClickToolInput,
+  BrowserClickToolOutput
+} from "./builtin/browserClickTool";
+export type {
+  BrowserTypeToolInput,
+  BrowserTypeToolOutput
+} from "./builtin/browserTypeTool";
+export type {
+  BrowserWaitForToolInput,
+  BrowserWaitForToolOutput
+} from "./builtin/browserWaitForTool";
 export { browserSelectTargetTool } from "./builtin/browserSelectTargetTool";
 export { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 export { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
