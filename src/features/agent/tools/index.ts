@@ -50,6 +50,7 @@ export { browserRevealInSystemBrowserTool } from "./builtin/browserRevealInSyste
 export { browserClickTool } from "./builtin/browserClickTool";
 export { browserTypeTool } from "./builtin/browserTypeTool";
 export { browserWaitForTool } from "./builtin/browserWaitForTool";
+export { browserExtractTool } from "./builtin/browserExtractTool";
 export type {
   BrowserOpenToolInput,
   BrowserOpenToolOutput
@@ -78,6 +79,10 @@ export type {
   BrowserWaitForToolInput,
   BrowserWaitForToolOutput
 } from "./builtin/browserWaitForTool";
+export type {
+  BrowserExtractToolInput,
+  BrowserExtractToolOutput
+} from "./builtin/browserExtractTool";
 export { browserSelectTargetTool } from "./builtin/browserSelectTargetTool";
 export { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 export { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";

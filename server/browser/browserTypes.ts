@@ -149,6 +149,36 @@ export type BrowserWaitForData = {
   waitedMs: number;
 };
 
+/** 阶段 G2：结构化抽取模式 */
+export type BrowserExtractMode = "links" | "text" | "both";
+
+/** 阶段 G2：单条抽取结果 */
+export type BrowserExtractItem = {
+  index: number;
+  kind: "link" | "text";
+  text: string;
+  href?: string;
+  tagName?: string;
+  /**
+   * 当能生成较稳的唯一选择器时给出，供后续 browser.click 使用。
+   * 不保证永远唯一；多匹配时模型应先 waitFor 或收窄。
+   */
+  suggestedSelector?: string;
+};
+
+/** 阶段 G2：页面结构化抽取（只读） */
+export type BrowserExtractData = {
+  taskId: string;
+  pageId: string;
+  pageUrl: string;
+  pageTitle: string;
+  mode: BrowserExtractMode;
+  /** 限定抽取范围的选择器；缺省表示整页策略 */
+  scopeSelector?: string;
+  items: BrowserExtractItem[];
+  count: number;
+};
+
 export type BrowserApiSuccess<T> = {
   ok: true;
   data: T;

@@ -15,6 +15,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "browser.click": "正在点击页面元素…",
   "browser.type": "正在输入内容…",
   "browser.waitFor": "正在等待页面就绪…",
+  "browser.extract": "正在抽取页面内容…",
   "file.downloadToTemp": "正在下载到临时目录…",
   "file.placeDownload": "正在保存到下载目录…",
   "file.verify": "正在校验文件…",

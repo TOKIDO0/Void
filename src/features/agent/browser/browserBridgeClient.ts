@@ -12,6 +12,8 @@ import type {
   BrowserClickData,
   BrowserCloseSessionData,
   BrowserEnsureSessionData,
+  BrowserExtractData,
+  BrowserExtractMode,
   BrowserOpenData,
   BrowserReadResultData,
   BrowserRevealInSystemBrowserData,
@@ -275,4 +277,18 @@ export async function browserWaitFor(
   signal?: AbortSignal
 ): Promise<BrowserWaitForData> {
   return postBrowserApi<BrowserWaitForData>("/void-browser/wait-for", input, signal);
+}
+
+/** 阶段 G2：结构化抽取（标题/链接/可见文案） */
+export async function browserExtract(
+  input: {
+    taskId: string;
+    pageId?: string;
+    mode?: BrowserExtractMode;
+    scopeSelector?: string;
+    limit?: number;
+  },
+  signal?: AbortSignal
+): Promise<BrowserExtractData> {
+  return postBrowserApi<BrowserExtractData>("/void-browser/extract", input, signal);
 }

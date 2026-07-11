@@ -13,6 +13,7 @@ import type {
   BrowserApiResponse,
   BrowserClickData,
   BrowserCloseSessionData,
+  BrowserExtractData,
   BrowserOpenData,
   BrowserReadResultData,
   BrowserScreenshotData,
@@ -321,6 +322,32 @@ export async function handleBrowserHttpRequest(
         selector,
         state,
         timeoutMs: readNumber(body, "timeoutMs")
+      });
+    });
+    return true;
+  }
+
+  // 阶段 G2：结构化抽取（只读）
+  if (pathname === "/void-browser/extract") {
+    await withBrowserHandler<BrowserExtractData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const taskId = readString(body, "taskId");
+      if (!taskId) {
+        throw Object.assign(new Error("缺少 taskId"), {
+          browserCode: "INVALID_REQUEST"
+        });
+      }
+      const modeRaw = readString(body, "mode");
+      const mode =
+        modeRaw === "text" || modeRaw === "both" || modeRaw === "links"
+          ? modeRaw
+          : undefined;
+      return browserSessionManager.extract({
+        taskId,
+        pageId: readString(body, "pageId"),
+        mode,
+        scopeSelector: readString(body, "scopeSelector"),
+        limit: readNumber(body, "limit")
       });
     });
     return true;

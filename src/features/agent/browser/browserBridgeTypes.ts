@@ -100,6 +100,29 @@ export type BrowserWaitForData = {
   waitedMs: number;
 };
 
+/** 阶段 G2：与 server/browser/browserTypes 对齐 */
+export type BrowserExtractMode = "links" | "text" | "both";
+
+export type BrowserExtractItem = {
+  index: number;
+  kind: "link" | "text";
+  text: string;
+  href?: string;
+  tagName?: string;
+  suggestedSelector?: string;
+};
+
+export type BrowserExtractData = {
+  taskId: string;
+  pageId: string;
+  pageUrl: string;
+  pageTitle: string;
+  mode: BrowserExtractMode;
+  scopeSelector?: string;
+  items: BrowserExtractItem[];
+  count: number;
+};
+
 export type BrowserBridgeErrorCode =
   | "INVALID_REQUEST"
   | "SESSION_NOT_FOUND"

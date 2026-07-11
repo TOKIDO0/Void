@@ -24,10 +24,13 @@ import {
   buildDuckDuckGoHtmlSearchUrl,
   extractDuckDuckGoResults
 } from "./duckduckgoSearch";
+import { extractPageStructure } from "./pageExtract";
 import { openUrlInSystemBrowser } from "./systemBrowserOpen";
 import type {
   BrowserClickData,
   BrowserCloseSessionData,
+  BrowserExtractData,
+  BrowserExtractMode,
   BrowserOpenData,
   BrowserReadResultData,
   BrowserRevealInSystemBrowserData,
@@ -605,6 +608,87 @@ export class BrowserSessionManager {
       pageUrl: managedPage.page.url(),
       pageTitle: await managedPage.page.title(),
       waitedMs: Date.now() - startedAt
+    };
+  }
+
+  /**
+   * 阶段 G2：结构化抽取当前页（只读）。
+   * mode=links|text|both；可选 scopeSelector 限定范围。
+   */
+  async extract(input: {
+    taskId: string;
+    pageId?: string;
+    mode?: BrowserExtractMode;
+    scopeSelector?: string;
+    limit?: number;
+  }): Promise<BrowserExtractData> {
+    const mode: BrowserExtractMode =
+      input.mode === "text" || input.mode === "both" ? input.mode : "links";
+    // extract 上限 40（比搜索结果多，便于列表页）
+    const extractLimit =
+      typeof input.limit === "number" && Number.isFinite(input.limit)
+        ? Math.min(40, Math.max(1, Math.floor(input.limit)))
+        : 20;
+
+    let scopeSelector: string | undefined;
+    if (typeof input.scopeSelector === "string" && input.scopeSelector.trim()) {
+      scopeSelector = normalizeSelector(input.scopeSelector);
+    }
+
+    const session = this.requireSession(input.taskId);
+    const managedPage = this.requirePage(session, input.pageId ?? session.activePageId);
+
+    // 若给了 scope，先确认范围内有节点，避免静默退回整页却不告知
+    if (scopeSelector) {
+      try {
+        const scopeCount = await managedPage.page.locator(scopeSelector).count();
+        if (scopeCount === 0) {
+          throw createBrowserError(
+            "PARSE_FAILED",
+            `scopeSelector 未匹配到任何元素：${scopeSelector}`,
+            { scopeSelector }
+          );
+        }
+      } catch (error) {
+        if (isBrowserCodedError(error)) {
+          throw error;
+        }
+        throw createBrowserError(
+          "INVALID_REQUEST",
+          error instanceof Error
+            ? `非法 scopeSelector：${error.message}`
+            : "非法 scopeSelector",
+          { scopeSelector }
+        );
+      }
+    }
+
+    let items;
+    try {
+      items = await extractPageStructure(managedPage.page, {
+        mode,
+        scopeSelector,
+        limit: extractLimit
+      });
+    } catch (error) {
+      throw createBrowserError(
+        "PARSE_FAILED",
+        error instanceof Error ? error.message : "页面抽取失败",
+        { mode, scopeSelector }
+      );
+    }
+
+    session.lastUsedAt = Date.now();
+
+    return {
+      taskId: session.taskId,
+      pageId: managedPage.pageId,
+      pageUrl: managedPage.page.url(),
+      pageTitle: await managedPage.page.title(),
+      mode,
+      scopeSelector,
+      items,
+      count: items.length
     };
   }
 

@@ -64,6 +64,7 @@ const TOOL_USE_SYSTEM_SUFFIX = [
   "browser.open 只打开 Playwright 自动化窗口（用户可能在任务栏另见一个浏览器图标，不是日常浏览器）。",
   "用户要「打开给我看 / 在我浏览器里看」时：拿到真实视频 URL 后必须再调 browser.revealInSystemBrowser，用系统默认浏览器打开；汇报时写明完整 URL，并说明请到常用浏览器查看。",
   "页面内点击/输入：用 browser.click / browser.type / browser.waitFor；selector 必须唯一匹配；禁止假装已点击。",
+  "看不清页面结构或 selector 易飘时：先 browser.extract（links/text）拿到列表与 suggestedSelector，再 click；不要空猜选择器。",
   "不要空口说「打开了」——只有工具返回 openMode=system_default_browser 或 automation_window 成功后才能那样说，并带上标题与 URL。",
   "普通聊天不要调工具。参数缺失时先一句话确认，不要猜测。",
   "敏感步骤会请用户确认；拒绝后停止并如实说明。",
