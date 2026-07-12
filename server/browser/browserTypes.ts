@@ -159,6 +159,10 @@ export type BrowserExtractItem = {
   text: string;
   href?: string;
   tagName?: string;
+  /** ARIA 角色（显式 role 或按标签推断的隐式角色），无障碍语义，可选 */
+  role?: string;
+  /** 可访问名（aria-label > aria-labelledby > 可见文本 > title 近似），可选 */
+  name?: string;
   /**
    * 仅当 Playwright locator.count()===1 时给出，供后续 browser.click 直接使用。
    * 多匹配 / 无法拼稳选择器时省略，模型应改用 extract 文案/href 或再收窄。

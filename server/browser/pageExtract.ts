@@ -34,6 +34,7 @@ type RawExtractItem = {
   testId?: string;
   ariaLabel?: string;
   role?: string;
+  name?: string;
   nameAttr?: string;
 };
 
@@ -68,13 +69,49 @@ const BROWSER_EXTRACT_BODY = `
   var root = scopeSelector
     ? (document.querySelector(scopeSelector) || document)
     : document;
+  function implicitRole(element) {
+    // 显式 role 优先；否则按标签给出 ARIA 隐式角色（仅覆盖抽取涉及的常见元素）
+    var explicit = element.getAttribute("role");
+    if (explicit && explicit.trim()) return explicit.trim().split(/\\s+/)[0];
+    var tag = element.tagName.toLowerCase();
+    if (tag === "a" && element.getAttribute("href") !== null) return "link";
+    if (tag === "button") return "button";
+    if (/^h[1-6]$/.test(tag)) return "heading";
+    if (tag === "li") return "listitem";
+    if (tag === "th") return "columnheader";
+    if (tag === "td") return "cell";
+    if (tag === "p") return "paragraph";
+    return "";
+  }
+  function accessibleName(element) {
+    // 可访问名近似（accname 简化）：aria-label > aria-labelledby 文本 > 可见文本 > title
+    var aria = normalizeText(element.getAttribute("aria-label"));
+    if (aria) return aria;
+    var labelledby = element.getAttribute("aria-labelledby");
+    if (labelledby) {
+      var ids = labelledby.split(/\\s+/);
+      var parts = [];
+      for (var k = 0; k < ids.length; k++) {
+        var ref = ids[k] ? document.getElementById(ids[k]) : null;
+        if (ref) parts.push(normalizeText(ref.textContent));
+      }
+      var joined = normalizeText(parts.join(" "));
+      if (joined) return joined;
+    }
+    var content = normalizeText(element.textContent);
+    if (content) return content;
+    var title = normalizeText(element.getAttribute("title"));
+    if (title) return title;
+    return "";
+  }
   function collectMeta(element) {
     return {
       tagName: element.tagName.toLowerCase(),
       id: element.id || undefined,
       testId: element.getAttribute("data-testid") || undefined,
       ariaLabel: element.getAttribute("aria-label") || undefined,
-      role: element.getAttribute("role") || undefined,
+      role: implicitRole(element) || undefined,
+      name: accessibleName(element) || undefined,
       nameAttr: element.name || undefined
     };
   }
@@ -188,6 +225,8 @@ export async function extractPageStructure(
       text: item.text,
       href: item.href,
       tagName: item.tagName,
+      ...(item.role ? { role: item.role } : {}),
+      ...(item.name ? { name: item.name } : {}),
       ...(suggestedSelector ? { suggestedSelector } : {})
     });
   }

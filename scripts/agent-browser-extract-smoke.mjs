@@ -24,6 +24,7 @@ const LOCAL_FIXTURE_HTML = `<!doctype html>
   <a href="https://example.com/shared/alpha">Shared Label</a>
   <a href="https://example.com/shared/beta">Shared Label</a>
   <a href="https://example.com/shared/gamma">Shared Label</a>
+  <button aria-label="Submit Order" data-testid="submit-btn">Go</button>
   <p>Visible paragraph for text mode.</p>
 </body>
 </html>`;
@@ -251,6 +252,41 @@ async function assertUniquenessFixture(fixtureOrigin) {
   console.log(` - soloTestId.selector=${soloTestId.suggestedSelector}`);
   console.log(
     ` - shared selectors=${sharedItems.map((item) => item.suggestedSelector ?? "(omitted)").join(" | ")}`
+  );
+
+  // —— P2：无障碍语义 role/name 对照（both 模式含 button）——
+  const both = await post("/void-browser/extract", {
+    taskId,
+    pageId: opened.pageId,
+    mode: "both",
+    limit: 40
+  });
+
+  const linkItem = both.items.find(
+    (item) => item.kind === "link" && item.text === "Unique Path Link"
+  );
+  if (!linkItem) {
+    throw new Error("both 抽取缺少 Unique Path Link");
+  }
+  if (linkItem.role !== "link" || linkItem.name !== "Unique Path Link") {
+    throw new Error(
+      `链接 role/name 不符：role=${linkItem.role} name=${linkItem.name}`
+    );
+  }
+
+  const buttonItem = both.items.find((item) => item.role === "button");
+  if (!buttonItem) {
+    throw new Error("both 抽取未找到 role=button 的按钮");
+  }
+  // aria-label 应压过可见文本「Go」，得到可访问名「Submit Order」
+  if (buttonItem.name !== "Submit Order") {
+    throw new Error(
+      `按钮可访问名期望 aria-label「Submit Order」，实际=${buttonItem.name}`
+    );
+  }
+
+  console.log(
+    `[agent-browser-extract-smoke] a11y 语义 PASSED link.role=${linkItem.role} button.role=${buttonItem.role} button.name=${buttonItem.name}`
   );
 }
 

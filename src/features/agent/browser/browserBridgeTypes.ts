@@ -109,6 +109,10 @@ export type BrowserExtractItem = {
   text: string;
   href?: string;
   tagName?: string;
+  /** ARIA 角色（显式或隐式），无障碍语义，可选 */
+  role?: string;
+  /** 可访问名（accname 近似），可选 */
+  name?: string;
   /** 仅 count===1 时返回；多匹配省略 */
   suggestedSelector?: string;
 };
