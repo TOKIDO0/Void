@@ -621,6 +621,7 @@ export class BrowserSessionManager {
     mode?: BrowserExtractMode;
     scopeSelector?: string;
     limit?: number;
+    includeBelowFold?: boolean;
   }): Promise<BrowserExtractData> {
     const mode: BrowserExtractMode =
       input.mode === "text" || input.mode === "both" ? input.mode : "links";
@@ -668,7 +669,8 @@ export class BrowserSessionManager {
       items = await extractPageStructure(managedPage.page, {
         mode,
         scopeSelector,
-        limit: extractLimit
+        limit: extractLimit,
+        includeBelowFold: input.includeBelowFold === true
       });
     } catch (error) {
       throw createBrowserError(

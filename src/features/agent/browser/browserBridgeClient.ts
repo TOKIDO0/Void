@@ -287,6 +287,7 @@ export async function browserExtract(
     mode?: BrowserExtractMode;
     scopeSelector?: string;
     limit?: number;
+    includeBelowFold?: boolean;
   },
   signal?: AbortSignal
 ): Promise<BrowserExtractData> {

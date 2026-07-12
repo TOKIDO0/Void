@@ -21,6 +21,8 @@ export type BrowserExtractToolInput = {
   scopeSelector?: string;
   /** 最多条数，默认 20，上限 40 */
   limit?: number;
+  /** 抽取前自动滚到底触发懒加载/下方元素，避免长页漏抽（默认 false） */
+  includeBelowFold?: boolean;
 };
 
 export type BrowserExtractToolOutput = BrowserExtractData;
@@ -61,6 +63,10 @@ export const browserExtractTool: ToolDefinition<
       limit: {
         type: "number",
         description: "最多返回条数，默认 20，上限 40"
+      },
+      includeBelowFold: {
+        type: "boolean",
+        description: "true=抽取前自动滚到底触发懒加载，抓取首屏以下元素；长列表/长页漏抽时用"
       }
     }
   },
@@ -117,7 +123,8 @@ export const browserExtractTool: ToolDefinition<
           pageId: input.pageId,
           mode: input.mode,
           scopeSelector: input.scopeSelector,
-          limit: input.limit
+          limit: input.limit,
+          includeBelowFold: input.includeBelowFold
         },
         context.signal
       );

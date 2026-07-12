@@ -347,7 +347,8 @@ export async function handleBrowserHttpRequest(
         pageId: readString(body, "pageId"),
         mode,
         scopeSelector: readString(body, "scopeSelector"),
-        limit: readNumber(body, "limit")
+        limit: readNumber(body, "limit"),
+        includeBelowFold: readBoolean(body, "includeBelowFold")
       });
     });
     return true;

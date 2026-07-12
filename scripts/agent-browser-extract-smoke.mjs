@@ -26,6 +26,19 @@ const LOCAL_FIXTURE_HTML = `<!doctype html>
   <a href="https://example.com/shared/gamma">Shared Label</a>
   <button aria-label="Submit Order" data-testid="submit-btn">Go</button>
   <p>Visible paragraph for text mode.</p>
+  <div style="height:2500px">tall spacer to push lazy content below the fold</div>
+  <script>
+    // 懒加载：滚动越过阈值后才把下方链接插入 DOM，用于验证 includeBelowFold
+    window.addEventListener("scroll", function () {
+      if (window.scrollY > 600 && !document.getElementById("lazy-link")) {
+        var lazy = document.createElement("a");
+        lazy.id = "lazy-link";
+        lazy.href = "https://example.com/lazy-below-fold";
+        lazy.textContent = "Lazy Below Fold Link";
+        document.body.appendChild(lazy);
+      }
+    });
+  </script>
 </body>
 </html>`;
 
@@ -290,6 +303,48 @@ async function assertUniquenessFixture(fixtureOrigin) {
   );
 }
 
+/**
+ * P3 对照：首屏以下懒加载链接，未启用 includeBelowFold 抽不到，启用后自动滚动应抽到。
+ */
+async function assertBelowFold(fixtureOrigin) {
+  // 新开一页确保未滚动的初始状态（懒加载链接尚未插入）
+  const opened = await post("/void-browser/open", {
+    taskId,
+    url: fixtureOrigin
+  });
+
+  const before = await post("/void-browser/extract", {
+    taskId,
+    pageId: opened.pageId,
+    mode: "links",
+    limit: 40
+  });
+  const beforeHit = before.items.find(
+    (item) => typeof item.href === "string" && item.href.includes("lazy-below-fold")
+  );
+  if (beforeHit) {
+    throw new Error("未启用 includeBelowFold 却抽到懒加载链接（fixture 失效，无法证明滚动生效）");
+  }
+
+  const after = await post("/void-browser/extract", {
+    taskId,
+    pageId: opened.pageId,
+    mode: "links",
+    limit: 40,
+    includeBelowFold: true
+  });
+  const afterHit = after.items.find(
+    (item) => typeof item.href === "string" && item.href.includes("lazy-below-fold")
+  );
+  if (!afterHit) {
+    throw new Error("includeBelowFold=true 仍未抽到首屏以下的懒加载链接");
+  }
+
+  console.log(
+    `[agent-browser-extract-smoke] includeBelowFold 对照 PASSED lazy.text=${afterHit.text}`
+  );
+}
+
 async function main() {
   console.log(`[agent-browser-extract-smoke] bridge=${bridgeOrigin}`);
   console.log(`[agent-browser-extract-smoke] taskId=${taskId}`);
@@ -320,6 +375,9 @@ async function main() {
     // —— 2) 本地 fixture：唯一 / 非唯一对照 ——
     fixtureServer = await startFixtureServer();
     await assertUniquenessFixture(fixtureServer.origin);
+
+    // —— 3) P3：首屏以下懒加载 includeBelowFold 对照 ——
+    await assertBelowFold(fixtureServer.origin);
 
     console.log("[agent-browser-extract-smoke] PASSED");
     console.log(` - example count=${exampleStats.count}`);

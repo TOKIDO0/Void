@@ -23,6 +23,8 @@ export type PageExtractOptions = {
   scopeSelector?: string;
   /** 最多返回条数，调用方已 clamp */
   limit: number;
+  /** 抽取前增量滚动到底，触发懒加载/下方元素渲染，避免漏抽（默认 false） */
+  includeBelowFold?: boolean;
 };
 
 type RawExtractItem = {
@@ -193,6 +195,43 @@ function createBrowserExtractFunction(): (payload: ExtractPayload) => RawExtract
 }
 
 /**
+ * 浏览器内增量滚动函数体（仅字符串，不被 tsx 改写）。
+ * 逐屏滚到底触发懒加载/下方渲染，再滚回顶部；步数有上限防超长页卡死。
+ */
+const BROWSER_AUTOSCROLL_BODY = `
+  return (async function () {
+    var delay = function (ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); };
+    var step = Math.max(240, Math.floor(window.innerHeight * 0.8));
+    var y = 0;
+    var guard = 0;
+    var maxScroll = document.body ? document.body.scrollHeight : 0;
+    while (y < maxScroll && guard < 100) {
+      window.scrollTo(0, y);
+      await delay(50);
+      y += step;
+      // 懒加载会撑高页面，重新读取高度
+      maxScroll = document.body ? document.body.scrollHeight : maxScroll;
+      guard++;
+    }
+    window.scrollTo(0, maxScroll);
+    await delay(80);
+    window.scrollTo(0, 0);
+    await delay(30);
+  })();
+`;
+
+function createAutoScrollFunction(): () => Promise<void> {
+  // eslint-disable-next-line no-new-func
+  return new Function(BROWSER_AUTOSCROLL_BODY) as () => Promise<void>;
+}
+
+/** 抽取前增量滚动到底，触发懒加载；失败不致命，退回按当前视口抽取。 */
+async function autoScrollToMaterialize(page: Page): Promise<void> {
+  const scrollFn = createAutoScrollFunction();
+  await page.evaluate(scrollFn);
+}
+
+/**
  * 在 Page 上执行抽取。异常由调用方映射为 PARSE_FAILED。
  * suggestedSelector 仅在页面上 count===1 时保留。
  */
@@ -204,6 +243,15 @@ export async function extractPageStructure(
   const limit = options.limit;
   const scopeSelector = options.scopeSelector?.trim() || "";
   const browserFn = createBrowserExtractFunction();
+
+  // 需要下方元素时先滚动触发懒加载/渲染，再抽取（滚动失败不阻断抽取）
+  if (options.includeBelowFold) {
+    try {
+      await autoScrollToMaterialize(page);
+    } catch {
+      // 忽略滚动异常，退回按当前视口抽取
+    }
+  }
 
   const rawItems = (await page.evaluate(browserFn, {
     mode,
