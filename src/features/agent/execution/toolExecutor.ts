@@ -269,16 +269,26 @@ function buildSuccessSummary(toolName: string, output: unknown) {
   }
 
   if (toolName === "file.downloadToTemp" && typeof record.tempPath === "string") {
-    return `${toolName} 完成：${record.tempPath}（${String(record.bytes ?? "?")} bytes）`;
+    // 统一可读：文件名 + mediaKind + bytes（通用文件，不写死某类安装包）
+    const fileName = typeof record.fileName === "string" ? record.fileName : "";
+    const mediaKind = typeof record.mediaKind === "string" ? record.mediaKind : "unknown";
+    const bytes = record.bytes ?? "?";
+    return `${toolName} 完成：${fileName || record.tempPath}（${mediaKind}, ${String(bytes)} bytes）→ ${record.tempPath}`;
   }
 
   if (toolName === "file.placeDownload" && typeof record.finalPath === "string") {
-    return `${toolName} 完成：${record.finalPath}`;
+    const fileName = typeof record.fileName === "string" ? record.fileName : "";
+    const mediaKind = typeof record.mediaKind === "string" ? record.mediaKind : "unknown";
+    const bytes = record.bytes ?? "?";
+    return `${toolName} 完成：${fileName || record.finalPath}（${mediaKind}, ${String(bytes)} bytes）→ ${record.finalPath}`;
   }
 
   if (toolName === "file.verify") {
     if (record.exists) {
-      return `${toolName} 完成：存在 ${String(record.bytes ?? "?")} bytes / ${String(record.mediaKind ?? "unknown")}`;
+      const fileName = typeof record.fileName === "string" ? record.fileName : "";
+      const mediaKind = typeof record.mediaKind === "string" ? record.mediaKind : "unknown";
+      const bytes = record.bytes ?? "?";
+      return `${toolName} 完成：${fileName || "已存在"}（${mediaKind}, ${String(bytes)} bytes）`;
     }
     return `${toolName} 完成：文件不存在`;
   }

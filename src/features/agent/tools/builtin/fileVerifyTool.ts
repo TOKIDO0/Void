@@ -20,8 +20,8 @@ export const fileVerifyTool: ToolDefinition<
 > = {
   name: "file.verify",
   description:
-    "校验本地文件是否存在，并返回大小(bytes)、扩展名与媒体类型猜测。只读。",
-  version: "1.0.0",
+    "校验本地文件是否存在，并返回 fileName、大小(bytes)、扩展名与 mediaKind（image/audio/video/document/archive/text/binary/unknown）。通用只读，非某场景专用。",
+  version: "1.1.0",
   riskLevel: "L0",
   inputSchema: {
     type: "object",

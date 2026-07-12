@@ -22,6 +22,8 @@ export type FilePlaceDownloadData = {
   finalPath: string;
   fileName: string;
   bytes: number;
+  /** 落盘后按文件名推断的媒体类别（通用） */
+  mediaKind?: FileVerifyData["mediaKind"];
   overwritePolicy: OverwritePolicy;
   renamed: boolean;
   movedAt: number;

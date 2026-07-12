@@ -619,14 +619,23 @@ function buildConfirmationDescription(
     const destinationDirectory =
       typeof record.destinationDirectory === "string" ? record.destinationDirectory : "";
     const fileName = typeof record.fileName === "string" ? record.fileName : "";
+    const mediaKind = typeof record.mediaKind === "string" ? record.mediaKind : "";
+    const bytes = typeof record.bytes === "number" ? record.bytes : undefined;
     const overwritePolicy =
       typeof record.overwritePolicy === "string" ? record.overwritePolicy : "refuse";
+    // 从 tempPath 兜底文件名，保证确认条始终能读到名字
+    const tempPath = typeof record.tempPath === "string" ? record.tempPath : "";
+    const inferredName =
+      fileName
+      || (tempPath ? tempPath.split(/[/\\]/).pop() ?? "" : "");
     return [
       `将把已下载的临时文件移动到最终目录（风险 ${riskLevel}）。`,
       destinationDirectory ? `目标目录：${destinationDirectory}` : undefined,
-      fileName ? `文件名：${fileName}` : undefined,
+      inferredName ? `文件名：${inferredName}` : undefined,
+      mediaKind ? `类型：${mediaKind}` : undefined,
+      bytes !== undefined ? `大小：${bytes} bytes` : undefined,
       `覆盖策略：${overwritePolicy}`,
-      "确认后才会写入最终目录；拒绝则不落盘。"
+      "确认后才会写入最终目录；拒绝则不落盘。目录须在本机下载白名单内。"
     ]
       .filter(Boolean)
       .join("\n");
@@ -634,10 +643,13 @@ function buildConfirmationDescription(
 
   if (toolName === "file.downloadToTemp") {
     const url = typeof record.url === "string" ? record.url : "";
+    const suggestedFileName =
+      typeof record.suggestedFileName === "string" ? record.suggestedFileName : "";
     return [
       `将下载文件到任务临时目录（风险 ${riskLevel}）。`,
       url ? `来源 URL：${url}` : undefined,
-      "文件先进入隔离临时目录，不会直接写入最终目录；仍请确认来源可信。"
+      suggestedFileName ? `建议文件名：${suggestedFileName}` : undefined,
+      "文件先进入隔离临时目录，不会直接写入最终目录；仍请确认来源可信。适用于任意类型资源，非某一安装包专用。"
     ]
       .filter(Boolean)
       .join("\n");

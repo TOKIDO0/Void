@@ -141,7 +141,7 @@ function guessMediaKind(fileName: string, contentType?: string): FileVerifyData[
   ) {
     return "archive";
   }
-  // 可执行/安装包（Python 安装包 .exe 常为 application/octet-stream，靠扩展名兜住）
+  // 可执行/安装包类（.exe/.msi 等常为 application/octet-stream，靠扩展名兜住）
   if (
     type.includes("x-msdownload")
     || type.includes("portable-executable")
@@ -302,7 +302,7 @@ export class FileDownloadManager {
       fileName,
       bytes: stat.size,
       contentType,
-      // 结合响应 Content-Type 与扩展名给出媒体类别，便于后续判断（如安装包=binary）
+      // 结合响应 Content-Type 与扩展名给出媒体类别（通用文件能力，非某场景专用）
       mediaKind: guessMediaKind(fileName, contentType),
       downloadedAt: Date.now()
     };
@@ -320,6 +320,9 @@ export class FileDownloadManager {
       throw createFileError("INVALID_REQUEST", "taskId 不能为空");
     }
 
+    // 预检顺序：先白名单目标目录（分类清晰），再查 temp 存在性，避免非法目录被 FILE_NOT_FOUND 盖住
+    const destinationDirectory = assertAllowedDestinationDirectory(input.destinationDirectory);
+
     const tempPath = resolve(input.tempPath);
     if (!existsSync(tempPath)) {
       throw createFileError("FILE_NOT_FOUND", `临时文件不存在：${tempPath}`);
@@ -335,7 +338,6 @@ export class FileDownloadManager {
       );
     }
 
-    const destinationDirectory = assertAllowedDestinationDirectory(input.destinationDirectory);
     mkdirSync(destinationDirectory, { recursive: true });
 
     const fileName = sanitizeFileName(input.fileName?.trim() || basename(tempPath));
@@ -380,12 +382,15 @@ export class FileDownloadManager {
     }
 
     const stat = statSync(finalPath);
+    const finalFileName = basename(finalPath);
     return {
       taskId,
       tempPath,
       finalPath,
-      fileName: basename(finalPath),
+      fileName: finalFileName,
       bytes: stat.size,
+      // 落盘结果同样带 mediaKind，便于 summary/确认链路统一可读
+      mediaKind: guessMediaKind(finalFileName),
       overwritePolicy: policy,
       renamed,
       movedAt: Date.now()

@@ -28,8 +28,8 @@ export const filePlaceDownloadTool: ToolDefinition<
 > = {
   name: "file.placeDownload",
   description:
-    "在用户确认目标目录与覆盖策略后，将临时下载文件移动到白名单最终目录。默认不猜目录。",
-  version: "1.0.0",
+    "在用户确认目标目录与覆盖策略后，将临时下载文件移动到白名单最终目录。返回 finalPath/fileName/bytes/mediaKind。默认不猜目录；目录不在白名单会 PATH_NOT_ALLOWED。",
+  version: "1.1.0",
   riskLevel: "L2",
   inputSchema: {
     type: "object",
