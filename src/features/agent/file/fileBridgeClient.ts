@@ -5,6 +5,7 @@
 import type {
   FileBridgeResponse,
   FileDownloadToTempData,
+  FileDownloadMediaPageData,
   FileCreateDirectoryData,
   FileListDirectoryData,
   FilePlaceDownloadData,
@@ -140,6 +141,74 @@ async function postFileApi<T>(
   return payload.data;
 }
 
+
+async function postFileApiWithTimeout<T>(
+  pathname: string,
+  body: Record<string, unknown>,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<T> {
+  const url = `${resolveBridgeOrigin()}${pathname}`;
+  const timeoutController = new AbortController();
+  const timeoutHandle = setTimeout(() => timeoutController.abort(), timeoutMs);
+  const onCallerAbort = () => timeoutController.abort();
+  if (signal) {
+    if (signal.aborted) {
+      timeoutController.abort();
+    } else {
+      signal.addEventListener("abort", onCallerAbort, { once: true });
+    }
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: timeoutController.signal
+    });
+  } catch (error) {
+    const aborted = timeoutController.signal.aborted;
+    const message = error instanceof Error ? error.message : "无法连接文件桥接服务";
+    throw createFileBridgeError(
+      aborted && signal?.aborted
+        ? "INTERNAL_ERROR"
+        : aborted
+          ? "TIMEOUT"
+          : "BRIDGE_UNREACHABLE",
+      aborted && signal?.aborted
+        ? "文件请求已取消"
+        : aborted
+          ? `文件桥接超时（${url}）`
+          : `文件桥接不可达（${url}）：${message}`
+    );
+  } finally {
+    clearTimeout(timeoutHandle);
+    signal?.removeEventListener("abort", onCallerAbort);
+  }
+
+  let payload: FileBridgeResponse<T>;
+  try {
+    payload = (await response.json()) as FileBridgeResponse<T>;
+  } catch {
+    throw createFileBridgeError(
+      "INTERNAL_ERROR",
+      `文件桥接返回非 JSON（HTTP ${response.status}）`
+    );
+  }
+
+  if (!payload?.ok) {
+    throw createFileBridgeError(
+      payload && "error" in payload ? payload.error.code : "INTERNAL_ERROR",
+      payload && "error" in payload ? payload.error.message : "文件操作失败",
+      payload && "error" in payload ? payload.error.details : undefined
+    );
+  }
+
+  return payload.data;
+}
+
 export async function downloadToTemp(
   input: { taskId: string; url: string; suggestedFileName?: string },
   signal?: AbortSignal
@@ -150,6 +219,19 @@ export async function downloadToTemp(
     signal
   );
 }
+
+export async function downloadMediaPage(
+  input: { taskId: string; pageUrl: string; suggestedFileName?: string },
+  signal?: AbortSignal
+): Promise<FileDownloadMediaPageData> {
+  return postFileApiWithTimeout<FileDownloadMediaPageData>(
+    "/void-file/download-media-page",
+    input,
+    15 * 60_000,
+    signal
+  );
+}
+
 
 export async function placeDownload(
   input: {

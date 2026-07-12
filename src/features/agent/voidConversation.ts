@@ -79,6 +79,7 @@ const BROWSER_TOOL_USE_SUFFIX = [
   "找直链：browser.search 结果里优先挑文件直链；否则 open 后 browser.extract 找 href 含安装包扩展名的链接。拿不到直链时，立刻用中文说明「当前只能下载直链文件，官网按钮下载尚不支持」，并给出你看到的官网 URL；不要空转 click/open 耗尽预算。",
   "拒绝确认或 PATH_NOT_ALLOWED 时不得声称已保存。",
   "找 B 站博主/视频：browser.search 必须设 engine=bilibili；不要只用全网搜索碰运气。",
+  "B 站视频下载主路径：browser.search(engine=bilibili) → 向用户确认目标视频 → file.downloadMediaPage(pageUrl=该视频页) → 用户确认后 file.placeDownload → file.verify。不要对 B 站视频页调用 file.downloadToTemp（那是直链专用）。若报 YTDLP_NOT_FOUND / FFMPEG_NOT_FOUND，如实告诉用户需要本机安装 yt-dlp 与 ffmpeg。",
   "browser.open 只打开 Playwright 自动化窗口（用户可能在任务栏另见一个浏览器图标，不是日常浏览器）；缺省每次 open 新建标签页并返回 pageId。",
   "多页时用 browser.tabs 列 pageId/url/title，用 browser.switchTab 切活动标签；后续未传 pageId 的动作走活动页。",
   "用户要「打开给我看 / 在我浏览器里看」时：拿到真实视频 URL 后必须再调 browser.revealInSystemBrowser，用系统默认浏览器打开；汇报时写明完整 URL，并说明请到常用浏览器查看。",

@@ -48,6 +48,15 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
     return `${toolName} 完成：${String(record.title).slice(0, 80)}`;
   }
 
+
+  if (toolName === "file.downloadMediaPage" && typeof record.tempPath === "string") {
+    const fileName = typeof record.fileName === "string" ? record.fileName : "";
+    const mediaKind = typeof record.mediaKind === "string" ? record.mediaKind : "unknown";
+    const bytes = record.bytes ?? "?";
+    const pageUrl = typeof record.pageUrl === "string" ? record.pageUrl : "";
+    return `${toolName} 完成：${fileName || record.tempPath}（${mediaKind}, ${String(bytes)} bytes）${pageUrl ? ` 来自 ${pageUrl}` : ""} → ${record.tempPath}`;
+  }
+
   if (toolName === "file.downloadToTemp" && typeof record.tempPath === "string") {
     const fileName = typeof record.fileName === "string" ? record.fileName : "";
     const mediaKind = typeof record.mediaKind === "string" ? record.mediaKind : "unknown";

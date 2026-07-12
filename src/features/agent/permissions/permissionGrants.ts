@@ -20,6 +20,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.desktop.revealPath",
   "tool.desktop.openKnownLocation",
   "tool.file.downloadToTemp",
+  "tool.file.downloadMediaPage",
   "tool.file.placeDownload",
   "tool.file.verify",
   "tool.file.listDirectory",

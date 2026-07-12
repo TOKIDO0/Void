@@ -18,6 +18,7 @@ import { desktopRevealPathTool } from "./builtin/desktopRevealPathTool";
 import { desktopOpenKnownLocationTool } from "./builtin/desktopOpenKnownLocationTool";
 import { echoTool } from "./builtin/echoTool";
 import { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
+import { fileDownloadMediaPageTool } from "./builtin/fileDownloadMediaPageTool";
 import { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
 import { fileVerifyTool } from "./builtin/fileVerifyTool";
 import { fileListDirectoryTool } from "./builtin/fileListDirectoryTool";
@@ -50,6 +51,7 @@ export function registerBuiltinTools() {
     desktopRevealPathTool,
     desktopOpenKnownLocationTool,
     fileDownloadToTempTool,
+    fileDownloadMediaPageTool,
     filePlaceDownloadTool,
     fileVerifyTool,
     fileListDirectoryTool,

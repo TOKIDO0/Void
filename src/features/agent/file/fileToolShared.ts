@@ -98,6 +98,27 @@ export function mapFileErrorToToolError(error: unknown): ToolError {
         { ...withKind("bridge_unreachable", info.details), bridgeUnreachable: true },
         true
       );
+    case "MEDIA_HOST_NOT_ALLOWED":
+      return createToolError(
+        "PERMISSION_DENIED",
+        info.message,
+        withKind("media_host_not_allowed", info.details),
+        false
+      );
+    case "YTDLP_NOT_FOUND":
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withKind("ytdlp_not_found", info.details),
+        false
+      );
+    case "FFMPEG_NOT_FOUND":
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withKind("ffmpeg_not_found", info.details),
+        false
+      );
     case "DOWNLOAD_FAILED": {
       // 4xx 不可重试；网络抖动类才重试
       const status = info.details && typeof info.details.status === "number"

@@ -96,6 +96,7 @@ export type {
 } from "./builtin/browserSwitchTabTool";
 export { browserSelectTargetTool } from "./builtin/browserSelectTargetTool";
 export { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
+export { fileDownloadMediaPageTool } from "./builtin/fileDownloadMediaPageTool";
 export { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
 export { fileVerifyTool } from "./builtin/fileVerifyTool";
 export { fileListDirectoryTool } from "./builtin/fileListDirectoryTool";
@@ -114,6 +115,10 @@ export type {
   FileDownloadToTempToolInput,
   FileDownloadToTempToolOutput
 } from "./builtin/fileDownloadToTempTool";
+export type {
+  FileDownloadMediaPageToolInput,
+  FileDownloadMediaPageToolOutput
+} from "./builtin/fileDownloadMediaPageTool";
 export type {
   FilePlaceDownloadToolInput,
   FilePlaceDownloadToolOutput

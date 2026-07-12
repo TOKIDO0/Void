@@ -79,6 +79,22 @@ export function buildToolConfirmationDescription(
       .join("\n");
   }
 
+
+  if (toolName === "file.downloadMediaPage") {
+    const pageUrl = typeof record.pageUrl === "string" ? record.pageUrl : "";
+    const suggestedFileName =
+      typeof record.suggestedFileName === "string" ? record.suggestedFileName : "";
+    return [
+      `将从受支持的媒体页下载视频到任务临时目录（风险 ${riskLevel}）。`,
+      pageUrl ? `媒体页：${pageUrl}` : undefined,
+      suggestedFileName ? `建议文件名：${suggestedFileName}` : undefined,
+      "首期仅支持 B 站视频页；依赖本机 yt-dlp。文件先进入隔离临时目录，不会直接写入最终目录。",
+      "确认后开始下载；拒绝则不会拉取媒体。"
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
   if (toolName === "file.createDirectory") {
     const path = typeof record.path === "string" ? record.path : "";
     return [

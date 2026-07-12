@@ -23,6 +23,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "desktop.revealPath": "正在资源管理器中展示路径…",
   "desktop.openKnownLocation": "正在打开此电脑…",
   "file.downloadToTemp": "正在下载到临时目录…",
+  "file.downloadMediaPage": "正在从媒体页下载视频…",
   "file.placeDownload": "正在保存到下载目录…",
   "file.verify": "正在校验文件…",
   "file.listDirectory": "正在列出目录…",
@@ -35,6 +36,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
 const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "browser.selectTarget": "请确认要打开的目标",
   "file.downloadToTemp": "请确认是否下载该文件",
+  "file.downloadMediaPage": "请确认是否从该媒体页下载视频",
   "file.placeDownload": "请确认是否保存到下载目录",
   "clipboard.write": "请确认是否写入剪贴板",
   "browser.open": "请确认是否打开该页面",

@@ -16,6 +16,19 @@ export type FileDownloadToTempData = {
   downloadedAt: number;
 };
 
+export type FileDownloadMediaPageData = {
+  taskId: string;
+  pageUrl: string;
+  site: "bilibili";
+  videoId?: string;
+  tempPath: string;
+  fileName: string;
+  bytes: number;
+  mediaKind?: FileVerifyData["mediaKind"];
+  downloader: "yt-dlp";
+  downloadedAt: number;
+};
+
 export type FilePlaceDownloadData = {
   taskId: string;
   tempPath: string;

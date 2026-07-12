@@ -9,12 +9,14 @@ import {
   readJsonBody
 } from "../http/httpRequest";
 import { fileDownloadManager } from "./fileDownloadManager";
+import { mediaPageDownloadManager } from "./mediaPageDownloadManager";
 import { fileAccessManager } from "./fileAccessManager";
 import { fileMutationManager } from "./fileMutationManager";
 import { getFileErrorPayload } from "./fileRuntimePaths";
 import type {
   FileApiResponse,
   FileDownloadToTempData,
+  FileDownloadMediaPageData,
   FileListDirectoryData,
   FileCreateDirectoryData,
   FileMoveData,
@@ -72,6 +74,8 @@ async function withFileHandler<T>(
     const payloadError = getFileErrorPayload(error);
     const status =
       payloadError.code === "INVALID_REQUEST"
+      || payloadError.code === "MEDIA_HOST_NOT_ALLOWED"
+      || payloadError.code === "CROSS_DEVICE_MOVE"
         ? 400
         : payloadError.code === "PATH_NOT_ALLOWED" || payloadError.code === "OVERWRITE_REFUSED"
           ? 403
@@ -83,8 +87,9 @@ async function withFileHandler<T>(
               ? 415
               : payloadError.code === "DESTINATION_EXISTS"
                 ? 409
-                : payloadError.code === "CROSS_DEVICE_MOVE"
-                  ? 400
+                : payloadError.code === "YTDLP_NOT_FOUND"
+                || payloadError.code === "FFMPEG_NOT_FOUND"
+                  ? 503
             : 500;
     const payload: FileApiResponse<never> = {
       ok: false,
@@ -139,6 +144,23 @@ export async function handleFileHttpRequest(
       return fileDownloadManager.downloadToTemp({
         taskId,
         url,
+        suggestedFileName: readString(body, "suggestedFileName")
+      });
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/download-media-page") {
+    await withFileHandler<FileDownloadMediaPageData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const taskId = readString(body, "taskId");
+      const pageUrl = readString(body, "pageUrl");
+      if (!taskId || !pageUrl) {
+        throw Object.assign(new Error("缺少 taskId 或 pageUrl"), { fileCode: "INVALID_REQUEST" });
+      }
+      return mediaPageDownloadManager.downloadMediaPage({
+        taskId,
+        pageUrl,
         suggestedFileName: readString(body, "suggestedFileName")
       });
     });

@@ -106,6 +106,9 @@ export function createFileError(
     | "BINARY_FILE"
     | "DESTINATION_EXISTS"
     | "CROSS_DEVICE_MOVE"
+    | "MEDIA_HOST_NOT_ALLOWED"
+    | "YTDLP_NOT_FOUND"
+    | "FFMPEG_NOT_FOUND"
     | "INTERNAL_ERROR",
   message: string,
   details?: Record<string, unknown>
@@ -128,6 +131,9 @@ export function getFileErrorPayload(error: unknown): {
     | "MOVE_FAILED"
     | "OVERWRITE_REFUSED"
     | "VERIFY_FAILED"
+    | "MEDIA_HOST_NOT_ALLOWED"
+    | "YTDLP_NOT_FOUND"
+    | "FFMPEG_NOT_FOUND"
     | "INTERNAL_ERROR";
   message: string;
   details?: Record<string, unknown>;
@@ -152,6 +158,9 @@ export function getFileErrorPayload(error: unknown): {
         | "BINARY_FILE"
         | "DESTINATION_EXISTS"
         | "CROSS_DEVICE_MOVE"
+        | "MEDIA_HOST_NOT_ALLOWED"
+        | "YTDLP_NOT_FOUND"
+        | "FFMPEG_NOT_FOUND"
         | "INTERNAL_ERROR";
       details?: Record<string, unknown>;
     };

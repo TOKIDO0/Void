@@ -1,5 +1,6 @@
 export {
   downloadToTemp,
+  downloadMediaPage,
   createDirectory,
   listDirectory,
   placeDownload,
@@ -11,6 +12,7 @@ export {
 
 export type {
   FileDownloadToTempData,
+  FileDownloadMediaPageData,
   FileCreateDirectoryData,
   FileListDirectoryData,
   FilePlaceDownloadData,

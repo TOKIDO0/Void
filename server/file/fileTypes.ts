@@ -23,6 +23,27 @@ export type FileDownloadToTempData = {
   downloadedAt: number;
 };
 
+
+export type FileDownloadMediaPageRequest = {
+  taskId: string;
+  /** 媒体页 URL；首期仅 B 站 /video/BVxxx 或 /video/avxxx */
+  pageUrl: string;
+  suggestedFileName?: string;
+};
+
+export type FileDownloadMediaPageData = {
+  taskId: string;
+  pageUrl: string;
+  site: "bilibili";
+  videoId?: string;
+  tempPath: string;
+  fileName: string;
+  bytes: number;
+  mediaKind?: FileVerifyData["mediaKind"];
+  downloader: "yt-dlp";
+  downloadedAt: number;
+};
+
 export type FilePlaceDownloadRequest = {
   taskId: string;
   tempPath: string;
