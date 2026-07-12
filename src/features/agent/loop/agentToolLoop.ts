@@ -21,6 +21,8 @@ import {
 import { appendExecutionLog, setTaskProgress } from "../observability";
 import { sanitizeForAudit } from "../observability/auditSanitize";
 import { bootstrapAgentRuntime } from "../runtimeBootstrap";
+import { releaseBrowserSessionForTask } from "../browser/browserSessionLifecycle";
+import { releaseTaskResources } from "../resources";
 import { getTool } from "../tools";
 import {
   fromModelToolName,
@@ -98,37 +100,83 @@ const TERMINAL_SUCCESS_TOOLS = new Set([
 export async function runAgentToolLoop(
   options: AgentToolLoopOptions
 ): Promise<AgentToolLoopResult> {
+  const taskId = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  try {
+    const result = await runAgentToolLoopInternal(options, taskId);
+    setTaskProgress({
+      taskId,
+      status: "succeeded",
+      goal: "对话工具循环",
+      completedSteps: result.rounds,
+      totalSteps: result.rounds,
+      message: result.usedTools ? "任务完成" : "纯对话回复",
+      updatedAt: Date.now()
+    });
+    appendExecutionLog({
+      taskId,
+      event: "task.finished",
+      message: "对话工具循环已完成",
+      data: { rounds: result.rounds, usedTools: result.usedTools }
+    });
+    return result;
+  } catch (error) {
+    const cancelled = options.signal?.aborted || isAbortError(error);
+    setTaskProgress({
+      taskId,
+      status: cancelled ? "cancelled" : "failed",
+      goal: "对话工具循环",
+      completedSteps: 0,
+      totalSteps: 0,
+      message: cancelled ? "任务已取消" : "任务执行失败",
+      updatedAt: Date.now()
+    });
+    appendExecutionLog({
+      level: cancelled ? "warn" : "error",
+      taskId,
+      event: cancelled ? "task.cancelled" : "task.failed",
+      message: cancelled ? "对话工具循环已取消" : "对话工具循环执行失败"
+    });
+    throw error;
+  } finally {
+    releaseTaskResources(taskId);
+    await releaseBrowserSessionForTask(taskId);
+  }
+}
+
+async function runAgentToolLoopInternal(
+  options: AgentToolLoopOptions,
+  taskId: string
+): Promise<AgentToolLoopResult> {
   bootstrapAgentRuntime();
 
   const provider = getModelProvider(options.modelConfig.provider);
   if (!provider.supportsTools) {
     const response = await provider.sendMessage(
-      { messages: options.messages },
+      { messages: options.messages, signal: options.signal },
       options.modelConfig
     );
     return {
       content: response.content,
       usedTools: false,
       rounds: 1,
-      taskId: ""
+      taskId
     };
   }
 
   const tools = options.tools ?? listModelToolDefinitions();
   if (tools.length === 0) {
     const response = await provider.sendMessage(
-      { messages: options.messages },
+      { messages: options.messages, signal: options.signal },
       options.modelConfig
     );
     return {
       content: response.content,
       usedTools: false,
       rounds: 1,
-      taskId: ""
+      taskId
     };
   }
 
-  const taskId = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
   const maxToolInvocations = options.maxToolInvocations ?? DEFAULT_MAX_TOOL_INVOCATIONS;
   const messages: ProviderMessage[] = options.messages.map((item) => ({ ...item }));
@@ -182,7 +230,8 @@ export async function runAgentToolLoop(
         {
           messages,
           tools: forceFinalText ? undefined : tools,
-          toolChoice: forceFinalText ? "none" : "auto"
+          toolChoice: forceFinalText ? "none" : "auto",
+          signal: options.signal
         },
         options.modelConfig
       );
@@ -507,7 +556,11 @@ async function runSingleToolCall(params: {
       data: { confirmationId: confirmation.id, riskLevel }
     });
 
-    const decision = await params.requestConfirmation(confirmation);
+    const decision = await waitForAbortableConfirmation(
+      confirmation,
+      params.requestConfirmation,
+      params.signal
+    );
     if (!decision.approved) {
       appendExecutionLog({
         level: "warn",
@@ -573,6 +626,52 @@ async function runSingleToolCall(params: {
   } finally {
     params.signal?.removeEventListener("abort", onAbort);
   }
+}
+
+async function waitForAbortableConfirmation(
+  request: ConfirmationRequest,
+  requestConfirmation: (request: ConfirmationRequest) => Promise<ConfirmationDecision>,
+  signal?: AbortSignal
+): Promise<ConfirmationDecision> {
+  if (signal?.aborted) {
+    return cancelledConfirmation(request.id);
+  }
+  if (!signal) {
+    return requestConfirmation(request);
+  }
+
+  return new Promise<ConfirmationDecision>((resolve) => {
+    let settled = false;
+    const finish = (decision: ConfirmationDecision) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      resolve(decision);
+    };
+    const onAbort = () => finish(cancelledConfirmation(request.id));
+    signal.addEventListener("abort", onAbort, { once: true });
+    void requestConfirmation(request).then(finish, () => finish({
+      requestId: request.id,
+      approved: false,
+      decidedAt: Date.now(),
+      note: "确认请求失败"
+    }));
+  });
+}
+
+function cancelledConfirmation(requestId: string): ConfirmationDecision {
+  return {
+    requestId,
+    approved: false,
+    decidedAt: Date.now(),
+    note: "任务已取消"
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "AbortError" || error.message === "任务已取消");
 }
 
 function parseToolArguments(raw: string): unknown {

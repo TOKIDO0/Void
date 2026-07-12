@@ -111,6 +111,24 @@ export async function runTask(
       plan = await runSingleStep(plan, step, controller, options);
       emitPlan(plan, options, describePlanProgress(plan));
     }
+  } catch (error) {
+    const failure = error
+      && typeof error === "object"
+      && "code" in error
+      && typeof (error as { code?: unknown }).code === "string"
+      && "retriable" in error
+      && typeof (error as { retriable?: unknown }).retriable === "boolean"
+      ? error as ToolError
+      : createToolError(
+          controller.signal.aborted ? "CANCELLED" : "EXECUTION_FAILED",
+          error instanceof Error ? error.message : "任务执行失败",
+          undefined,
+          false
+        );
+    plan = controller.signal.aborted
+      ? finishAsCancelled(plan, failure)
+      : finishAsFailed(plan, failure);
+    emitPlan(plan, options, plan.report?.message ?? failure.message);
   } finally {
     options.signal?.removeEventListener("abort", onExternalAbort);
     releaseTaskResources(plan.id);
@@ -417,7 +435,30 @@ async function waitForConfirmation(
     };
   }
 
-  return options.requestConfirmation(request);
+  return new Promise<ConfirmationDecision>((resolve) => {
+    let settled = false;
+    const finish = (decision: ConfirmationDecision) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      resolve(decision);
+    };
+    const onAbort = () => finish({
+      requestId: request.id,
+      approved: false,
+      decidedAt: Date.now(),
+      note: "任务已取消"
+    });
+    signal.addEventListener("abort", onAbort, { once: true });
+    void options.requestConfirmation?.(request).then(finish, () => finish({
+      requestId: request.id,
+      approved: false,
+      decidedAt: Date.now(),
+      note: "确认请求失败"
+    }));
+  });
 }
 
 function pickNextStepId(plan: TaskPlan, readyStepIds: string[]) {

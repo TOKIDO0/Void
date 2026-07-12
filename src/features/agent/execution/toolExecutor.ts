@@ -159,12 +159,17 @@ async function runWithTimeoutAndCancel(
   const controller = new AbortController();
   const startedAt = Date.now();
 
+  let rejectForAbort: ((reason: ToolError) => void) | undefined;
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    rejectForAbort = reject;
+  });
   const onParentAbort = () => {
     controller.abort();
+    rejectForAbort?.(createToolError("CANCELLED", "工具执行已取消", undefined, false));
   };
 
   if (params.signal.aborted) {
-    controller.abort();
+    onParentAbort();
   } else {
     params.signal.addEventListener("abort", onParentAbort, { once: true });
   }
@@ -186,7 +191,7 @@ async function runWithTimeoutAndCancel(
 
   try {
     const executionPromise = Promise.resolve(tool.execute(params.input, context));
-    return await Promise.race([executionPromise, timeoutPromise]);
+    return await Promise.race([executionPromise, timeoutPromise, abortPromise]);
   } catch (error) {
     if (controller.signal.aborted && params.signal.aborted) {
       throw createToolError("CANCELLED", "工具执行已取消", undefined, false);

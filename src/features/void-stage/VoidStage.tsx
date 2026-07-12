@@ -151,6 +151,7 @@ export function VoidStage() {
   const voiceActivityLevelRef = useRef<VoiceActivityLevel>("silent");
   // 对话回合的单调递增 id：用户打断（barge-in）时自增以「作废」当前回合的后续副作用
   const activeExchangeIdRef = useRef(0);
+  const exchangeAbortControllerRef = useRef<AbortController | null>(null);
   // 当前回合开始前的历史快照，打断时回滚，避免残留空回合并防止过期提交污染新回合
   const exchangeBaseHistoryRef = useRef<VoidConversationMessage[]>([]);
 
@@ -178,10 +179,26 @@ export function VoidStage() {
 
   // 开启一个新的对话回合：自增回合 id、标记交换进行中、记录回滚基线，返回本回合 id。
   const beginExchange = useCallback((baseHistory: VoidConversationMessage[]) => {
+    exchangeAbortControllerRef.current?.abort();
+    const pending = pendingConfirmationRef.current;
+    const resolvePending = confirmationResolverRef.current;
+    if (pending && resolvePending) {
+      confirmationResolverRef.current = null;
+      pendingConfirmationRef.current = null;
+      setPendingConfirmation(null);
+      resolvePending({
+        requestId: pending.id,
+        approved: false,
+        decidedAt: Date.now(),
+        note: "任务已取消"
+      });
+    }
+    const controller = new AbortController();
+    exchangeAbortControllerRef.current = controller;
     activeExchangeIdRef.current += 1;
     textExchangeActiveRef.current = true;
     exchangeBaseHistoryRef.current = baseHistory;
-    return activeExchangeIdRef.current;
+    return { exchangeId: activeExchangeIdRef.current, signal: controller.signal };
   }, []);
 
   const clearResponseLayerHideTimer = useCallback(() => {
@@ -472,7 +489,8 @@ export function VoidStage() {
     history: VoidConversationMessage[],
     attachments: VoidConversationAttachment[] = [],
     onStreamContent: ((content: string) => void) | undefined,
-    emotionSystemPromptSuffix: string
+    emotionSystemPromptSuffix: string,
+    signal: AbortSignal
   ) => {
     const modelConfig = {
       ...loadModelConfig(),
@@ -510,6 +528,7 @@ export function VoidStage() {
       emotionSystemPromptSuffix,
       {
         requestConfirmation,
+        signal,
         onProgress: (progressMessage) => {
           if (!progressMessage.trim()) {
             return;
@@ -780,13 +799,24 @@ export function VoidStage() {
   const interruptForBargeIn = useCallback(() => {
     const wasGenerating = textExchangeActiveRef.current;
     activeExchangeIdRef.current += 1;
+    exchangeAbortControllerRef.current?.abort();
+    exchangeAbortControllerRef.current = null;
+    const pending = pendingConfirmationRef.current;
+    if (pending) {
+      settleConfirmation({
+        requestId: pending.id,
+        approved: false,
+        decidedAt: Date.now(),
+        note: "任务已取消"
+      });
+    }
     textExchangeActiveRef.current = false;
     stopVoicePlayback();
     if (wasGenerating) {
       // 模型仍在生成：回滚到回合开始前的历史，丢弃这一被打断的问答，避免残留与过期提交
       commitConversationHistory(exchangeBaseHistoryRef.current);
     }
-  }, [commitConversationHistory, stopVoicePlayback]);
+  }, [commitConversationHistory, settleConfirmation, stopVoicePlayback]);
 
   const handleVoiceOutputToggle = useCallback(() => {
     const nextVoiceOutputEnabled = !voicePreferences.voiceOutputEnabled;
@@ -807,7 +837,7 @@ export function VoidStage() {
     }
 
     const previousHistory = conversationHistoryRef.current;
-    const exchangeId = beginExchange(previousHistory);
+    const { exchangeId, signal } = beginExchange(previousHistory);
     stopVoicePlayback();
     showResponseLayer({
       text: THINKING_TEXT,
@@ -840,7 +870,14 @@ export function VoidStage() {
         streamingVoiceBatcher?.push(content);
       };
 
-      const assistantResponse = await requestVoidResponse(message, previousHistory, attachments, syncStreamingAssistantMessage, emotionPolicy.systemPromptSuffix);
+      const assistantResponse = await requestVoidResponse(
+        message,
+        previousHistory,
+        attachments,
+        syncStreamingAssistantMessage,
+        emotionPolicy.systemPromptSuffix,
+        signal
+      );
       if (activeExchangeIdRef.current !== exchangeId) {
         return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）
       }
@@ -879,7 +916,7 @@ export function VoidStage() {
     }
 
     const historyBeforeEditedMessage = currentHistory.slice(0, messageIndex);
-    const exchangeId = beginExchange(historyBeforeEditedMessage);
+    const { exchangeId, signal } = beginExchange(historyBeforeEditedMessage);
     stopVoicePlayback();
     setVisualState("thinking");
     showResponseLayer({
@@ -917,7 +954,8 @@ export function VoidStage() {
         historyBeforeEditedMessage,
         targetMessage.attachments ?? [],
         syncStreamingAssistantMessage,
-        emotionPolicy.systemPromptSuffix
+        emotionPolicy.systemPromptSuffix,
+        signal
       );
       if (activeExchangeIdRef.current !== exchangeId) {
         return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）
@@ -1088,6 +1126,20 @@ export function VoidStage() {
 
   useEffect(() => {
     return () => {
+      activeExchangeIdRef.current += 1;
+      exchangeAbortControllerRef.current?.abort();
+      exchangeAbortControllerRef.current = null;
+      const pending = pendingConfirmationRef.current;
+      if (pending && confirmationResolverRef.current) {
+        confirmationResolverRef.current({
+          requestId: pending.id,
+          approved: false,
+          decidedAt: Date.now(),
+          note: "任务已取消"
+        });
+        confirmationResolverRef.current = null;
+        pendingConfirmationRef.current = null;
+      }
       stopVoicePlayback();
       void voiceSessionControllerRef.current?.stop();
       window.clearTimeout(responseLayerHideTimeoutRef.current);

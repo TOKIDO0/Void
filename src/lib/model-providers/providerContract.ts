@@ -46,6 +46,7 @@ export type ProviderRequest = {
   /** 默认 auto；none 表示禁止调工具 */
   toolChoice?: "auto" | "none";
   onToken?: (token: string) => void;
+  signal?: AbortSignal;
 };
 
 export type ProviderResponse = {

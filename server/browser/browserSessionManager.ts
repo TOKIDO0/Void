@@ -731,6 +731,8 @@ export class BrowserSessionManager {
       console.error("[void-browser] close context failed", error);
     }
 
+    await this.closeBrowserWhenIdle();
+
     return {
       taskId: normalizedTaskId,
       closed: true,
@@ -770,8 +772,10 @@ export class BrowserSessionManager {
         this.browser = browser;
         this.launching = null;
         browser.on("disconnected", () => {
-          this.browser = null;
-          this.sessions.clear();
+          if (this.browser === browser) {
+            this.browser = null;
+            this.sessions.clear();
+          }
         });
         return browser;
       })
@@ -790,6 +794,20 @@ export class BrowserSessionManager {
       });
 
     return this.launching;
+  }
+
+  /** 最后一个任务会话释放后关闭本进程拥有的 Playwright Browser。 */
+  private async closeBrowserWhenIdle(): Promise<void> {
+    if (this.sessions.size > 0 || !this.browser) {
+      return;
+    }
+    const idleBrowser = this.browser;
+    this.browser = null;
+    try {
+      await idleBrowser.close();
+    } catch (error) {
+      console.error("[void-browser] close idle browser failed", error);
+    }
   }
 
   /**

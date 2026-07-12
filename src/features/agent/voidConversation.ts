@@ -125,10 +125,14 @@ export async function sendVoidMessage(
 
   try {
     if (modelConfig.streamEnabled && provider.streamMessage) {
-      return await provider.streamMessage({ messages, onToken }, modelConfig);
+      return await provider.streamMessage({
+        messages,
+        onToken,
+        signal: runtimeOptions.signal
+      }, modelConfig);
     }
 
-    return await provider.sendMessage({ messages }, modelConfig);
+    return await provider.sendMessage({ messages, signal: runtimeOptions.signal }, modelConfig);
   } catch (error) {
     throw provider.mapError(error);
   }

@@ -13,7 +13,8 @@ import {
   listActiveResourceLocks
 } from "../resources";
 import {
-  clearToolRegistry
+  clearToolRegistry,
+  registerTool
 } from "../tools";
 import { registerBuiltinTools } from "../tools";
 import { runTask } from "../execution";
@@ -212,14 +213,9 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     },
     {
       signal: cancelController.signal,
-      requestConfirmation: async (request) => {
-        cancelController.abort();
-        return {
-          requestId: request.id,
-          approved: false,
-          decidedAt: Date.now(),
-          note: "任务已取消"
-        };
+      requestConfirmation: async () => {
+        queueMicrotask(() => cancelController.abort());
+        return new Promise<never>(() => {});
       }
     }
   );
@@ -233,6 +229,70 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("取消后资源锁未释放");
   } else {
     notes.push("取消后资源锁已释放");
+  }
+
+  // 5b) 工具实现不主动响应 signal 时，执行器仍必须立即取消并释放锁
+  registerTool({
+    name: "smoke.hanging",
+    description: "仅用于验证执行中取消",
+    version: "1.0.0",
+    riskLevel: "L0",
+    inputSchema: { type: "object", additionalProperties: false },
+    outputSchema: { type: "object" },
+    requiredResources: [{ kind: "memory", key: "smoke-hanging", mode: "exclusive" }],
+    permissions: ["tool.smoke.hanging"],
+    timeoutMs: 30_000,
+    cancellable: true,
+    idempotency: "safe",
+    auditPolicy: {},
+    async execute() {
+      return new Promise<never>(() => {});
+    }
+  });
+  const executionCancelController = new AbortController();
+  const hangingExecution = executeToolCall({
+    taskId: "smoke_execution_cancel",
+    stepId: "s_execution_cancel",
+    toolName: "smoke.hanging",
+    input: {},
+    signal: executionCancelController.signal,
+    attempt: 1
+  });
+  queueMicrotask(() => executionCancelController.abort());
+  const executionCancelled = await hangingExecution;
+  if (executionCancelled.ok || executionCancelled.error.code !== "CANCELLED") {
+    failures.push("执行中的工具应立即返回 CANCELLED");
+  } else if (listActiveResourceLocks().length !== 0) {
+    failures.push("执行中取消后资源锁未释放");
+  } else {
+    notes.push("工具执行中取消后立即结束并释放资源锁");
+  }
+
+  registerTool({
+    name: "smoke.throwing",
+    description: "仅用于验证工具异常终态",
+    version: "1.0.0",
+    riskLevel: "L0",
+    inputSchema: { type: "object", additionalProperties: false },
+    outputSchema: { type: "object" },
+    requiredResources: [{ kind: "memory", key: "smoke-throwing", mode: "exclusive" }],
+    permissions: ["tool.smoke.throwing"],
+    timeoutMs: 3_000,
+    cancellable: true,
+    idempotency: "safe",
+    auditPolicy: {},
+    async execute() {
+      throw new Error("smoke tool failure");
+    }
+  });
+  const toolFailure = await runTask({
+    goal: "工具异常终态",
+    steps: [{ title: "抛出工具异常", toolName: "smoke.throwing", input: {} }]
+  });
+  if (toolFailure.plan.status !== "failed" || listActiveResourceLocks().length !== 0) {
+    failures.push("工具异常后应进入 failed 终态并释放资源锁");
+  } else {
+    notes.push("工具异常后进入 failed 终态并释放资源锁");
   }
 
   // 6) 日志脱敏：不得保存 apiKey/password/token
@@ -285,11 +345,63 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push(...streakProbe.notes);
   }
 
+  const modelFailureProbe = await runModelFailureProbe();
+  if (!modelFailureProbe.ok) {
+    failures.push(...modelFailureProbe.failures);
+  } else {
+    notes.push(...modelFailureProbe.notes);
+  }
+
   return {
     ok: failures.length === 0,
     failures,
     notes
   };
+}
+
+async function runModelFailureProbe(): Promise<SmokeResult> {
+  const originalProvider = getModelProvider("openai-compatible");
+  const uninstall = installModelProviderOverride("openai-compatible", {
+    ...originalProvider,
+    supportsTools: true,
+    async sendMessage() {
+      throw new Error("smoke model failure");
+    }
+  });
+  clearExecutionObservability();
+  clearAllResourceLocks();
+
+  try {
+    await runAgentToolLoop({
+      messages: [{ role: "user", content: "触发模型异常" }],
+      modelConfig: {
+        provider: "openai-compatible",
+        presetId: "smoke",
+        apiKey: "smoke-key",
+        baseUrl: "http://127.0.0.1:9",
+        modelName: "smoke-model",
+        modelStrength: "middle",
+        thinkingModeEnabled: false,
+        temperature: 0,
+        maxOutputTokens: 32,
+        streamEnabled: false,
+        requestMode: "development-proxy"
+      }
+    });
+    return { ok: false, failures: ["模型异常不应返回成功"], notes: [] };
+  } catch {
+    const hasFailedTerminal = listExecutionLogs().some((log) => log.event === "task.failed");
+    if (!hasFailedTerminal || listActiveResourceLocks().length !== 0) {
+      return {
+        ok: false,
+        failures: ["模型异常后缺少 failed 终态或仍有资源锁"],
+        notes: []
+      };
+    }
+    return { ok: true, failures: [], notes: ["模型异常后写入 failed 终态并释放资源"] };
+  } finally {
+    uninstall();
+  }
 }
 
 /**

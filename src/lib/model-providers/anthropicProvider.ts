@@ -61,7 +61,8 @@ export const anthropicProvider: ModelProvider = {
         "x-api-key": config.apiKey,
         "anthropic-version": "2023-06-01"
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(requestBody),
+      signal: request.signal
     });
 
     if (!response.ok) {

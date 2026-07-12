@@ -75,7 +75,8 @@ export const openAiCompatibleProvider: ModelProvider = {
         "Content-Type": "application/json",
         Authorization: buildBearerToken(config.apiKey)
       },
-      body: JSON.stringify(buildOpenAiCompatibleBody(request, config, false))
+      body: JSON.stringify(buildOpenAiCompatibleBody(request, config, false)),
+      signal: request.signal
     });
 
     if (!response.ok) {
@@ -110,7 +111,8 @@ export const openAiCompatibleProvider: ModelProvider = {
         "Content-Type": "application/json",
         Authorization: buildBearerToken(config.apiKey)
       },
-      body: JSON.stringify(buildOpenAiCompatibleBody(request, config, true))
+      body: JSON.stringify(buildOpenAiCompatibleBody(request, config, true)),
+      signal: request.signal
     });
 
     if (!response.ok) {
