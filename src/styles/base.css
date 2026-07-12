@@ -929,8 +929,11 @@ body {
   position: relative;
   z-index: 1;
   width: min(760px, calc(100vw - 56px));
+  max-width: 100%;
   max-height: min(650px, calc(100dvh - 80px));
-  overflow: hidden;
+  /* 面板本身裁切横向溢出；消息区仅纵向滚动 */
+  overflow-x: hidden;
+  overflow-y: hidden;
   border: 1px solid rgba(255, 180, 232, 0.22);
   border-radius: 8px;
   padding: 28px 30px;
@@ -982,7 +985,10 @@ body {
   display: grid;
   gap: 18px;
   max-height: min(530px, calc(100dvh - 180px));
+  /* 只允许纵向滚动；长 URL/无空格串不得撑出横向滚动条 */
+  overflow-x: hidden;
   overflow-y: auto;
+  min-width: 0;
   padding: 2px 8px 18px 2px;
   scroll-behavior: smooth;
   scrollbar-width: thin;
@@ -1020,9 +1026,15 @@ body {
 
 .expanded-dialogue-line {
   position: relative;
+  /* min-width:0 防止 grid 子项被长文本横向撑破面板 */
   width: min(88%, 620px);
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 14px 16px 15px;
   color: rgba(255, 255, 255, 0.86);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .expanded-dialogue-line--user {
@@ -1141,7 +1153,10 @@ body {
 
 .expanded-dialogue-line__edit-form textarea {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 96px;
+  box-sizing: border-box;
   resize: vertical;
   border: 1px solid rgba(255, 210, 245, 0.2);
   border-radius: 6px;
@@ -1152,6 +1167,8 @@ body {
   font: inherit;
   font-size: 14px;
   line-height: 1.58;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .expanded-dialogue-line__edit-form textarea:focus {
@@ -1196,11 +1213,15 @@ body {
 
 .expanded-dialogue-line p {
   margin: 0;
+  max-width: 100%;
+  min-width: 0;
   color: inherit;
   font-size: 15px;
   line-height: 1.64;
   letter-spacing: 0;
-  overflow-wrap: break-word;
+  /* anywhere：无空格长 URL / 错误串也能在面板内折行，杜绝横向溢出 */
+  overflow-wrap: anywhere;
+  word-break: break-word;
   white-space: pre-wrap;
 }
 

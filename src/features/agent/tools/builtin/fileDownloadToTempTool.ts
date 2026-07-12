@@ -25,7 +25,7 @@ export const fileDownloadToTempTool: ToolDefinition<
 > = {
   name: "file.downloadToTemp",
   description:
-    "将任意 http(s) 资源下载到任务独立临时目录（通用文件能力，非某类安装包专用）。返回 fileName/bytes/mediaKind/tempPath；不会写入最终目录，后续需 file.placeDownload 并经用户确认。",
+    "将任意 http(s) 文件直链下载到任务独立临时目录（通用文件能力，非某类安装包专用）。URL 必须是可直接 GET 的文件地址（常见 .exe/.msi/.zip 等），不是官网 HTML 页；不会自动点击网页下载按钮。返回 fileName/bytes/mediaKind/tempPath；不会写入最终目录，后续需 file.placeDownload 并经用户确认。",
   version: "1.1.0",
   riskLevel: "L2",
   inputSchema: {

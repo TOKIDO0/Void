@@ -1,6 +1,7 @@
-// Q6 多能力串联金样例（多场景，不是单场景产品）
+// Q6/S2 多能力串联金样例（多场景，不是单场景产品）
 // 故事①：网页 extract → a11y click → type
 // 故事②：下载任意样例文件 → verify → clipboard 写入路径说明
+// 故事③：下载/校验 → 建目录 → 移动 → 资源管理器展示（本地整理闭环）
 // 前置：npm run dev:bridge
 // 用法：VOID_BROWSER_HEADLESS=1 npx tsx scripts/agent-multi-flow-smoke.mjs
 
@@ -260,6 +261,118 @@ async function storyFileClipboard(origin) {
   }
 }
 
+/**
+ * 故事③（S2）：本机整理闭环
+ * 下载落盘 → listDirectory → createDirectory → move → verify → revealPath
+ * 另验：冲突 DESTINATION_EXISTS 可读；根外 PATH_NOT_ALLOWED 可读
+ */
+async function storyLocalOrganize(origin) {
+  const taskId = `multi_org_${Date.now().toString(36)}`;
+  const workDir = path.join(finalRoot, `multi-organize-${Date.now().toString(36)}`);
+  mkdirSync(workDir, { recursive: true });
+  console.log(`\n[story3 local-organize] taskId=${taskId}`);
+  console.log(`[story3] workDir=${workDir}`);
+
+  try {
+    const downloaded = await post("/void-file/download-to-temp", {
+      taskId,
+      url: `${origin}/sample.txt`,
+      suggestedFileName: "organize-sample.txt"
+    });
+    assert(downloaded.bytes > 0, "整理样例下载 bytes 应 >0");
+
+    const placed = await post("/void-file/place-download", {
+      taskId,
+      tempPath: downloaded.tempPath,
+      destinationDirectory: workDir,
+      fileName: "organize-sample.txt",
+      overwritePolicy: "rename"
+    });
+    assert(existsSync(placed.finalPath), "整理样例落盘路径应存在");
+    console.log(`[story3] placed ${placed.finalPath}`);
+
+    const listed = await post("/void-file/list-directory", { path: workDir });
+    assert(listed.count >= 1, "listDirectory 应至少看到落盘文件");
+    const hasSample = (listed.entries ?? []).some(
+      (entry) => entry.name === "organize-sample.txt" && entry.kind === "file"
+    );
+    assert(hasSample, "listDirectory 应包含 organize-sample.txt");
+    console.log(`[story3] list count=${listed.count}`);
+
+    const folderPath = path.join(workDir, "整理后");
+    const created = await post("/void-file/create-directory", { path: folderPath });
+    assert(created.created === true, "createDirectory 应创建成功");
+    assert(existsSync(folderPath), "新建目录应存在");
+    console.log(`[story3] created ${created.path}`);
+
+    // 失败分类：同路径再次创建 → DESTINATION_EXISTS
+    try {
+      await post("/void-file/create-directory", { path: folderPath });
+      throw new Error("重复创建目录应失败");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      assert(
+        message.includes("DESTINATION_EXISTS"),
+        `重复创建应 DESTINATION_EXISTS，实际 ${message}`
+      );
+      console.log("[story3] DESTINATION_EXISTS on recreate ok");
+    }
+
+    // 失败分类：根外移动 → PATH_NOT_ALLOWED，且源文件保持
+    try {
+      await post("/void-file/move", {
+        sourcePath: placed.finalPath,
+        destinationPath: "C:\\Windows\\System32\\void-not-allowed\\x.txt",
+        conflictPolicy: "refuse"
+      });
+      throw new Error("根外移动应失败");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      assert(
+        message.includes("PATH_NOT_ALLOWED"),
+        `根外移动应 PATH_NOT_ALLOWED，实际 ${message}`
+      );
+      assert(existsSync(placed.finalPath), "根外拒绝后源文件必须仍在");
+      console.log("[story3] PATH_NOT_ALLOWED on outside move ok");
+    }
+
+    const destinationPath = path.join(folderPath, "organize-sample.txt");
+    const moved = await post("/void-file/move", {
+      sourcePath: placed.finalPath,
+      destinationPath,
+      conflictPolicy: "refuse"
+    });
+    assert(!existsSync(placed.finalPath), "移动后源路径应消失");
+    assert(existsSync(moved.destinationPath), "移动后目标应存在");
+    assert(moved.destinationPath === path.resolve(destinationPath) || existsSync(destinationPath), "目标路径应正确");
+    console.log(`[story3] moved → ${moved.destinationPath}`);
+
+    const verified = await post("/void-file/verify", { path: moved.destinationPath });
+    assert(verified.exists === true, "移动后 verify 应存在");
+    assert(verified.mediaKind === "text", "verify mediaKind 应为 text");
+    console.log(
+      `[story3] verify fileName=${verified.fileName} mediaKind=${verified.mediaKind} bytes=${verified.bytes}`
+    );
+
+    const revealed = await post("/void-desktop/reveal-path", {
+      path: moved.destinationPath
+    });
+    assert(revealed.openMode === "select", "文件 reveal 应为 select");
+    assert(
+      typeof revealed.revealedPath === "string" && revealed.revealedPath.length > 0,
+      "reveal 应返回路径"
+    );
+    console.log(`[story3] reveal ${revealed.openMode} ${revealed.revealedPath}`);
+    console.log("[story3] PASSED download→list→create→move→verify→reveal");
+  } finally {
+    try {
+      rmSync(workDir, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  }
+}
+
 async function main() {
   console.log(`[agent-multi-flow-smoke] bridge=${bridgeOrigin}`);
   const ready = await waitForBridge();
@@ -277,9 +390,11 @@ async function main() {
   try {
     await storyWebA11y(fixture.origin);
     await storyFileClipboard(fixture.origin);
+    await storyLocalOrganize(fixture.origin);
     console.log("\n[agent-multi-flow-smoke] PASSED");
     console.log(" - 故事① 网页 extract→a11y click→type");
     console.log(" - 故事② 下载样例→verify→clipboard 路径说明（非单场景产品）");
+    console.log(" - 故事③ 本机整理：list→create→move→verify→reveal；失败码可读");
   } catch (error) {
     console.error(
       "[agent-multi-flow-smoke] FAILED:",

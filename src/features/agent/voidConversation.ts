@@ -59,9 +59,13 @@ const THINKING_MODE_SYSTEM_SUFFIX = [
 /** 短约束：何时用工具。不把完整工具手册塞进 System Prompt。 */
 const TOOL_USE_SYSTEM_SUFFIX = [
   "你可以通过函数工具操作浏览器、本机白名单目录与系统剪贴板。",
+  "任务边界：只执行「最新一条用户消息」里的请求；历史仅作背景，禁止顺带完成上一轮未完成的搜索/打开/下载。",
   "剪贴板：clipboard.read 只读；clipboard.write 会覆盖剪贴板并需用户确认，勿写密码。",
   "当用户要求搜索、打开网页、看视频、下载文件时，必须调用工具，禁止假装已经操作。",
-  "下载链路：browser.search/selectTarget → file.downloadToTemp → 用户确认后 file.placeDownload → file.verify；默认最终目录 D:\\AI\\void-runtime\\downloads；拒绝确认或 PATH_NOT_ALLOWED 时不得声称已保存。",
+  "下载主路径（安装包/任意文件通用）：先拿到可直接 GET 的 http(s) 文件直链（URL 常以 .exe/.msi/.zip/.dmg 等结尾，或 Content-Disposition 指向文件），再 file.downloadToTemp → 用户确认后 file.placeDownload → file.verify；默认最终目录 D:\\AI\\void-runtime\\downloads。",
+  "禁止把「在官网反复 click 下载按钮」当主路径：file.downloadToTemp 只认直链，不会自动捕获浏览器按钮触发的下载。",
+  "找直链：browser.search 结果里优先挑文件直链；否则 open 后 browser.extract 找 href 含安装包扩展名的链接。拿不到直链时，立刻用中文说明「当前只能下载直链文件，官网按钮下载尚不支持」，并给出你看到的官网 URL；不要空转 click/open 耗尽预算。",
+  "拒绝确认或 PATH_NOT_ALLOWED 时不得声称已保存。",
   "本机文件整理：仅允许根内操作。查看用 file.listDirectory（只列当前一层，不递归）与 file.readText；新建一层目录用 file.createDirectory（父目录须已存在）；移动/重命名用 file.move（同盘原子移动，冲突默认 refuse，可 rename，绝不覆盖）；要在资源管理器里展示用 desktop.revealPath。",
   "用户说「整理刚下载的文件 / 建文件夹并移进去 / 打开所在位置」时，必须按 listDirectory → createDirectory → move → desktop.revealPath 这类工具链执行；路径一律用绝对路径。",
   "文件失败要如实说错误码：PATH_NOT_ALLOWED / DESTINATION_EXISTS / CROSS_DEVICE_MOVE / FILE_NOT_FOUND 等；禁止空口「已经移动/已经保存/已经打开文件夹」。",
@@ -102,6 +106,19 @@ export async function sendVoidMessage(
     ...buildRequestConversationHistory(conversationHistory),
     { role: "user", content: normalizedUserInput }
   ];
+
+  // 工具模式：再钉死「只做本轮最新用户消息」，避免历史里未完成下载被顺带执行
+  if (enableTools && normalizedUserInput.trim()) {
+    messages.push({
+      role: "system",
+      content: [
+        "【本轮任务边界】",
+        `只处理最新用户消息：「${clipForBoundaryHint(normalizedUserInput)}」。`,
+        "历史中的其他下载/打开/搜索请求一律忽略，不要同时打开多个无关官网，不要补做上一轮失败任务。",
+        "下载须拿到文件直链后再 downloadToTemp；拿不到直链就说明限制并停止空转。"
+      ].join("")
+    });
+  }
 
   // 支持 tools 的 provider：走 agent loop（非流式拿 tool_calls，最终回复一次性返回）
   if (enableTools) {
@@ -385,7 +402,19 @@ function shouldSkipRequestHistoryMessage(role: VoidConversationMessage["role"], 
     || content.startsWith("模型网络请求失败。")
     || content.startsWith("模型连接失败")
     || content.startsWith("正式模型代理不可用")
+    // 工具预算耗尽/友好收口也跳过，避免下一轮被失败长文带偏
+    || content.startsWith("工具循环超过")
+    || content.startsWith("这轮工具操作没能完成")
   );
+}
+
+/** 边界提示里的用户原文截断，避免 system 提示过长 */
+function clipForBoundaryHint(text: string, maxLength = 240): string {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxLength)}…`;
 }
 
 function buildUserInputWithAttachments(userInput: string, attachments?: VoidConversationAttachment[]) {

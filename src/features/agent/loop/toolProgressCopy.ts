@@ -81,6 +81,47 @@ export function formatSameToolStreakCloseMessage(
   ].join("");
 }
 
+/**
+ * 工具轮次/调用预算耗尽且未达终态时的用户可读收口。
+ * 禁止再抛「工具循环超过 6 轮…」这种内部实现口吻。
+ */
+export function formatToolBudgetExhaustedMessage(params: {
+  maxRounds: number;
+  toolInvocationCount: number;
+  lastToolName?: string;
+  lastErrorCode?: string;
+}): string {
+  const rounds = Number.isFinite(params.maxRounds) && params.maxRounds > 0
+    ? Math.floor(params.maxRounds)
+    : 6;
+  const tools = Number.isFinite(params.toolInvocationCount) && params.toolInvocationCount >= 0
+    ? Math.floor(params.toolInvocationCount)
+    : 0;
+  const toolName = params.lastToolName?.trim() || "";
+  const errorCode = params.lastErrorCode?.trim() || "";
+
+  const parts = [
+    "这轮工具操作没能完成。",
+    `已尝试 ${rounds} 轮对话、执行工具 ${tools} 次，仍未拿到可汇报的最终结果。`
+  ];
+
+  if (toolName && errorCode) {
+    parts.push(`最近卡在「${toolName}」（错误码：${errorCode}）。`);
+  } else if (toolName) {
+    parts.push(`最近卡在「${toolName}」。`);
+  } else if (errorCode) {
+    parts.push(`最近错误码：${errorCode}。`);
+  }
+
+  parts.push(
+    "若是下载安装包：请提供可直接打开的文件直链（如 .exe/.msi/.zip），",
+    "或换更具体的官网下载页；当前不会靠反复点击网页按钮自动完成下载。",
+    "你也可以缩小任务后重试。"
+  );
+
+  return parts.join("");
+}
+
 function humanizeToolName(toolName: string) {
   const leaf = toolName.includes(".") ? toolName.split(".").pop() ?? toolName : toolName;
   return leaf

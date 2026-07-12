@@ -72,17 +72,40 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
     return `${toolName} 完成：文件不存在`;
   }
 
+  // 本地整理链：list / read / create / move / reveal 都要可读，禁止退回泛化「执行成功」
+  if (toolName === "file.listDirectory" && typeof record.path === "string") {
+    const count = typeof record.count === "number" ? record.count : 0;
+    const truncated = record.truncated === true ? "，已截断" : "";
+    return `${toolName} 完成：${record.path}（${count} 项${truncated}）`;
+  }
+
+  if (toolName === "file.readText" && typeof record.path === "string") {
+    const fileName = typeof record.fileName === "string" ? record.fileName : "";
+    const characters = record.characters ?? "?";
+    const truncated = record.truncated === true ? "，已截断" : "";
+    return `${toolName} 完成：${fileName || record.path}（${String(characters)} 字${truncated}）`;
+  }
+
   if (toolName === "file.createDirectory" && typeof record.path === "string") {
-    return `${toolName} 完成：${record.path}`;
+    return `${toolName} 完成：已创建目录 ${record.path}`;
   }
 
   if (toolName === "file.move" && typeof record.destinationPath === "string") {
-    return `${toolName} 完成：${String(record.sourcePath)} → ${record.destinationPath}`;
+    const sourcePath = typeof record.sourcePath === "string" ? record.sourcePath : "?";
+    const renamed = record.renamedForConflict === true ? "，冲突已自动改名" : "";
+    const mediaKind = typeof record.mediaKind === "string" ? record.mediaKind : "";
+    const bytes = typeof record.bytes === "number" ? record.bytes : undefined;
+    const meta =
+      mediaKind || bytes !== undefined
+        ? `（${mediaKind || "unknown"}${bytes !== undefined ? `, ${bytes} bytes` : ""}）`
+        : "";
+    return `${toolName} 完成：${sourcePath} → ${record.destinationPath}${meta}${renamed}`;
   }
 
   if (toolName === "desktop.revealPath" && typeof record.revealedPath === "string") {
     const openMode = typeof record.openMode === "string" ? record.openMode : "open";
-    return `${toolName} 完成：${record.revealedPath}（${openMode}）`;
+    const modeLabel = openMode === "select" ? "已选中文件" : "已打开目录";
+    return `${toolName} 完成：${modeLabel} ${record.revealedPath}`;
   }
 
   if (toolName === "clipboard.read") {

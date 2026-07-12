@@ -41,6 +41,7 @@ import {
 import { buildToolConfirmationDescription } from "./toolConfirmationCopy";
 import {
   formatSameToolStreakCloseMessage,
+  formatToolBudgetExhaustedMessage,
   formatToolConfirmWaitMessage,
   formatToolProgressMessage
 } from "./toolProgressCopy";
@@ -69,6 +70,11 @@ export type AgentToolLoopResult = {
   usedTools: boolean;
   rounds: number;
   taskId: string;
+  /**
+   * 循环层终态：预算耗尽/熔断友好收口记 failed，
+   * 正常回复记 succeeded（取消仍走 throw）。
+   */
+  outcome?: "succeeded" | "failed";
 };
 
 /** 模型请求次数：过大会刷爆 API；过小复杂任务完不成 */
@@ -111,20 +117,26 @@ export async function runAgentToolLoop(
   const taskId = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   try {
     const result = await runAgentToolLoopInternal(options, taskId);
+    const outcome = result.outcome ?? "succeeded";
     setTaskProgress({
       taskId,
-      status: "succeeded",
+      status: outcome === "failed" ? "failed" : "succeeded",
       goal: "对话工具循环",
       completedSteps: result.rounds,
       totalSteps: result.rounds,
-      message: result.usedTools ? "任务完成" : "纯对话回复",
+      message:
+        outcome === "failed"
+          ? result.content.slice(0, 160)
+          : result.usedTools
+            ? "任务完成"
+            : "纯对话回复",
       updatedAt: Date.now()
     });
     appendExecutionLog({
       taskId,
       event: "task.finished",
-      message: "对话工具循环已完成",
-      data: { rounds: result.rounds, usedTools: result.usedTools }
+      message: outcome === "failed" ? "对话工具循环友好收口（未完成）" : "对话工具循环已完成",
+      data: { rounds: result.rounds, usedTools: result.usedTools, outcome }
     });
     return result;
   } catch (error) {
@@ -489,13 +501,47 @@ async function runAgentToolLoopInternal(
       content,
       usedTools,
       rounds,
-      taskId
+      taskId,
+      outcome: "failed"
     };
   }
 
-  throw new Error(
-    `工具循环超过 ${maxRounds} 轮仍未给出最终回复。已执行工具 ${toolInvocationCount} 次。请缩小任务或重试。`
-  );
+  // 预算耗尽且无终态：友好中文收口，禁止再抛内部「超过 6 轮」硬错误砸用户
+  const exhaustedContent = formatToolBudgetExhaustedMessage({
+    maxRounds,
+    toolInvocationCount,
+    lastToolName: sameToolStreakName || undefined,
+    lastErrorCode: lastSameToolErrorCode || undefined
+  });
+  options.onProgress?.(exhaustedContent);
+  setTaskProgress({
+    taskId,
+    status: "failed",
+    goal: "对话工具循环",
+    completedSteps: toolInvocationCount,
+    totalSteps: maxToolInvocations,
+    message: exhaustedContent,
+    updatedAt: Date.now()
+  });
+  appendExecutionLog({
+    level: "warn",
+    taskId,
+    event: "task.budget_exhausted",
+    message: exhaustedContent,
+    data: {
+      maxRounds,
+      toolInvocationCount,
+      lastToolName: sameToolStreakName || null,
+      lastErrorCode: lastSameToolErrorCode || null
+    }
+  });
+  return {
+    content: exhaustedContent,
+    usedTools,
+    rounds,
+    taskId,
+    outcome: "failed"
+  };
 }
 
 async function runSingleToolCall(params: {
