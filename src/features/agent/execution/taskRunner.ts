@@ -28,6 +28,7 @@ import {
 } from "../observability";
 import { sanitizeForAudit } from "../observability/auditSanitize";
 import { releaseBrowserSessionForTask } from "../browser/browserSessionLifecycle";
+import { buildToolConfirmationDescription } from "../loop/toolConfirmationCopy";
 import { releaseTaskResources } from "../resources";
 import {
   createToolError,
@@ -190,7 +191,12 @@ async function runSingleStep(
       toolName: step.toolName,
       riskLevel: effectiveRisk,
       title: step.title,
-      description: buildConfirmationDescription(step, effectiveRisk),
+      description: buildToolConfirmationDescription(
+        step.toolName,
+        effectiveRisk,
+        step.input,
+        step.title
+      ),
       inputSummary: sanitizeForAudit(
         step.input,
         tool.auditPolicy.redactInputKeys ?? []
@@ -606,64 +612,6 @@ function buildTaskReport(plan: TaskPlan): TaskReport {
     stepSummaries,
     message
   };
-}
-
-function buildConfirmationDescription(step: TaskStep, riskLevel: RiskLevel) {
-  const input = step.input && typeof step.input === "object"
-    ? (step.input as Record<string, unknown>)
-    : {};
-
-  // 阶段 D：确认文案必须说清「做什么 / 作用对象 / 可能结果」，禁止裸「确定」
-  if (step.toolName === "browser.selectTarget") {
-    const title = typeof input.title === "string" ? input.title : "(未命名目标)";
-    const url = typeof input.url === "string" ? input.url : "";
-    const rank = typeof input.rank === "number" ? input.rank : undefined;
-    return [
-      `将确认搜索结果目标（风险 ${riskLevel}）。`,
-      rank ? `候选序号：#${rank}` : undefined,
-      `标题：${title}`,
-      url ? `URL：${url}` : undefined,
-      "确认后才会打开该页面并进入后续下载流程；拒绝则任务停止。"
-    ].filter(Boolean).join("\n");
-  }
-
-  if (step.toolName === "file.placeDownload") {
-    const tempPath = typeof input.tempPath === "string" ? input.tempPath : "";
-    const destinationDirectory =
-      typeof input.destinationDirectory === "string" ? input.destinationDirectory : "";
-    const fileName = typeof input.fileName === "string" ? input.fileName : "";
-    const mediaKind = typeof input.mediaKind === "string" ? input.mediaKind : "";
-    const bytes = typeof input.bytes === "number" ? input.bytes : undefined;
-    const overwritePolicy =
-      typeof input.overwritePolicy === "string" ? input.overwritePolicy : "refuse";
-    const inferredName =
-      fileName
-      || (tempPath ? tempPath.split(/[/\\]/).pop() ?? "" : "");
-    return [
-      `将把已下载的临时文件移动到最终目录（风险 ${riskLevel}）。`,
-      tempPath ? `临时文件：${tempPath}` : undefined,
-      destinationDirectory ? `目标目录：${destinationDirectory}` : undefined,
-      inferredName ? `文件名：${inferredName}` : undefined,
-      mediaKind ? `类型：${mediaKind}` : undefined,
-      bytes !== undefined ? `大小：${bytes} bytes` : undefined,
-      `覆盖策略：${overwritePolicy}（refuse=已存在则失败 / overwrite=覆盖 / rename=自动改名）`,
-      "确认后才会写入最终目录；拒绝则保留临时文件且不落盘。目录须在本机下载白名单内。"
-    ].filter(Boolean).join("\n");
-  }
-
-  if (step.toolName === "file.downloadToTemp") {
-    const url = typeof input.url === "string" ? input.url : "";
-    const suggestedFileName =
-      typeof input.suggestedFileName === "string" ? input.suggestedFileName : "";
-    return [
-      `将下载文件到任务临时目录（风险 ${riskLevel}）。`,
-      url ? `来源 URL：${url}` : undefined,
-      suggestedFileName ? `建议文件名：${suggestedFileName}` : undefined,
-      "文件先进入隔离临时目录，不会直接写入最终目录；仍请确认来源可信。适用于任意类型资源。"
-    ].filter(Boolean).join("\n");
-  }
-
-  return `即将执行步骤「${step.title}」（工具 ${step.toolName}，风险 ${riskLevel}）。请确认是否继续。`;
 }
 
 function describePlanProgress(plan: TaskPlan) {

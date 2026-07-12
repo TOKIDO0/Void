@@ -31,6 +31,7 @@ import {
   applyReplySpeechGuard,
   inspectToolResultForOpenEvidence
 } from "./replySpeechGuard";
+import { buildToolConfirmationDescription } from "./toolConfirmationCopy";
 import {
   formatSameToolStreakCloseMessage,
   formatToolConfirmWaitMessage,
@@ -475,7 +476,7 @@ async function runSingleToolCall(params: {
       toolName,
       riskLevel,
       title: `确认：${toolName}`,
-      description: buildConfirmationDescription(toolName, riskLevel, input),
+      description: buildToolConfirmationDescription(toolName, riskLevel, input),
       inputSummary: sanitizeForAudit(
         input && typeof input === "object" ? (input as Record<string, unknown>) : { value: input },
         tool.auditPolicy.redactInputKeys ?? []
@@ -588,98 +589,6 @@ function injectTaskId(input: unknown, taskId: string): unknown {
     return record;
   }
   return { ...record, taskId };
-}
-
-function buildConfirmationDescription(
-  toolName: string,
-  riskLevel: RiskLevel,
-  input: unknown
-) {
-  const record =
-    input && typeof input === "object" && !Array.isArray(input)
-      ? (input as Record<string, unknown>)
-      : {};
-
-  if (toolName === "browser.selectTarget") {
-    const title = typeof record.title === "string" ? record.title : "(未命名目标)";
-    const url = typeof record.url === "string" ? record.url : "";
-    const rank = typeof record.rank === "number" ? record.rank : undefined;
-    return [
-      `将确认搜索结果目标（风险 ${riskLevel}）。`,
-      rank ? `候选序号：#${rank}` : undefined,
-      `标题：${title}`,
-      url ? `URL：${url}` : undefined,
-      "确认后才会打开该页面并进入后续下载流程；拒绝则任务停止。"
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }
-
-  if (toolName === "file.placeDownload") {
-    const destinationDirectory =
-      typeof record.destinationDirectory === "string" ? record.destinationDirectory : "";
-    const fileName = typeof record.fileName === "string" ? record.fileName : "";
-    const mediaKind = typeof record.mediaKind === "string" ? record.mediaKind : "";
-    const bytes = typeof record.bytes === "number" ? record.bytes : undefined;
-    const overwritePolicy =
-      typeof record.overwritePolicy === "string" ? record.overwritePolicy : "refuse";
-    // 从 tempPath 兜底文件名，保证确认条始终能读到名字
-    const tempPath = typeof record.tempPath === "string" ? record.tempPath : "";
-    const inferredName =
-      fileName
-      || (tempPath ? tempPath.split(/[/\\]/).pop() ?? "" : "");
-    return [
-      `将把已下载的临时文件移动到最终目录（风险 ${riskLevel}）。`,
-      destinationDirectory ? `目标目录：${destinationDirectory}` : undefined,
-      inferredName ? `文件名：${inferredName}` : undefined,
-      mediaKind ? `类型：${mediaKind}` : undefined,
-      bytes !== undefined ? `大小：${bytes} bytes` : undefined,
-      `覆盖策略：${overwritePolicy}`,
-      "确认后才会写入最终目录；拒绝则不落盘。目录须在本机下载白名单内。"
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }
-
-  if (toolName === "file.downloadToTemp") {
-    const url = typeof record.url === "string" ? record.url : "";
-    const suggestedFileName =
-      typeof record.suggestedFileName === "string" ? record.suggestedFileName : "";
-    return [
-      `将下载文件到任务临时目录（风险 ${riskLevel}）。`,
-      url ? `来源 URL：${url}` : undefined,
-      suggestedFileName ? `建议文件名：${suggestedFileName}` : undefined,
-      "文件先进入隔离临时目录，不会直接写入最终目录；仍请确认来源可信。适用于任意类型资源，非某一安装包专用。"
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }
-
-  if (toolName === "browser.open") {
-    const url = typeof record.url === "string" ? record.url : "";
-    return [
-      `将在自动化窗口打开网页（风险 ${riskLevel}）。`,
-      url ? `URL：${url}` : undefined,
-      "这不是你的日常浏览器；若要在常用浏览器查看，打开后还需 revealInSystemBrowser。"
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }
-
-  if (toolName === "clipboard.write") {
-    const text = typeof record.text === "string" ? record.text : "";
-    const preview = text.length > 120 ? `${text.slice(0, 120)}…` : text;
-    return [
-      `将覆盖写入本机系统剪贴板（风险 ${riskLevel}）。`,
-      `长度：${text.length} 字符`,
-      preview ? `预览：${preview}` : "内容为空（将清空剪贴板文本）",
-      "确认后会替换当前剪贴板文本；拒绝则不改动剪贴板。请勿写入密码等敏感凭证。"
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }
-
-  return `即将执行工具「${toolName}」（风险 ${riskLevel}）。请确认是否继续；拒绝则不会执行该步。`;
 }
 
 function serializeToolFailure(message: string, code: string) {
