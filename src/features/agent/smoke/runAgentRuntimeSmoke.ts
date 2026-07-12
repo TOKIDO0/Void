@@ -19,6 +19,18 @@ import { registerBuiltinTools } from "../tools";
 import { runTask } from "../execution";
 import { executeToolCall } from "../execution/toolExecutor";
 import type { ConfirmationRequest } from "../permissions";
+import type { ModelConfig } from "../../settings/modelConfig";
+import type {
+  ModelProvider,
+  ProviderResponse,
+  ProviderToolCall
+} from "../../../lib/model-providers/providerContract";
+import {
+  getModelProvider,
+  installModelProviderOverride
+} from "../../../lib/model-providers/providerRegistry";
+import { runAgentToolLoop } from "../loop/agentToolLoop";
+import { formatSameToolStreakCloseMessage } from "../loop/toolProgressCopy";
 
 export type SmokeResult = {
   ok: boolean;
@@ -263,9 +275,148 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push("日志敏感字段已脱敏");
   }
 
+  // 7) 同工具连续失败熔断：收口文案必须点名工具 + 错误码
+  clearExecutionObservability();
+  clearAllResourceLocks();
+  const streakProbe = await runSameToolStreakCloseProbe();
+  if (!streakProbe.ok) {
+    failures.push(...streakProbe.failures);
+  } else {
+    notes.push(...streakProbe.notes);
+  }
+
   return {
     ok: failures.length === 0,
     failures,
     notes
+  };
+}
+
+/**
+ * P5：强制同工具连错 3 次触发熔断，断言用户收口含工具名与错误码。
+ * 用假 provider 注入 tool_calls，不依赖真实 LLM / bridge。
+ */
+async function runSameToolStreakCloseProbe(): Promise<SmokeResult> {
+  const failures: string[] = [];
+  const notes: string[] = [];
+  const originalProvider = getModelProvider("openai-compatible");
+  const stubProvider = createSameToolStreakStubProvider(originalProvider);
+  // 临时覆盖 openai-compatible，仅本冒烟进程内生效
+  const uninstall = installModelProviderOverride("openai-compatible", stubProvider);
+
+  try {
+    const modelConfig: ModelConfig = {
+      provider: "openai-compatible",
+      presetId: "smoke",
+      apiKey: "smoke-key",
+      baseUrl: "http://127.0.0.1:9",
+      modelName: "smoke-model",
+      modelStrength: "middle",
+      thinkingModeEnabled: false,
+      temperature: 0,
+      maxOutputTokens: 256,
+      streamEnabled: false,
+      requestMode: "development-proxy"
+    };
+
+    const loopResult = await runAgentToolLoop({
+      messages: [
+        { role: "system", content: "测试同工具熔断收口" },
+        { role: "user", content: "请连续调用 echo 并故意失败" }
+      ],
+      modelConfig,
+      // 仅暴露 echo，避免无关工具干扰
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "echo",
+            description: "smoke echo",
+            parameters: {
+              type: "object",
+              properties: {
+                message: { type: "string" }
+              },
+              required: ["message"]
+            }
+          }
+        }
+      ],
+      maxRounds: 6,
+      maxToolInvocations: 8
+    });
+
+    const content = loopResult.content ?? "";
+    const expectedCode = "SCHEMA_INVALID";
+    const expectedTool = "echo";
+    if (!content.includes(expectedTool)) {
+      failures.push(`熔断收口缺少工具名「${expectedTool}」：${content}`);
+    }
+    if (!content.includes(expectedCode)) {
+      failures.push(`熔断收口缺少错误码「${expectedCode}」：${content}`);
+    }
+    // 对照 formatSameToolStreakCloseMessage 结构（至少包含连续次数语义）
+    if (!/连续\s*\d+\s*次/.test(content) && !content.includes("连续")) {
+      failures.push(`熔断收口未体现连续失败次数：${content}`);
+    }
+    if (failures.length === 0) {
+      notes.push(
+        `同工具熔断收口可读：${content.slice(0, 120)}`
+      );
+      notes.push(
+        `收口模板样例：${formatSameToolStreakCloseMessage(expectedTool, expectedCode, 3)}`
+      );
+    }
+  } catch (error) {
+    failures.push(
+      `同工具熔断探测崩溃：${error instanceof Error ? error.message : String(error)}`
+    );
+  } finally {
+    uninstall();
+  }
+
+  return {
+    ok: failures.length === 0,
+    failures,
+    notes
+  };
+}
+
+/**
+ * 假 provider：
+ * 1) 前 3 次带 tools 时返回 echo 非法参数 tool_call（触发 SCHEMA_INVALID）
+ * 2) 第 4 次起若仍带 tools，会再次返回 tool_call 以撞上 streak 熔断
+ * 3) forceFinalText（tools 被摘掉）时返回空内容，迫使循环层用可读收口
+ */
+function createSameToolStreakStubProvider(base: ModelProvider): ModelProvider {
+  let toolRound = 0;
+  return {
+    ...base,
+    supportsTools: true,
+    async sendMessage(request): Promise<ProviderResponse> {
+      const hasTools = Boolean(request.tools && request.tools.length > 0);
+      if (!hasTools) {
+        // 强制纯文本轮：故意给空内容，验证 ensureStreakCloseContent 兜底
+        return { content: "" };
+      }
+
+      toolRound += 1;
+      const toolCall: ProviderToolCall = {
+        id: `call_streak_${toolRound}`,
+        type: "function",
+        function: {
+          // 非法参数：message 必须是 string，这里给 number → SCHEMA_INVALID
+          name: "echo",
+          arguments: JSON.stringify({ message: 123 })
+        }
+      };
+      return {
+        content: "",
+        toolCalls: [toolCall]
+      };
+    },
+    mapError(error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
   };
 }

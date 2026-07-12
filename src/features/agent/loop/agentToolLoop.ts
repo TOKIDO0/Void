@@ -32,6 +32,7 @@ import {
   inspectToolResultForOpenEvidence
 } from "./replySpeechGuard";
 import {
+  formatSameToolStreakCloseMessage,
   formatToolConfirmWaitMessage,
   formatToolProgressMessage
 } from "./toolProgressCopy";
@@ -135,6 +136,14 @@ export async function runAgentToolLoop(
   let toolInvocationCount = 0;
   let sameToolStreakName = "";
   let sameToolStreakCount = 0;
+  // 同工具最近一次失败的错误码，供熔断收口文案点名
+  let lastSameToolErrorCode = "";
+  // 熔断已触发时的用户可读收口（工具名 + 错误码）
+  let sameToolStreakClose: {
+    toolName: string;
+    errorCode: string;
+    streakCount: number;
+  } | null = null;
   let lastTerminalSuccess: { toolName: string; summary: string } | null = null;
   // 话术护栏证据：本轮是否真实 open/reveal 成功，以及最后一次打开的 URL。
   let didRevealInSystemBrowser = false;
@@ -159,10 +168,11 @@ export async function runAgentToolLoop(
       throw createAbortedError();
     }
 
-    // 已达工具预算或已有终态成功：强制最后一轮纯文本，禁止继续 tool_calls
+    // 已达工具预算 / 终态成功 / 同工具熔断：强制最后一轮纯文本，禁止继续 tool_calls
     const forceFinalText =
       toolInvocationCount >= maxToolInvocations
-      || Boolean(lastTerminalSuccess);
+      || Boolean(lastTerminalSuccess)
+      || Boolean(sameToolStreakClose);
 
     rounds += 1;
     let response: ProviderResponse;
@@ -185,6 +195,10 @@ export async function runAgentToolLoop(
       if (!content && lastTerminalSuccess) {
         content = lastTerminalSuccess.summary;
       }
+      // 同工具熔断收口：模型没点名工具/错误码时，改用可读文案，禁止泛泛「遇到问题」
+      if (sameToolStreakClose) {
+        content = ensureStreakCloseContent(content, sameToolStreakClose);
+      }
       if (!content) {
         throw new Error("模型没有返回有效内容。");
       }
@@ -201,7 +215,15 @@ export async function runAgentToolLoop(
         goal: "对话工具循环",
         completedSteps: rounds,
         totalSteps: rounds,
-        message: usedTools ? "任务完成" : "纯对话回复",
+        message: sameToolStreakClose
+          ? formatSameToolStreakCloseMessage(
+              sameToolStreakClose.toolName,
+              sameToolStreakClose.errorCode,
+              sameToolStreakClose.streakCount
+            )
+          : usedTools
+            ? "任务完成"
+            : "纯对话回复",
         updatedAt: Date.now()
       });
       return { content, usedTools, rounds, taskId };
@@ -239,14 +261,22 @@ export async function runAgentToolLoop(
       const toolName = fromModelToolName(modelToolName);
       const stepId = toolCall.id || `step_${rounds}_${toolName}`;
 
-      // 同工具连续空转熔断
+      // 同工具连续空转熔断：记录工具名 + 最近错误码，供用户收口文案点名
       if (toolName === sameToolStreakName && sameToolStreakCount >= MAX_SAME_TOOL_STREAK) {
+        const errorCode = lastSameToolErrorCode || "TOOL_STREAK_BREAKER";
+        if (!sameToolStreakClose) {
+          sameToolStreakClose = {
+            toolName,
+            errorCode,
+            streakCount: sameToolStreakCount
+          };
+        }
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
           name: modelToolName || toolName,
           content: serializeToolFailure(
-            `工具 ${toolName} 已连续调用 ${sameToolStreakCount} 次仍无有效推进，请换策略或直接向用户说明卡点，不要重复同一调用。`,
+            `工具 ${toolName} 已连续调用 ${sameToolStreakCount} 次仍无有效推进（最近错误码：${errorCode}）。请换策略，或直接用中文向用户说明卡在「${toolName} / ${errorCode}」，不要重复同一调用。`,
             "TOOL_STREAK_BREAKER"
           )
         });
@@ -288,10 +318,15 @@ export async function runAgentToolLoop(
         sameToolStreakName = toolName;
         sameToolStreakCount = 1;
       }
+      // 失败时记下错误码，成功有数据时重置 streak
+      if (!ok) {
+        lastSameToolErrorCode = extractToolErrorCode(parsedForGuard);
+      }
       // 成功且有数据时重置 streak，避免「搜一次成功又搜」被误杀——仅失败/空结果累计
       if (ok && hasUsefulToolData(parsedForGuard)) {
         sameToolStreakCount = 0;
         sameToolStreakName = "";
+        lastSameToolErrorCode = "";
       }
 
       // 桥接不可达：标记本轮命中，待该轮工具处理完统一回灌一次如实兜底话术
@@ -339,6 +374,17 @@ export async function runAgentToolLoop(
       });
     }
 
+    // 同工具熔断后塞一条系统提示，下一轮强制纯文本并点名卡点
+    if (sameToolStreakClose) {
+      messages.push({
+        role: "system",
+        content: [
+          `工具「${sameToolStreakClose.toolName}」已连续失败/空转 ${sameToolStreakClose.streakCount} 次，错误码 ${sameToolStreakClose.errorCode}。`,
+          "请立刻用简洁中文向用户说明卡在哪个工具、错误码是什么，并建议换策略或检查本机服务；不要再调用任何工具，不要只说「遇到问题」。"
+        ].join("")
+      });
+    }
+
     // 终态成功后塞一条系统提示，下一轮强制纯文本
     if (lastTerminalSuccess) {
       messages.push({
@@ -358,6 +404,21 @@ export async function runAgentToolLoop(
         didOpenAutomationWindow,
         lastOpenedUrl
       }),
+      usedTools,
+      rounds,
+      taskId
+    };
+  }
+
+  // 同工具熔断后若模型仍未给最终回复：直接用可读收口，不再抛泛化错误
+  if (sameToolStreakClose) {
+    const content = formatSameToolStreakCloseMessage(
+      sameToolStreakClose.toolName,
+      sameToolStreakClose.errorCode,
+      sameToolStreakClose.streakCount
+    );
+    return {
+      content,
       usedTools,
       rounds,
       taskId
@@ -633,6 +694,48 @@ function isBridgeUnreachableToolResult(parsed: Record<string, unknown> | null) {
     && typeof error === "object"
     && (error as { bridgeUnreachable?: unknown }).bridgeUnreachable === true
   );
+}
+
+/** 从工具结果里提取错误码，供同工具熔断收口点名 */
+function extractToolErrorCode(parsed: Record<string, unknown> | null): string {
+  if (!parsed || parsed.ok !== false) {
+    return "EXECUTION_FAILED";
+  }
+  const error = parsed.error;
+  if (
+    error
+    && typeof error === "object"
+    && typeof (error as { code?: unknown }).code === "string"
+    && (error as { code: string }).code.trim()
+  ) {
+    return (error as { code: string }).code.trim();
+  }
+  return "EXECUTION_FAILED";
+}
+
+/**
+ * 熔断后的最终用户文案：
+ * - 模型已点名工具 + 错误码 → 保留
+ * - 否则用 formatSameToolStreakCloseMessage，避免泛泛「遇到问题」
+ */
+function ensureStreakCloseContent(
+  content: string,
+  streak: { toolName: string; errorCode: string; streakCount: number }
+): string {
+  const closeMessage = formatSameToolStreakCloseMessage(
+    streak.toolName,
+    streak.errorCode,
+    streak.streakCount
+  );
+  if (!content) {
+    return closeMessage;
+  }
+  const mentionsTool = content.includes(streak.toolName);
+  const mentionsCode = content.includes(streak.errorCode);
+  if (mentionsTool && mentionsCode) {
+    return content;
+  }
+  return closeMessage;
 }
 
 function hasUsefulToolData(parsed: Record<string, unknown> | null) {

@@ -44,6 +44,30 @@ export function formatToolConfirmWaitMessage(toolName: string): string {
   return `需要你确认：${humanizeToolName(toolName)}。你可以说「好」或「取消」。`;
 }
 
+/**
+ * 同工具连续失败/空转熔断后的用户可读收口文案。
+ * 必须点明工具名 + 错误码，避免只说「遇到问题」。
+ */
+export function formatSameToolStreakCloseMessage(
+  toolName: string,
+  errorCode: string,
+  streakCount: number
+): string {
+  const safeToolName = toolName.trim() || "未知工具";
+  const safeCode = errorCode.trim() || "EXECUTION_FAILED";
+  const safeCount = Number.isFinite(streakCount) && streakCount > 0
+    ? Math.floor(streakCount)
+    : 1;
+  const progressHint = TOOL_PROGRESS_LABELS[safeToolName]
+    ? `（${TOOL_PROGRESS_LABELS[safeToolName].replace(/…$/, "")}）`
+    : "";
+  return [
+    `刚才连续 ${safeCount} 次调用「${safeToolName}」${progressHint}都没推进`,
+    `（错误码：${safeCode}），已停止重复尝试。`,
+    "请换一种说法，或检查本机相关服务后重试。"
+  ].join("");
+}
+
 function humanizeToolName(toolName: string) {
   const leaf = toolName.includes(".") ? toolName.split(".").pop() ?? toolName : toolName;
   return leaf
