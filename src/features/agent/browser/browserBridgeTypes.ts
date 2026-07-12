@@ -72,7 +72,11 @@ export type BrowserEnsureSessionData = {
 export type BrowserClickData = {
   taskId: string;
   pageId: string;
+  /** 实际命中目标标签：CSS selector，或 role=…[name="…"] */
   selector: string;
+  /** 若用无障碍定位则回填 */
+  role?: string;
+  name?: string;
   pageUrl: string;
   pageTitle: string;
   button: "left" | "right" | "middle";
@@ -82,7 +86,11 @@ export type BrowserClickData = {
 export type BrowserTypeData = {
   taskId: string;
   pageId: string;
+  /** 实际命中目标标签：CSS selector，或 role=…[name="…"] */
   selector: string;
+  /** 若用无障碍定位则回填 */
+  role?: string;
+  name?: string;
   pageUrl: string;
   pageTitle: string;
   typedLength: number;

@@ -115,22 +115,30 @@ export type BrowserCloseSessionData = {
   hadSession: boolean;
 };
 
-/** 窄动作：点击（Playwright locator.click） */
+/** 窄动作：点击（Playwright locator.click；selector 或 role+name） */
 export type BrowserClickData = {
   taskId: string;
   pageId: string;
+  /** 实际命中目标标签：CSS selector，或 role=…[name="…"] */
   selector: string;
+  /** 若用无障碍定位则回填 */
+  role?: string;
+  name?: string;
   pageUrl: string;
   pageTitle: string;
   button: "left" | "right" | "middle";
   clickCount: number;
 };
 
-/** 窄动作：输入（Playwright locator.fill / pressSequentially） */
+/** 窄动作：输入（selector 或 role+name；fill / pressSequentially） */
 export type BrowserTypeData = {
   taskId: string;
   pageId: string;
+  /** 实际命中目标标签：CSS selector，或 role=…[name="…"] */
   selector: string;
+  /** 若用无障碍定位则回填 */
+  role?: string;
+  name?: string;
   pageUrl: string;
   pageTitle: string;
   typedLength: number;

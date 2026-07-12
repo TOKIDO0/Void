@@ -236,12 +236,14 @@ export async function browserScreenshot(
   );
 }
 
-/** 阶段 G1：点击（Playwright locator） */
+/** 阶段 G1 / Q1：点击（selector 或 role+name） */
 export async function browserClick(
   input: {
     taskId: string;
     pageId?: string;
-    selector: string;
+    selector?: string;
+    role?: string;
+    name?: string;
     button?: "left" | "right" | "middle";
     clickCount?: number;
   },
@@ -250,12 +252,14 @@ export async function browserClick(
   return postBrowserApi<BrowserClickData>("/void-browser/click", input, signal);
 }
 
-/** 阶段 G1：输入文本 */
+/** 阶段 G1 / Q1：输入文本（selector 或 role+name） */
 export async function browserType(
   input: {
     taskId: string;
     pageId?: string;
-    selector: string;
+    selector?: string;
+    role?: string;
+    name?: string;
     text: string;
     clear?: boolean;
     submit?: boolean;

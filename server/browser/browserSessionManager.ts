@@ -114,26 +114,100 @@ function normalizeSelector(selector: string): string {
 }
 
 /**
- * 要求选择器只命中一个元素，避免误点列表中的其它项。
- * 0 个：明确失败；多个：要求模型收窄选择器。
+ * 规范化无障碍 role（Playwright getByRole 用）。
+ * 只做 trim + 小写 + 长度门禁；具体 role 合法性交给 Playwright。
+ */
+function normalizeA11yRole(role: string): string {
+  const trimmed = role?.trim().toLowerCase() ?? "";
+  if (!trimmed) {
+    throw createBrowserError("INVALID_REQUEST", "role 不能为空");
+  }
+  if (trimmed.length > 80) {
+    throw createBrowserError("INVALID_REQUEST", "role 不能超过 80 字符");
+  }
+  return trimmed;
+}
+
+/**
+ * 规范化无障碍可访问名（getByRole 的 name，exact 匹配）。
+ */
+function normalizeA11yName(name: string): string {
+  const trimmed = name?.trim() ?? "";
+  if (!trimmed) {
+    throw createBrowserError("INVALID_REQUEST", "name 不能为空");
+  }
+  if (trimmed.length > 200) {
+    throw createBrowserError("INVALID_REQUEST", "name 不能超过 200 字符");
+  }
+  return trimmed;
+}
+
+/**
+ * 点击/输入目标解析：selector 与 role+name 并存。
+ * - 同时给 role 与 name → 走 getByRole（无障碍语义）
+ * - 否则必须给 selector → 走 CSS/Playwright 选择器
+ * - 只给 role 或只给 name → 参数不完整，拒绝
+ * 返回 locator + 可读 targetLabel（写入结果 selector 字段，便于模型回看）。
+ */
+function resolveActionTarget(
+  page: Page,
+  input: { selector?: string; role?: string; name?: string }
+): { locator: ReturnType<Page["locator"]>; targetLabel: string; via: "selector" | "role" } {
+  const roleRaw = typeof input.role === "string" ? input.role.trim() : "";
+  const nameRaw = typeof input.name === "string" ? input.name.trim() : "";
+  const hasRole = roleRaw.length > 0;
+  const hasName = nameRaw.length > 0;
+
+  if (hasRole !== hasName) {
+    throw createBrowserError(
+      "INVALID_REQUEST",
+      "使用无障碍定位时必须同时提供 role 与 name",
+      { role: roleRaw || undefined, name: nameRaw || undefined }
+    );
+  }
+
+  if (hasRole && hasName) {
+    const role = normalizeA11yRole(roleRaw);
+    const name = normalizeA11yName(nameRaw);
+    // exact:true 避免「提交」误匹配「提交订单」等同前缀名
+    const locator = page.getByRole(role as Parameters<Page["getByRole"]>[0], {
+      name,
+      exact: true
+    });
+    const targetLabel = `role=${role}[name="${name}"]`;
+    return { locator, targetLabel, via: "role" };
+  }
+
+  const selectorRaw = typeof input.selector === "string" ? input.selector : "";
+  const selector = normalizeSelector(selectorRaw);
+  return {
+    locator: page.locator(selector),
+    targetLabel: selector,
+    via: "selector"
+  };
+}
+
+/**
+ * 要求目标只命中一个元素，避免误点列表中的其它项。
+ * 0 个：明确失败；多个：要求模型收窄 selector 或 role+name。
  */
 async function assertSingleMatch(
   locator: { count: () => Promise<number> },
-  selector: string
+  targetLabel: string
 ) {
   const count = await locator.count();
   if (count === 0) {
     throw createBrowserError(
       "PARSE_FAILED",
-      `选择器未匹配到任何元素：${selector}`,
-      { selector, count }
+      `未匹配到任何元素：${targetLabel}`,
+      { selector: targetLabel, count }
     );
   }
   if (count > 1) {
     throw createBrowserError(
       "INVALID_REQUEST",
-      `选择器匹配到 ${count} 个元素，请收窄后再点/输：${selector}`,
-      { selector, count }
+      `匹配到 ${count} 个元素，请收窄 selector 或改用更精确的 role+name：${targetLabel}`,
+      { selector: targetLabel, count }
     );
   }
 }
@@ -141,7 +215,7 @@ async function assertSingleMatch(
 function mapLocatorActionError(
   error: unknown,
   action: "click" | "type" | "waitFor",
-  selector: string
+  targetLabel: string
 ) {
   if (isBrowserCodedError(error)) {
     return error;
@@ -151,14 +225,14 @@ function mapLocatorActionError(
   if (lower.includes("timeout") || lower.includes("waiting for")) {
     return createBrowserError(
       "TIMEOUT",
-      `${action} 超时：${selector}（${message}）`,
-      { selector, action }
+      `${action} 超时：${targetLabel}（${message}）`,
+      { selector: targetLabel, action }
     );
   }
   return createBrowserError(
     "INTERNAL_ERROR",
     `${action} 失败：${message}`,
-    { selector, action }
+    { selector: targetLabel, action }
   );
 }
 
@@ -460,16 +534,17 @@ export class BrowserSessionManager {
 
   /**
    * 窄动作：点击。使用官方 Locator API（自动等待可点），禁止坐标点击。
-   * 多元素命中严格失败，要求调用方收窄选择器。
+   * 定位：selector 或 role+name（getByRole）；多元素命中严格失败。
    */
   async click(input: {
     taskId: string;
     pageId?: string;
-    selector: string;
+    selector?: string;
+    role?: string;
+    name?: string;
     button?: "left" | "right" | "middle";
     clickCount?: number;
   }): Promise<BrowserClickData> {
-    const selector = normalizeSelector(input.selector);
     const button = input.button === "right" || input.button === "middle" ? input.button : "left";
     const clickCount =
       typeof input.clickCount === "number" && Number.isFinite(input.clickCount)
@@ -478,19 +553,19 @@ export class BrowserSessionManager {
 
     const session = this.requireSession(input.taskId);
     const managedPage = this.requirePage(session, input.pageId ?? session.activePageId);
-    const locator = managedPage.page.locator(selector);
+    const { locator, targetLabel, via } = resolveActionTarget(managedPage.page, input);
 
     try {
       // 先等到至少一个可见，再校验唯一性，避免动态页 count() 过早为 0。
       await locator.first().waitFor({ state: "visible", timeout: 15_000 });
-      await assertSingleMatch(locator, selector);
+      await assertSingleMatch(locator, targetLabel);
       await locator.click({
         button,
         clickCount,
         timeout: 15_000
       });
     } catch (error) {
-      throw mapLocatorActionError(error, "click", selector);
+      throw mapLocatorActionError(error, "click", targetLabel);
     }
 
     session.lastUsedAt = Date.now();
@@ -499,7 +574,9 @@ export class BrowserSessionManager {
     return {
       taskId: session.taskId,
       pageId: managedPage.pageId,
-      selector,
+      selector: targetLabel,
+      role: via === "role" ? normalizeA11yRole(input.role ?? "") : undefined,
+      name: via === "role" ? normalizeA11yName(input.name ?? "") : undefined,
       pageUrl: managedPage.page.url(),
       pageTitle: await managedPage.page.title(),
       button,
@@ -509,17 +586,18 @@ export class BrowserSessionManager {
 
   /**
    * 窄动作：输入文本。默认 fill（清空后写入）；clear=false 时用 pressSequentially 追加。
-   * submit=true 时在输入后按 Enter。
+   * 定位：selector 或 role+name；submit=true 时在输入后按 Enter。
    */
   async type(input: {
     taskId: string;
     pageId?: string;
-    selector: string;
+    selector?: string;
+    role?: string;
+    name?: string;
     text: string;
     clear?: boolean;
     submit?: boolean;
   }): Promise<BrowserTypeData> {
-    const selector = normalizeSelector(input.selector);
     if (typeof input.text !== "string") {
       throw createBrowserError("INVALID_REQUEST", "text 必须是字符串");
     }
@@ -531,11 +609,11 @@ export class BrowserSessionManager {
     const shouldSubmit = input.submit === true;
     const session = this.requireSession(input.taskId);
     const managedPage = this.requirePage(session, input.pageId ?? session.activePageId);
-    const locator = managedPage.page.locator(selector);
+    const { locator, targetLabel, via } = resolveActionTarget(managedPage.page, input);
 
     try {
       await locator.first().waitFor({ state: "visible", timeout: 15_000 });
-      await assertSingleMatch(locator, selector);
+      await assertSingleMatch(locator, targetLabel);
       if (shouldClear) {
         await locator.fill(input.text, { timeout: 15_000 });
       } else {
@@ -545,7 +623,7 @@ export class BrowserSessionManager {
         await locator.press("Enter", { timeout: 5_000 });
       }
     } catch (error) {
-      throw mapLocatorActionError(error, "type", selector);
+      throw mapLocatorActionError(error, "type", targetLabel);
     }
 
     session.lastUsedAt = Date.now();
@@ -554,7 +632,9 @@ export class BrowserSessionManager {
     return {
       taskId: session.taskId,
       pageId: managedPage.pageId,
-      selector,
+      selector: targetLabel,
+      role: via === "role" ? normalizeA11yRole(input.role ?? "") : undefined,
+      name: via === "role" ? normalizeA11yName(input.name ?? "") : undefined,
       pageUrl: managedPage.page.url(),
       pageTitle: await managedPage.page.title(),
       typedLength: input.text.length,

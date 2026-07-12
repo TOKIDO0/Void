@@ -246,16 +246,25 @@ export async function handleBrowserHttpRequest(
     return true;
   }
 
-  // 阶段 G1：窄动作 click / type / wait-for（Playwright Locator）
+  // 阶段 G1 / Q1：窄动作 click / type / wait-for（selector 或 role+name）
   if (pathname === "/void-browser/click") {
     await withBrowserHandler<BrowserClickData>(response, async () => {
       const body = asRecord(await readJsonBody(request));
       const taskId = readString(body, "taskId");
       const selector = readString(body, "selector");
-      if (!taskId || !selector) {
-        throw Object.assign(new Error("缺少 taskId 或 selector"), {
+      const role = readString(body, "role");
+      const name = readString(body, "name");
+      // 至少要有 taskId，且 selector 或 (role+name) 二选一
+      if (!taskId) {
+        throw Object.assign(new Error("缺少 taskId"), {
           browserCode: "INVALID_REQUEST"
         });
+      }
+      if (!selector && !(role && name)) {
+        throw Object.assign(
+          new Error("缺少定位目标：请提供 selector，或同时提供 role 与 name"),
+          { browserCode: "INVALID_REQUEST" }
+        );
       }
       const buttonRaw = readString(body, "button");
       const button =
@@ -266,6 +275,8 @@ export async function handleBrowserHttpRequest(
         taskId,
         pageId: readString(body, "pageId"),
         selector,
+        role,
+        name,
         button,
         clickCount: readNumber(body, "clickCount")
       });
@@ -278,10 +289,18 @@ export async function handleBrowserHttpRequest(
       const body = asRecord(await readJsonBody(request));
       const taskId = readString(body, "taskId");
       const selector = readString(body, "selector");
-      if (!taskId || !selector) {
-        throw Object.assign(new Error("缺少 taskId 或 selector"), {
+      const role = readString(body, "role");
+      const name = readString(body, "name");
+      if (!taskId) {
+        throw Object.assign(new Error("缺少 taskId"), {
           browserCode: "INVALID_REQUEST"
         });
+      }
+      if (!selector && !(role && name)) {
+        throw Object.assign(
+          new Error("缺少定位目标：请提供 selector，或同时提供 role 与 name"),
+          { browserCode: "INVALID_REQUEST" }
+        );
       }
       if (typeof body.text !== "string") {
         throw Object.assign(new Error("缺少 text"), { browserCode: "INVALID_REQUEST" });
@@ -290,6 +309,8 @@ export async function handleBrowserHttpRequest(
         taskId,
         pageId: readString(body, "pageId"),
         selector,
+        role,
+        name,
         text: body.text,
         clear: readBoolean(body, "clear"),
         submit: readBoolean(body, "submit")
