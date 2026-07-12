@@ -57,6 +57,13 @@ export function mapBrowserErrorToToolError(error: unknown): ToolError {
     case "INVALID_REQUEST":
       return createToolError("SCHEMA_INVALID", info.message, info.details, false);
     case "BRIDGE_UNREACHABLE":
+      // 标记 bridgeUnreachable，供循环层识别并给用户「本机浏览器服务未启动」的如实兜底话术。
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        { ...info.details, bridgeUnreachable: true },
+        true
+      );
     case "BROWSER_UNAVAILABLE":
       return createToolError("EXECUTION_FAILED", info.message, info.details, true);
     case "TIMEOUT":

@@ -72,6 +72,16 @@ const MAX_SAME_TOOL_STREAK = 3;
 const MAX_TOOL_RESULT_CHARS = 6000;
 
 /**
+ * 桥接不可达（sidecar 未启动）时回灌给模型的硬约束：
+ * 强制如实转述启动提示，禁止含糊说「不能操控浏览器」。
+ */
+const BRIDGE_UNREACHABLE_RELAY_HINT = [
+  "本机浏览器/文件桥接服务（sidecar）未启动，工具无法执行——这不是模型没有能力，而是本地服务没跑起来。",
+  "请立刻用简洁中文如实告诉用户：本机浏览器服务未启动，需要先启动本地服务（例如运行 npm run dev:bridge 或启动桌面壳）后再重试。",
+  "禁止只说「我不能操控浏览器」这类含糊话；不要重复调用同一工具。"
+].join("");
+
+/**
  * 调用后通常可以结束并汇报的终态工具（仍允许模型再补一句，但优先收口）。
  */
 const TERMINAL_SUCCESS_TOOLS = new Set([
@@ -130,6 +140,8 @@ export async function runAgentToolLoop(
   let didRevealInSystemBrowser = false;
   let didOpenAutomationWindow = false;
   let lastOpenedUrl: string | undefined;
+  // 桥接不可达兜底：本轮是否已回灌过「sidecar 未启动」的如实话术约束（只灌一次，避免刷屏）。
+  let bridgeUnreachableRelayed = false;
 
   options.onProgress?.("正在理解你的需求…");
   setTaskProgress({
@@ -201,6 +213,9 @@ export async function runAgentToolLoop(
       content: response.content?.trim() ? response.content : null,
       tool_calls: toolCalls
     });
+
+    // 本轮是否有工具因桥接不可达失败（sidecar 未启动），用于回灌一次如实兜底话术
+    let sawBridgeUnreachableThisRound = false;
 
     for (const toolCall of toolCalls) {
       if (options.signal?.aborted) {
@@ -279,6 +294,11 @@ export async function runAgentToolLoop(
         sameToolStreakName = "";
       }
 
+      // 桥接不可达：标记本轮命中，待该轮工具处理完统一回灌一次如实兜底话术
+      if (isBridgeUnreachableToolResult(parsedForGuard)) {
+        sawBridgeUnreachableThisRound = true;
+      }
+
       const openEvidence = inspectToolResultForOpenEvidence(toolName, parsedForGuard);
       if (openEvidence.didReveal) {
         didRevealInSystemBrowser = true;
@@ -307,6 +327,15 @@ export async function runAgentToolLoop(
         tool_call_id: toolCall.id,
         name: modelToolName || toolName,
         content: truncateToolResult(toolResultPayload)
+      });
+    }
+
+    // 桥接不可达：本轮命中且尚未回灌过，则塞一条系统提示，逼模型如实转述而非含糊「不能操控浏览器」
+    if (sawBridgeUnreachableThisRound && !bridgeUnreachableRelayed) {
+      bridgeUnreachableRelayed = true;
+      messages.push({
+        role: "system",
+        content: BRIDGE_UNREACHABLE_RELAY_HINT
       });
     }
 
@@ -469,11 +498,14 @@ async function runSingleToolCall(params: {
       });
     }
 
+    const bridgeUnreachable = result.error.details?.bridgeUnreachable === true;
     return JSON.stringify({
       ok: false,
       error: {
         code: result.error.code,
-        message: result.error.message
+        message: result.error.message,
+        // 桥接不可达时透传标记，循环层据此给用户如实兜底话术
+        ...(bridgeUnreachable ? { bridgeUnreachable: true } : {})
       }
     });
   } finally {
@@ -588,6 +620,19 @@ function safeParseJson(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/** 判断一次工具结果是否为「桥接不可达」失败（sidecar 未启动） */
+function isBridgeUnreachableToolResult(parsed: Record<string, unknown> | null) {
+  if (!parsed || parsed.ok !== false) {
+    return false;
+  }
+  const error = parsed.error;
+  return (
+    Boolean(error)
+    && typeof error === "object"
+    && (error as { bridgeUnreachable?: unknown }).bridgeUnreachable === true
+  );
 }
 
 function hasUsefulToolData(parsed: Record<string, unknown> | null) {

@@ -40,7 +40,13 @@ export function mapFileErrorToToolError(error: unknown): ToolError {
     case "TIMEOUT":
       return createToolError("TIMEOUT", info.message, info.details, true);
     case "BRIDGE_UNREACHABLE":
-      return createToolError("EXECUTION_FAILED", info.message, info.details, true);
+      // 标记 bridgeUnreachable，供循环层识别并给用户「本机文件桥接服务未启动」的如实兜底话术。
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        { ...info.details, bridgeUnreachable: true },
+        true
+      );
     case "DOWNLOAD_FAILED": {
       // 4xx 不可重试；网络抖动类才重试
       const status = info.details && typeof info.details.status === "number"
