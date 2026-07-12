@@ -21,7 +21,9 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.file.placeDownload",
   "tool.file.verify",
   "tool.file.listDirectory",
-  "tool.file.readText"
+  "tool.file.readText",
+  "tool.file.createDirectory",
+  "tool.file.move"
 ]);
 
 export type PermissionGrants = ReadonlySet<string>;

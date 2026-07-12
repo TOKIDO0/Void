@@ -58,10 +58,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   bootstrapAgentRuntime();
 
   const productionTools = listToolMetadata();
-  if (productionTools.length !== 20 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 20 个工具，实际 ${productionTools.length}`);
+  if (productionTools.length !== 22 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 22 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("20 个生产工具通过 outputSchema 契约审计");
+    notes.push("22 个生产工具通过 outputSchema 契约审计");
   }
 
   let sawProgressMessage = false;

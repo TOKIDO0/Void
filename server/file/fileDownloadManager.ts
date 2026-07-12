@@ -111,7 +111,7 @@ const ARCHIVE_EXTENSIONS = [
   "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst"
 ];
 
-function guessMediaKind(fileName: string, contentType?: string): FileVerifyData["mediaKind"] {
+export function guessMediaKind(fileName: string, contentType?: string): FileVerifyData["mediaKind"] {
   const ext = extensionOf(fileName);
   const type = (contentType ?? "").toLowerCase();
 

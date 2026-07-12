@@ -79,6 +79,30 @@ export function buildToolConfirmationDescription(
       .join("\n");
   }
 
+  if (toolName === "file.createDirectory") {
+    const path = typeof record.path === "string" ? record.path : "";
+    return [
+      `将在允许根内创建目录（风险 ${riskLevel}）。`,
+      path ? `完整路径：${path}` : undefined,
+      "只创建这一层目录；父目录必须已存在，拒绝则不会写入。"
+    ].filter(Boolean).join("\n");
+  }
+
+  if (toolName === "file.move") {
+    const sourcePath = typeof record.sourcePath === "string" ? record.sourcePath : "";
+    const destinationPath = typeof record.destinationPath === "string" ? record.destinationPath : "";
+    const conflictPolicy = typeof record.conflictPolicy === "string"
+      ? record.conflictPolicy
+      : "refuse";
+    return [
+      `将在允许根内移动或重命名目标（风险 ${riskLevel}）。`,
+      sourcePath ? `源路径：${sourcePath}` : undefined,
+      destinationPath ? `目标路径：${destinationPath}` : undefined,
+      `冲突策略：${conflictPolicy}（refuse=拒绝 / rename=自动改名；绝不覆盖）`,
+      "仅支持同盘原子移动；拒绝则源路径保持不变。"
+    ].filter(Boolean).join("\n");
+  }
+
   if (toolName === "browser.open") {
     const url = typeof record.url === "string" ? record.url : "";
     return [

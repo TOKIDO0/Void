@@ -74,6 +74,20 @@ export function mapFileErrorToToolError(error: unknown): ToolError {
         withKind(info.code.toLowerCase(), info.details),
         false
       );
+    case "DESTINATION_EXISTS":
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withKind("destination_exists", info.details),
+        false
+      );
+    case "CROSS_DEVICE_MOVE":
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withKind("cross_device_move", info.details),
+        false
+      );
     case "TIMEOUT":
       return createToolError("TIMEOUT", info.message, withKind("timeout", info.details), true);
     case "BRIDGE_UNREACHABLE":

@@ -20,6 +20,8 @@ import { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
 import { fileVerifyTool } from "./builtin/fileVerifyTool";
 import { fileListDirectoryTool } from "./builtin/fileListDirectoryTool";
 import { fileReadTextTool } from "./builtin/fileReadTextTool";
+import { fileCreateDirectoryTool } from "./builtin/fileCreateDirectoryTool";
+import { fileMoveTool } from "./builtin/fileMoveTool";
 import { hasTool, registerTool } from "./toolRegistry";
 
 /**
@@ -47,7 +49,9 @@ export function registerBuiltinTools() {
     filePlaceDownloadTool,
     fileVerifyTool,
     fileListDirectoryTool,
-    fileReadTextTool
+    fileReadTextTool,
+    fileCreateDirectoryTool,
+    fileMoveTool
   ] as const;
 
   for (const tool of tools) {

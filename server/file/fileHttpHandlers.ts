@@ -10,11 +10,14 @@ import {
 } from "../http/httpRequest";
 import { fileDownloadManager } from "./fileDownloadManager";
 import { fileAccessManager } from "./fileAccessManager";
+import { fileMutationManager } from "./fileMutationManager";
 import { getFileErrorPayload } from "./fileRuntimePaths";
 import type {
   FileApiResponse,
   FileDownloadToTempData,
   FileListDirectoryData,
+  FileCreateDirectoryData,
+  FileMoveData,
   FilePlaceDownloadData,
   FileReadTextData,
   FileVerifyData,
@@ -78,6 +81,10 @@ async function withFileHandler<T>(
             ? 413
             : payloadError.code === "INVALID_UTF8" || payloadError.code === "BINARY_FILE"
               ? 415
+              : payloadError.code === "DESTINATION_EXISTS"
+                ? 409
+                : payloadError.code === "CROSS_DEVICE_MOVE"
+                  ? 400
             : 500;
     const payload: FileApiResponse<never> = {
       ok: false,
@@ -192,6 +199,34 @@ export async function handleFileHttpRequest(
         throw Object.assign(new Error("缺少 path"), { fileCode: "INVALID_REQUEST" });
       }
       return fileAccessManager.readText(path);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/create-directory") {
+    await withFileHandler<FileCreateDirectoryData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const path = readString(body, "path");
+      if (!path) {
+        throw Object.assign(new Error("缺少 path"), { fileCode: "INVALID_REQUEST" });
+      }
+      return fileMutationManager.createDirectory(path);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/move") {
+    await withFileHandler<FileMoveData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const sourcePath = readString(body, "sourcePath");
+      const destinationPath = readString(body, "destinationPath");
+      const conflictPolicy = body.conflictPolicy === "rename" ? "rename" : "refuse";
+      if (!sourcePath || !destinationPath) {
+        throw Object.assign(new Error("缺少 sourcePath 或 destinationPath"), {
+          fileCode: "INVALID_REQUEST"
+        });
+      }
+      return fileMutationManager.move(sourcePath, destinationPath, conflictPolicy);
     });
     return true;
   }

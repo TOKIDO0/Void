@@ -100,6 +100,8 @@ export { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
 export { fileVerifyTool } from "./builtin/fileVerifyTool";
 export { fileListDirectoryTool } from "./builtin/fileListDirectoryTool";
 export { fileReadTextTool } from "./builtin/fileReadTextTool";
+export { fileCreateDirectoryTool } from "./builtin/fileCreateDirectoryTool";
+export { fileMoveTool } from "./builtin/fileMoveTool";
 export { clipboardReadTool } from "./builtin/clipboardReadTool";
 export { clipboardWriteTool } from "./builtin/clipboardWriteTool";
 export type {

@@ -82,6 +82,24 @@ export type FileReadTextData = {
   truncated: boolean;
 };
 
+export type MoveConflictPolicy = "refuse" | "rename";
+
+export type FileCreateDirectoryData = {
+  path: string;
+  created: boolean;
+  createdAt: number;
+};
+
+export type FileMoveData = {
+  sourcePath: string;
+  destinationPath: string;
+  mediaKind: FileVerifyData["mediaKind"];
+  bytes: number;
+  conflictPolicy: MoveConflictPolicy;
+  renamedForConflict: boolean;
+  movedAt: number;
+};
+
 export type FileApiSuccess<T> = { ok: true; data: T };
 export type FileApiFailure = {
   ok: false;

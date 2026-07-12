@@ -5,9 +5,12 @@
 import type {
   FileBridgeResponse,
   FileDownloadToTempData,
+  FileCreateDirectoryData,
   FileListDirectoryData,
   FilePlaceDownloadData,
   FileReadTextData,
+  FileMoveData,
+  MoveConflictPolicy,
   FileVerifyData,
   OverwritePolicy
 } from "./fileBridgeTypes";
@@ -184,4 +187,22 @@ export async function readText(
   signal?: AbortSignal
 ): Promise<FileReadTextData> {
   return postFileApi<FileReadTextData>("/void-file/read-text", input, signal);
+}
+
+export async function createDirectory(
+  input: { path: string },
+  signal?: AbortSignal
+): Promise<FileCreateDirectoryData> {
+  return postFileApi<FileCreateDirectoryData>("/void-file/create-directory", input, signal);
+}
+
+export async function moveFile(
+  input: {
+    sourcePath: string;
+    destinationPath: string;
+    conflictPolicy: MoveConflictPolicy;
+  },
+  signal?: AbortSignal
+): Promise<FileMoveData> {
+  return postFileApi<FileMoveData>("/void-file/move", input, signal);
 }

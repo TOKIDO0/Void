@@ -23,6 +23,10 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "file.downloadToTemp": "正在下载到临时目录…",
   "file.placeDownload": "正在保存到下载目录…",
   "file.verify": "正在校验文件…",
+  "file.listDirectory": "正在列出目录…",
+  "file.readText": "正在读取文本…",
+  "file.createDirectory": "正在创建目录…",
+  "file.move": "正在移动或重命名…",
   echo: "正在执行内部校验…"
 };
 
@@ -32,7 +36,9 @@ const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "file.placeDownload": "请确认是否保存到下载目录",
   "clipboard.write": "请确认是否写入剪贴板",
   "browser.open": "请确认是否打开该页面",
-  "browser.revealInSystemBrowser": "请确认是否用系统浏览器打开"
+  "browser.revealInSystemBrowser": "请确认是否用系统浏览器打开",
+  "file.createDirectory": "请确认是否创建目录",
+  "file.move": "请确认是否移动或重命名"
 };
 
 /** 执行中进度 */

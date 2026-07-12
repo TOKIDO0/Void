@@ -72,6 +72,14 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
     return `${toolName} 完成：文件不存在`;
   }
 
+  if (toolName === "file.createDirectory" && typeof record.path === "string") {
+    return `${toolName} 完成：${record.path}`;
+  }
+
+  if (toolName === "file.move" && typeof record.destinationPath === "string") {
+    return `${toolName} 完成：${String(record.sourcePath)} → ${record.destinationPath}`;
+  }
+
   if (toolName === "clipboard.read") {
     if (record.empty) {
       return `${toolName} 完成：剪贴板为空`;

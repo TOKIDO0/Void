@@ -104,6 +104,8 @@ export function createFileError(
     | "FILE_TOO_LARGE"
     | "INVALID_UTF8"
     | "BINARY_FILE"
+    | "DESTINATION_EXISTS"
+    | "CROSS_DEVICE_MOVE"
     | "INTERNAL_ERROR",
   message: string,
   details?: Record<string, unknown>
@@ -148,6 +150,8 @@ export function getFileErrorPayload(error: unknown): {
         | "FILE_TOO_LARGE"
         | "INVALID_UTF8"
         | "BINARY_FILE"
+        | "DESTINATION_EXISTS"
+        | "CROSS_DEVICE_MOVE"
         | "INTERNAL_ERROR";
       details?: Record<string, unknown>;
     };
