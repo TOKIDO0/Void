@@ -12,7 +12,7 @@ export type FileMoveToolOutput = FileMoveData;
 
 export const fileMoveTool: ToolDefinition<FileMoveToolInput, FileMoveToolOutput> = {
   name: "file.move",
-  description: "在同一允许根/同一磁盘内原子移动或重命名文件/目录；冲突默认拒绝，可选择自动改名，绝不覆盖。",
+  description: "在同一允许根/同一磁盘内原子移动或重命名；冲突默认 refuse，可选 rename，绝不覆盖。下载后整理：把 placeDownload 的 finalPath 移入 createDirectory 新建的子目录。",
   version: "1.0.0",
   riskLevel: "L2",
   inputSchema: {

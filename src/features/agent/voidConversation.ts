@@ -72,14 +72,15 @@ const TOOL_USE_COMMON_SUFFIX = [
 ];
 
 const BROWSER_TOOL_USE_SUFFIX = [
-  "本轮只允许使用浏览器与必要的下载工具。",
+  "本轮只允许使用浏览器、下载与下载后整理工具。",
   "当用户要求搜索、打开网页、看视频、下载文件时，必须调用工具，禁止假装已经操作。",
   "下载主路径（安装包/任意文件通用）：先拿到可直接 GET 的 http(s) 文件直链（URL 常以 .exe/.msi/.zip/.dmg 等结尾，或 Content-Disposition 指向文件），再 file.downloadToTemp → 用户确认后 file.placeDownload → file.verify；默认最终目录 D:\\AI\\void-runtime\\downloads。",
+  "下载后整理（用户要求归入子目录/按日期或任务名归档）：file.placeDownload 落到默认下载根后，file.createDirectory 在允许根内建一层子目录（父目录须已存在，不递归）→ file.move(sourcePath=place 的 finalPath, destinationPath=子目录\\文件名) → file.verify；需要时先 file.listDirectory 看现状。汇报最终 destinationPath。用户只要下载不要整理时，place+verify 后收口。",
   "禁止把「在官网反复 click 下载按钮」当主路径：file.downloadToTemp 只认直链，不会自动捕获浏览器按钮触发的下载。",
   "找直链：browser.search 结果里优先挑文件直链；否则 open 后 browser.extract 找 href 含安装包扩展名的链接。拿不到直链时，立刻用中文说明「当前只能下载直链文件，官网按钮下载尚不支持」，并给出你看到的官网 URL；不要空转 click/open 耗尽预算。",
-  "拒绝确认或 PATH_NOT_ALLOWED 时不得声称已保存。",
+  "拒绝确认或 PATH_NOT_ALLOWED / DESTINATION_EXISTS / CROSS_DEVICE_MOVE 时不得声称已保存或已整理。",
   "找 B 站博主/视频：browser.search 必须设 engine=bilibili；不要只用全网搜索碰运气。",
-  "B 站视频下载主路径：browser.search(engine=bilibili) → 向用户确认目标视频 → file.downloadMediaPage(pageUrl=该视频页) → 用户确认后 file.placeDownload → file.verify。不要对 B 站视频页调用 file.downloadToTemp（那是直链专用）。若报 YTDLP_NOT_FOUND / FFMPEG_NOT_FOUND，如实告诉用户需要本机安装 yt-dlp 与 ffmpeg。",
+  "B 站视频下载主路径：browser.search(engine=bilibili) → 向用户确认目标视频 → file.downloadMediaPage(pageUrl=该视频页) → 用户确认后 file.placeDownload → file.verify。需要整理时再接 createDirectory+move。不要对 B 站视频页调用 file.downloadToTemp（那是直链专用）。若报 YTDLP_NOT_FOUND / FFMPEG_NOT_FOUND，如实告诉用户需要本机安装 yt-dlp 与 ffmpeg。",
   "browser.open 只打开 Playwright 自动化窗口（用户可能在任务栏另见一个浏览器图标，不是日常浏览器）；缺省每次 open 新建标签页并返回 pageId。",
   "多页时用 browser.tabs 列 pageId/url/title，用 browser.switchTab 切活动标签；后续未传 pageId 的动作走活动页。",
   "用户要「打开给我看 / 在我浏览器里看」时：拿到真实视频 URL 后必须再调 browser.revealInSystemBrowser，用系统默认浏览器打开；汇报时写明完整 URL，并说明请到常用浏览器查看。",
@@ -91,6 +92,7 @@ const BROWSER_TOOL_USE_SUFFIX = [
 const FILE_TOOL_USE_SUFFIX = [
   "本轮只允许操作白名单根目录内的本地文件。",
   "查看用 file.listDirectory（只列当前一层，不递归）与 file.readText；新建一层目录用 file.createDirectory；移动/重命名用 file.move（同盘原子移动，绝不覆盖）；展示位置用 desktop.revealPath。",
+  "下载后整理（文件已在默认下载根如 D:\\AI\\void-runtime\\downloads）：file.createDirectory 建一层子目录（如按日期 yyyy-mm-dd 或任务名；父目录须已存在）→ file.move 把已落盘文件移入 → file.verify；冲突用 refuse 或 rename，绝不覆盖。",
   "路径一律使用绝对路径。失败时如实说明 PATH_NOT_ALLOWED / DESTINATION_EXISTS / CROSS_DEVICE_MOVE / FILE_NOT_FOUND 等错误码。"
 ];
 

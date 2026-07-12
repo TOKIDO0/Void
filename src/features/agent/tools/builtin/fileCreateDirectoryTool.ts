@@ -11,7 +11,7 @@ export const fileCreateDirectoryTool: ToolDefinition<
   FileCreateDirectoryToolOutput
 > = {
   name: "file.createDirectory",
-  description: "在允许根内创建一个明确目录；父目录必须已存在，不递归创建深层结构。",
+  description: "在允许根内创建一层目录；父目录必须已存在，不递归。常用于下载落盘后按日期/任务名建子目录，再配合 file.move 归入。",
   version: "1.0.0",
   riskLevel: "L2",
   inputSchema: {
