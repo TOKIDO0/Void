@@ -63,6 +63,31 @@ export const filePlaceDownloadTool: ToolDefinition<
       }
     }
   },
+  outputSchema: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "taskId",
+      "tempPath",
+      "finalPath",
+      "fileName",
+      "bytes",
+      "overwritePolicy",
+      "renamed",
+      "movedAt"
+    ],
+    properties: {
+      taskId: { type: "string" },
+      tempPath: { type: "string" },
+      finalPath: { type: "string" },
+      fileName: { type: "string" },
+      bytes: { type: "number", minimum: 0 },
+      mediaKind: { type: "string" },
+      overwritePolicy: { type: "string", enum: ["refuse", "overwrite", "rename"] },
+      renamed: { type: "boolean" },
+      movedAt: { type: "number" }
+    }
+  },
   requiredResources: FILE_STATIC_RESOURCES,
   permissions: ["tool.file.placeDownload"],
   timeoutMs: 30_000,

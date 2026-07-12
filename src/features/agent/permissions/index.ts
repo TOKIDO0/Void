@@ -5,6 +5,12 @@ export type {
 } from "./permissionTypes";
 
 export { DEFAULT_RISK_POLICY } from "./permissionTypes";
+export {
+  getCurrentPermissionGrants,
+  hasToolPermissionGrants,
+  listMissingToolPermissionGrants,
+  type PermissionGrants
+} from "./permissionGrants";
 
 export {
   createConfirmationRequest,

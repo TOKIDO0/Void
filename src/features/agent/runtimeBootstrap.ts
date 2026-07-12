@@ -1,6 +1,6 @@
 // 运行时启动：幂等注册内置工具。UI 或冒烟入口调用一次即可。
 
-import { registerBuiltinTools } from "./tools";
+import { auditRegisteredToolContracts, registerBuiltinTools } from "./tools";
 
 /**
  * 初始化 Agent 工具运行时（目前仅注册内置工具）。
@@ -8,4 +8,5 @@ import { registerBuiltinTools } from "./tools";
  */
 export function bootstrapAgentRuntime() {
   registerBuiltinTools();
+  auditRegisteredToolContracts();
 }

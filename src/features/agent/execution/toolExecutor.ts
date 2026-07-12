@@ -21,6 +21,11 @@ import {
 import { appendExecutionLog } from "../observability";
 import { sanitizeForAudit } from "../observability/auditSanitize";
 import { buildToolSuccessSummary } from "./toolSuccessSummary";
+import {
+  getCurrentPermissionGrants,
+  listMissingToolPermissionGrants,
+  type PermissionGrants
+} from "../permissions";
 
 export type ExecuteToolCallParams = {
   taskId: string;
@@ -30,6 +35,7 @@ export type ExecuteToolCallParams = {
   signal: AbortSignal;
   /** 本步已消耗的 attempt（从 1 起） */
   attempt: number;
+  permissionGrants?: PermissionGrants;
 };
 
 /**
@@ -62,6 +68,19 @@ export async function executeToolCall(
       false
     );
     logFailure(params, error);
+    return { ok: false, error };
+  }
+
+  const permissionGrants = params.permissionGrants ?? getCurrentPermissionGrants();
+  const missingPermissions = listMissingToolPermissionGrants(tool, permissionGrants);
+  if (missingPermissions.length > 0) {
+    const error = createToolError(
+      "PERMISSION_DENIED",
+      `工具未获授权：${params.toolName}`,
+      { missingPermissions },
+      false
+    );
+    logFailure(params, error, tool);
     return { ok: false, error };
   }
 
@@ -120,6 +139,15 @@ export async function executeToolCall(
 
   try {
     const output = await runWithTimeoutAndCancel(tool, params);
+    const outputValidation = validateAgainstSchema(tool.outputSchema, output);
+    if (!outputValidation.valid) {
+      throw createToolError(
+        "OUTPUT_SCHEMA_INVALID",
+        `工具输出校验失败：${formatSchemaIssues(outputValidation.issues)}`,
+        { issues: outputValidation.issues },
+        false
+      );
+    }
     const summary = buildToolSuccessSummary(tool.name, output);
 
     appendExecutionLog({

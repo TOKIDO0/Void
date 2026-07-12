@@ -20,6 +20,7 @@ export type { SchemaValidationIssue, SchemaValidationResult } from "./toolSchema
 
 export {
   clearToolRegistry,
+  auditRegisteredToolContracts,
   getTool,
   getToolMetadata,
   hasTool,

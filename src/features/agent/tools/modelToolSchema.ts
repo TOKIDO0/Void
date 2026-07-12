@@ -6,6 +6,11 @@
 import type { ProviderToolDefinition } from "../../../lib/model-providers/providerContract";
 import { listToolMetadata } from "./toolRegistry";
 import type { ToolJsonSchema, ToolMetadata } from "./toolTypes";
+import {
+  getCurrentPermissionGrants,
+  hasToolPermissionGrants,
+  type PermissionGrants
+} from "../permissions";
 
 /**
  * 不暴露给模型的工具：
@@ -59,9 +64,15 @@ export function fromModelToolName(modelName: string) {
 /**
  * 列出当前应对模型可见的工具定义。
  */
-export function listModelToolDefinitions(): ProviderToolDefinition[] {
+export function listModelToolDefinitions(
+  grants: PermissionGrants = getCurrentPermissionGrants()
+): ProviderToolDefinition[] {
   return listToolMetadata()
-    .filter((tool) => tool.enabled !== false && !MODEL_HIDDEN_TOOLS.has(tool.name))
+    .filter((tool) =>
+      tool.enabled !== false
+      && !MODEL_HIDDEN_TOOLS.has(tool.name)
+      && hasToolPermissionGrants(tool, grants)
+    )
     .map(toProviderToolDefinition);
 }
 

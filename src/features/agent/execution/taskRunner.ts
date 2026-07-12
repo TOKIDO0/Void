@@ -38,6 +38,7 @@ import {
 } from "../tools";
 import { executeToolCall } from "./toolExecutor";
 import type { TaskRunnerOptions, TaskRunResult } from "./executionTypes";
+import { getCurrentPermissionGrants } from "../permissions";
 
 /**
  * 运行一个任务计划（从草稿创建并执行到终态）。
@@ -66,6 +67,7 @@ export async function runTask(
   emitPlan(plan, options, "任务开始执行");
 
   const controller = new AbortController();
+  const permissionGrants = options.permissionGrants ?? getCurrentPermissionGrants();
   const onExternalAbort = () => {
     controller.abort();
   };
@@ -108,7 +110,7 @@ export async function runTask(
         break;
       }
 
-      plan = await runSingleStep(plan, step, controller, options);
+      plan = await runSingleStep(plan, step, controller, options, permissionGrants);
       emitPlan(plan, options, describePlanProgress(plan));
     }
   } catch (error) {
@@ -169,7 +171,8 @@ async function runSingleStep(
   plan: TaskPlan,
   step: TaskStep,
   controller: AbortController,
-  options: TaskRunnerOptions
+  options: TaskRunnerOptions,
+  permissionGrants: NonNullable<TaskRunnerOptions["permissionGrants"]>
 ): Promise<TaskPlan> {
   const tool = getTool(step.toolName);
   if (!tool) {
@@ -321,7 +324,8 @@ async function runSingleStep(
       toolName: step.toolName,
       input: step.input,
       signal: controller.signal,
-      attempt
+      attempt,
+      permissionGrants
     });
 
     if (result.ok) {
@@ -336,6 +340,7 @@ async function runSingleStep(
     lastError = result.error;
     const canRetry =
       result.error.retriable
+      && tool.idempotency === "safe"
       && attempt <= maxRetries
       && result.error.code !== "CANCELLED"
       && !controller.signal.aborted;

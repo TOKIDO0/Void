@@ -51,6 +51,21 @@ export const fileDownloadToTempTool: ToolDefinition<
       }
     }
   },
+  outputSchema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["taskId", "url", "tempPath", "fileName", "bytes", "downloadedAt"],
+    properties: {
+      taskId: { type: "string" },
+      url: { type: "string" },
+      tempPath: { type: "string" },
+      fileName: { type: "string" },
+      bytes: { type: "number", minimum: 0 },
+      contentType: { type: "string" },
+      mediaKind: { type: "string" },
+      downloadedAt: { type: "number" }
+    }
+  },
   requiredResources: FILE_STATIC_RESOURCES,
   permissions: ["tool.file.downloadToTemp"],
   timeoutMs: 120_000,

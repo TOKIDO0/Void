@@ -14,6 +14,9 @@ import {
 } from "../resources";
 import {
   clearToolRegistry,
+  createToolError,
+  listModelToolDefinitions,
+  listToolMetadata,
   registerTool
 } from "../tools";
 import { registerBuiltinTools } from "../tools";
@@ -53,6 +56,13 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   // 1) 合法 L0 echo：计划 → 执行 → 日志 → 汇报
   resetRuntime();
   bootstrapAgentRuntime();
+
+  const productionTools = listToolMetadata();
+  if (productionTools.length !== 18 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 18 个工具，实际 ${productionTools.length}`);
+  } else {
+    notes.push("18 个生产工具通过 outputSchema 契约审计");
+  }
 
   let sawProgressMessage = false;
   const happy = await runTask(
@@ -125,6 +135,69 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("未注册工具应返回 TOOL_NOT_FOUND");
   } else {
     notes.push(`未注册拒绝：${missing.error.message}`);
+  }
+
+  // 3b) 权限 grants 同时约束模型可见性与直接执行
+  const noGrants = new Set<string>();
+  if (listModelToolDefinitions(noGrants).length !== 0) {
+    failures.push("空权限 grants 下不应向模型暴露工具");
+  }
+  const denied = await executeToolCall({
+    taskId: "smoke_permission_denied",
+    stepId: "s_permission_denied",
+    toolName: "echo",
+    input: { message: "不得执行" },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: noGrants
+  });
+  if (denied.ok || denied.error.code !== "PERMISSION_DENIED") {
+    failures.push("未授权工具直接调用应返回 PERMISSION_DENIED");
+  } else {
+    notes.push("未授权工具对模型不可见且直接调用被拒绝");
+  }
+
+  // 3c) 坏输出不得进入 success 日志
+  registerTool({
+    name: "smoke.badOutput",
+    description: "仅用于验证输出合同",
+    version: "1.0.0",
+    riskLevel: "L0",
+    inputSchema: { type: "object", additionalProperties: false },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["value"],
+      properties: { value: { type: "string" } }
+    },
+    requiredResources: [],
+    permissions: ["tool.smoke.badOutput"],
+    timeoutMs: 3_000,
+    cancellable: true,
+    idempotency: "safe",
+    auditPolicy: {},
+    async execute() {
+      return { value: 123 };
+    }
+  });
+  const badOutput = await executeToolCall({
+    taskId: "smoke_bad_output",
+    stepId: "s_bad_output",
+    toolName: "smoke.badOutput",
+    input: {},
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.smoke.badOutput"])
+  });
+  const badOutputLogs = listExecutionLogs("smoke_bad_output");
+  if (
+    badOutput.ok
+    || badOutput.error.code !== "OUTPUT_SCHEMA_INVALID"
+    || badOutputLogs.some((log) => log.event === "tool.execute.success")
+  ) {
+    failures.push("坏输出应返回 OUTPUT_SCHEMA_INVALID 且不得记录 success");
+  } else {
+    notes.push("坏输出被 OUTPUT_SCHEMA_INVALID 拦截且未记录 success");
   }
 
   // 4) L2 确认流：requireConfirm=true，先确认再执行
@@ -256,7 +329,8 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     toolName: "smoke.hanging",
     input: {},
     signal: executionCancelController.signal,
-    attempt: 1
+    attempt: 1,
+    permissionGrants: new Set(["tool.smoke.hanging"])
   });
   queueMicrotask(() => executionCancelController.abort());
   const executionCancelled = await hangingExecution;
@@ -288,11 +362,55 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   const toolFailure = await runTask({
     goal: "工具异常终态",
     steps: [{ title: "抛出工具异常", toolName: "smoke.throwing", input: {} }]
-  });
+  }, { permissionGrants: new Set(["tool.smoke.throwing"]) });
   if (toolFailure.plan.status !== "failed" || listActiveResourceLocks().length !== 0) {
     failures.push("工具异常后应进入 failed 终态并释放资源锁");
   } else {
     notes.push("工具异常后进入 failed 终态并释放资源锁");
+  }
+
+  let safeAttempts = 0;
+  let unsafeAttempts = 0;
+  for (const [name, idempotency] of [
+    ["smoke.retrySafe", "safe"],
+    ["smoke.retryUnsafe", "unsafe"]
+  ] as const) {
+    registerTool({
+      name,
+      description: "仅用于验证重试门禁",
+      version: "1.0.0",
+      riskLevel: "L0",
+      inputSchema: { type: "object", additionalProperties: false },
+      outputSchema: { type: "object" },
+      requiredResources: [],
+      permissions: [`tool.${name}`],
+      timeoutMs: 3_000,
+      cancellable: true,
+      idempotency,
+      auditPolicy: {},
+      maxRetries: 1,
+      async execute() {
+        if (idempotency === "safe") {
+          safeAttempts += 1;
+        } else {
+          unsafeAttempts += 1;
+        }
+        throw createToolError("EXECUTION_FAILED", "可重试失败", undefined, true);
+      }
+    });
+  }
+  await runTask({
+    goal: "safe 重试",
+    steps: [{ title: "safe", toolName: "smoke.retrySafe", input: {} }]
+  }, { permissionGrants: new Set(["tool.smoke.retrySafe"]) });
+  await runTask({
+    goal: "unsafe 不重试",
+    steps: [{ title: "unsafe", toolName: "smoke.retryUnsafe", input: {} }]
+  }, { permissionGrants: new Set(["tool.smoke.retryUnsafe"]) });
+  if (safeAttempts !== 2 || unsafeAttempts !== 1) {
+    failures.push(`重试门禁错误：safe=${safeAttempts}，unsafe=${unsafeAttempts}`);
+  } else {
+    notes.push("safe 工具重试 1 次，unsafe 工具仅执行 1 次");
   }
 
   // 6) 日志脱敏：不得保存 apiKey/password/token

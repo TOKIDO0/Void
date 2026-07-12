@@ -18,6 +18,11 @@ import {
   type ConfirmationDecision,
   type ConfirmationRequest
 } from "../permissions";
+import {
+  getCurrentPermissionGrants,
+  hasToolPermissionGrants,
+  type PermissionGrants
+} from "../permissions";
 import { appendExecutionLog, setTaskProgress } from "../observability";
 import { sanitizeForAudit } from "../observability/auditSanitize";
 import { bootstrapAgentRuntime } from "../runtimeBootstrap";
@@ -150,6 +155,7 @@ async function runAgentToolLoopInternal(
   bootstrapAgentRuntime();
 
   const provider = getModelProvider(options.modelConfig.provider);
+  const permissionGrants = getCurrentPermissionGrants();
   if (!provider.supportsTools) {
     const response = await provider.sendMessage(
       { messages: options.messages, signal: options.signal },
@@ -163,7 +169,12 @@ async function runAgentToolLoopInternal(
     };
   }
 
-  const tools = options.tools ?? listModelToolDefinitions();
+  const tools = options.tools
+    ? options.tools.filter((definition) => {
+        const tool = getTool(fromModelToolName(definition.function.name));
+        return Boolean(tool && hasToolPermissionGrants(tool, permissionGrants));
+      })
+    : listModelToolDefinitions(permissionGrants);
   if (tools.length === 0) {
     const response = await provider.sendMessage(
       { messages: options.messages, signal: options.signal },
@@ -355,7 +366,8 @@ async function runAgentToolLoopInternal(
         toolCall,
         requestConfirmation: options.requestConfirmation,
         signal: options.signal,
-        onProgress: options.onProgress
+        onProgress: options.onProgress,
+        permissionGrants
       });
 
       toolInvocationCount += 1;
@@ -490,6 +502,7 @@ async function runSingleToolCall(params: {
   ) => Promise<ConfirmationDecision>;
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
+  permissionGrants: PermissionGrants;
 }): Promise<string> {
   const toolName = params.toolName;
   const tool = getTool(toolName);
@@ -602,7 +615,8 @@ async function runSingleToolCall(params: {
       toolName,
       input,
       signal: controller.signal,
-      attempt: 1
+      attempt: 1,
+      permissionGrants: params.permissionGrants
     });
 
     if (result.ok) {

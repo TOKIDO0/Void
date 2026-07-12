@@ -35,6 +35,24 @@ export const fileVerifyTool: ToolDefinition<
       }
     }
   },
+  outputSchema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["path", "exists", "mediaKind", "verifiedAt"],
+    properties: {
+      path: { type: "string" },
+      exists: { type: "boolean" },
+      bytes: { type: "number", minimum: 0 },
+      fileName: { type: "string" },
+      extension: { type: "string" },
+      mediaKind: {
+        type: "string",
+        enum: ["image", "audio", "video", "document", "archive", "text", "binary", "unknown"]
+      },
+      contentTypeGuess: { type: "string" },
+      verifiedAt: { type: "number" }
+    }
+  },
   requiredResources: FILE_STATIC_RESOURCES,
   permissions: ["tool.file.verify"],
   timeoutMs: 10_000,

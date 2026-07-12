@@ -76,6 +76,7 @@ export type ToolErrorCode =
   | "TOOL_NOT_FOUND"
   | "TOOL_DISABLED"
   | "SCHEMA_INVALID"
+  | "OUTPUT_SCHEMA_INVALID"
   | "PERMISSION_DENIED"
   | "CONFIRMATION_REQUIRED"
   | "CONFIRMATION_REJECTED"
@@ -132,7 +133,7 @@ export type ToolDefinition<TInput = unknown, TOutput = unknown> = {
   version: string;
   riskLevel: RiskLevel;
   inputSchema: ToolJsonSchema;
-  outputSchema?: ToolJsonSchema;
+  outputSchema: ToolJsonSchema;
   requiredResources: ToolResourceRequirement[];
   permissions: string[];
   timeoutMs: number;

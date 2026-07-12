@@ -20,6 +20,9 @@ export function registerTool(definition: ToolDefinition<any, any>) {
   if (!definition.inputSchema || typeof definition.inputSchema !== "object") {
     throw new Error(`工具 ${name} 缺少 inputSchema`);
   }
+  if (!definition.outputSchema || typeof definition.outputSchema !== "object") {
+    throw new Error(`工具 ${name} 缺少 outputSchema`);
+  }
   if (typeof definition.execute !== "function") {
     throw new Error(`工具 ${name} 缺少 execute`);
   }
@@ -30,6 +33,21 @@ export function registerTool(definition: ToolDefinition<any, any>) {
     enabled: definition.enabled !== false,
     maxRetries: definition.maxRetries ?? 0
   });
+}
+
+/** 启动时审计完整契约，避免声明缺失后仍进入生产运行时。 */
+export function auditRegisteredToolContracts(): void {
+  for (const tool of toolsByName.values()) {
+    if (!tool.outputSchema || typeof tool.outputSchema !== "object") {
+      throw new Error(`工具 ${tool.name} 缺少 outputSchema`);
+    }
+    if (!Array.isArray(tool.permissions) || tool.permissions.length === 0) {
+      throw new Error(`工具 ${tool.name} 缺少 permissions`);
+    }
+    if (!tool.idempotency) {
+      throw new Error(`工具 ${tool.name} 缺少 idempotency`);
+    }
+  }
 }
 
 /**

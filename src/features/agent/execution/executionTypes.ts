@@ -3,6 +3,7 @@
 import type { ConfirmationDecision, ConfirmationRequest, RiskPolicy } from "../permissions";
 import type { TaskPlan, TaskReport } from "../planning";
 import type { ToolError } from "../tools";
+import type { PermissionGrants } from "../permissions";
 
 /**
  * 执行器运行选项。
@@ -16,6 +17,7 @@ export type TaskRunnerOptions = {
   onPlanUpdate?: (plan: TaskPlan) => void;
   /** 外部取消信号 */
   signal?: AbortSignal;
+  permissionGrants?: PermissionGrants;
 };
 
 /**
