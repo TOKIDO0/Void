@@ -101,6 +101,15 @@ function extensionOf(fileName: string): string {
   return ext.startsWith(".") ? ext.slice(1) : ext;
 }
 
+/** 可执行/安装包扩展名：统一归 binary，避免被当作可直接打开的文档 */
+const EXECUTABLE_EXTENSIONS = [
+  "exe", "msi", "msix", "appx", "dmg", "pkg", "deb", "rpm", "appimage", "apk", "bin"
+];
+/** 压缩/归档扩展名 */
+const ARCHIVE_EXTENSIONS = [
+  "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst"
+];
+
 function guessMediaKind(fileName: string, contentType?: string): FileVerifyData["mediaKind"] {
   const ext = extensionOf(fileName);
   const type = (contentType ?? "").toLowerCase();
@@ -122,8 +131,26 @@ function guessMediaKind(fileName: string, contentType?: string): FileVerifyData[
   ) {
     return "document";
   }
-  if (type.includes("zip") || ["zip", "rar", "7z", "tar", "gz"].includes(ext)) {
+  if (
+    type.includes("zip")
+    || type.includes("compressed")
+    || type.includes("x-tar")
+    || type.includes("gzip")
+    || type.includes("bzip")
+    || ARCHIVE_EXTENSIONS.includes(ext)
+  ) {
     return "archive";
+  }
+  // 可执行/安装包（Python 安装包 .exe 常为 application/octet-stream，靠扩展名兜住）
+  if (
+    type.includes("x-msdownload")
+    || type.includes("portable-executable")
+    || type.includes("x-msi")
+    || type.includes("x-msdos-program")
+    || type.includes("x-apple-diskimage")
+    || EXECUTABLE_EXTENSIONS.includes(ext)
+  ) {
+    return "binary";
   }
   if (type.startsWith("text/") || ["txt", "md", "csv", "json", "html", "htm", "xml"].includes(ext)) {
     return "text";
@@ -275,6 +302,8 @@ export class FileDownloadManager {
       fileName,
       bytes: stat.size,
       contentType,
+      // 结合响应 Content-Type 与扩展名给出媒体类别，便于后续判断（如安装包=binary）
+      mediaKind: guessMediaKind(fileName, contentType),
       downloadedAt: Date.now()
     };
   }
@@ -418,6 +447,13 @@ function guessContentType(
     htm: "text/html",
     json: "application/json",
     zip: "application/zip",
+    rar: "application/vnd.rar",
+    "7z": "application/x-7z-compressed",
+    tar: "application/x-tar",
+    gz: "application/gzip",
+    tgz: "application/gzip",
+    exe: "application/x-msdownload",
+    msi: "application/x-msi",
     mp3: "audio/mpeg",
     mp4: "video/mp4"
   };

@@ -18,6 +18,8 @@ export type FileDownloadToTempData = {
   fileName: string;
   bytes: number;
   contentType?: string;
+  /** 结合 Content-Type + 扩展名的媒体类别（如安装包=binary、压缩包=archive） */
+  mediaKind?: FileVerifyData["mediaKind"];
   downloadedAt: number;
 };
 
