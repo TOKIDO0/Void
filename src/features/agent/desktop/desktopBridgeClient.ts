@@ -7,7 +7,8 @@ import type {
   ClipboardReadData,
   ClipboardWriteData,
   DesktopBridgeErrorCode,
-  DesktopBridgeResponse
+  DesktopBridgeResponse,
+  DesktopRevealPathData
 } from "./desktopBridgeTypes";
 
 const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
@@ -131,6 +132,17 @@ export async function clipboardWrite(
   return postDesktopApi<ClipboardWriteData>(
     "/void-desktop/clipboard/write",
     { text: input.text },
+    signal
+  );
+}
+
+export async function revealPath(
+  input: { path: string },
+  signal?: AbortSignal
+): Promise<DesktopRevealPathData> {
+  return postDesktopApi<DesktopRevealPathData>(
+    "/void-desktop/reveal-path",
+    { path: input.path },
     signal
   );
 }

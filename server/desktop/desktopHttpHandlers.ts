@@ -1,6 +1,6 @@
 /**
  * 桌面能力 HTTP 路由：/void-desktop/*
- * 当前：clipboard read / write
+ * 当前：clipboard read/write、reveal-path
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -14,10 +14,12 @@ import {
   clipboardManager,
   getDesktopErrorPayload
 } from "./clipboardManager";
+import { desktopRevealManager } from "./desktopRevealManager";
 import type {
   ClipboardReadData,
   ClipboardWriteData,
-  DesktopApiResponse
+  DesktopApiResponse,
+  DesktopRevealPathData
 } from "./desktopTypes";
 
 function sendJson(response: ServerResponse, status: number, body: unknown) {
@@ -60,11 +62,15 @@ async function withDesktopHandler<T>(
     const status =
       payloadError.code === "INVALID_REQUEST" || payloadError.code === "TOO_LARGE"
         ? 400
-        : payloadError.code === "UNSUPPORTED_PLATFORM"
-          ? 501
-          : payloadError.code === "TIMEOUT"
-            ? 504
-            : 500;
+        : payloadError.code === "PATH_NOT_ALLOWED"
+          ? 403
+          : payloadError.code === "PATH_NOT_FOUND"
+            ? 404
+            : payloadError.code === "UNSUPPORTED_PLATFORM"
+              ? 501
+              : payloadError.code === "TIMEOUT"
+                ? 504
+                : 500;
     const payload: DesktopApiResponse<never> = {
       ok: false,
       error: payloadError
@@ -130,6 +136,20 @@ export async function handleDesktopHttpRequest(
         );
       }
       return clipboardManager.write(body.text);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/reveal-path") {
+    await withDesktopHandler<DesktopRevealPathData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const path = typeof body.path === "string" ? body.path.trim() : "";
+      if (!path) {
+        throw Object.assign(new Error("缺少 path"), {
+          desktopCode: "INVALID_REQUEST"
+        });
+      }
+      return desktopRevealManager.revealPath(path);
     });
     return true;
   }

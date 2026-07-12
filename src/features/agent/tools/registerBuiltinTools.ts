@@ -14,6 +14,7 @@ import { browserTypeTool } from "./builtin/browserTypeTool";
 import { browserWaitForTool } from "./builtin/browserWaitForTool";
 import { clipboardReadTool } from "./builtin/clipboardReadTool";
 import { clipboardWriteTool } from "./builtin/clipboardWriteTool";
+import { desktopRevealPathTool } from "./builtin/desktopRevealPathTool";
 import { echoTool } from "./builtin/echoTool";
 import { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 import { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
@@ -45,6 +46,7 @@ export function registerBuiltinTools() {
     browserSwitchTabTool,
     clipboardReadTool,
     clipboardWriteTool,
+    desktopRevealPathTool,
     fileDownloadToTempTool,
     filePlaceDownloadTool,
     fileVerifyTool,

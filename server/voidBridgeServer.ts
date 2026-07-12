@@ -10,7 +10,7 @@
  *   HTTP /void-model-proxy → 模型接口转发（SSE 流式）
  *   HTTP /void-browser/*   → Playwright 只读浏览器工具
  *   HTTP /void-file/*      → 阶段 D 下载/落盘/校验
- *   HTTP /void-desktop/*   → Q4 剪贴板 read/write
+ *   HTTP /void-desktop/*   → 剪贴板 read/write + 资源管理器 revealPath
  */
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";

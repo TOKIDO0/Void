@@ -103,6 +103,15 @@ export function buildToolConfirmationDescription(
     ].filter(Boolean).join("\n");
   }
 
+  if (toolName === "desktop.revealPath") {
+    const path = typeof record.path === "string" ? record.path : "";
+    return [
+      `将在 Windows 资源管理器中展示路径（风险 ${riskLevel}）。`,
+      path ? `完整路径：${path}` : undefined,
+      "目录会打开，文件会选中显示；绝不执行目标文件。拒绝则不会启动资源管理器。"
+    ].filter(Boolean).join("\n");
+  }
+
   if (toolName === "browser.open") {
     const url = typeof record.url === "string" ? record.url : "";
     return [

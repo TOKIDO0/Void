@@ -237,6 +237,9 @@ export function getDesktopErrorPayload(error: unknown): {
     | "CLIPBOARD_FAILED"
     | "TOO_LARGE"
     | "TIMEOUT"
+    | "PATH_NOT_ALLOWED"
+    | "PATH_NOT_FOUND"
+    | "REVEAL_FAILED"
     | "INTERNAL_ERROR";
   message: string;
   details?: Record<string, unknown>;
@@ -254,6 +257,9 @@ export function getDesktopErrorPayload(error: unknown): {
         | "CLIPBOARD_FAILED"
         | "TOO_LARGE"
         | "TIMEOUT"
+        | "PATH_NOT_ALLOWED"
+        | "PATH_NOT_FOUND"
+        | "REVEAL_FAILED"
         | "INTERNAL_ERROR";
       details?: Record<string, unknown>;
     };

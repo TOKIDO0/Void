@@ -17,6 +17,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.browser.switchTab",
   "tool.clipboard.read",
   "tool.clipboard.write",
+  "tool.desktop.revealPath",
   "tool.file.downloadToTemp",
   "tool.file.placeDownload",
   "tool.file.verify",

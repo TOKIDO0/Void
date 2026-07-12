@@ -15,12 +15,24 @@ export type ClipboardWriteData = {
   writtenAt: number;
 };
 
+/** open=打开目录；select=在资源管理器中选中文件 */
+export type DesktopRevealOpenMode = "open" | "select";
+
+export type DesktopRevealPathData = {
+  revealedPath: string;
+  openMode: DesktopRevealOpenMode;
+  revealedAt: number;
+};
+
 export type DesktopBridgeErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"
   | "CLIPBOARD_FAILED"
   | "TOO_LARGE"
   | "TIMEOUT"
+  | "PATH_NOT_ALLOWED"
+  | "PATH_NOT_FOUND"
+  | "REVEAL_FAILED"
   | "INTERNAL_ERROR"
   | "BRIDGE_UNREACHABLE";
 

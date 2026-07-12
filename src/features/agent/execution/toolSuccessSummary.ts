@@ -80,6 +80,11 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
     return `${toolName} 完成：${String(record.sourcePath)} → ${record.destinationPath}`;
   }
 
+  if (toolName === "desktop.revealPath" && typeof record.revealedPath === "string") {
+    const openMode = typeof record.openMode === "string" ? record.openMode : "open";
+    return `${toolName} 完成：${record.revealedPath}（${openMode}）`;
+  }
+
   if (toolName === "clipboard.read") {
     if (record.empty) {
       return `${toolName} 完成：剪贴板为空`;
