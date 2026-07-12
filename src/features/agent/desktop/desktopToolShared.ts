@@ -29,41 +29,83 @@ export const DESKTOP_REVEAL_RESOURCES: ToolResourceRequirement[] = [
 
 export function mapDesktopErrorToToolError(error: unknown): ToolError {
   const info = getDesktopBridgeErrorInfo(error);
+  // 统一附带 desktopCode，供循环层回灌与熔断收口点名
+  const withCode = (
+    failureKind: string | undefined,
+    extra?: Record<string, unknown>
+  ): Record<string, unknown> => ({
+    ...(info.details ?? {}),
+    ...(extra ?? {}),
+    desktopCode: info.code,
+    ...(failureKind ? { failureKind } : {})
+  });
+
   switch (info.code) {
     case "INVALID_REQUEST":
-      return createToolError("SCHEMA_INVALID", info.message, info.details, false);
+      return createToolError(
+        "SCHEMA_INVALID",
+        info.message,
+        withCode("invalid_request"),
+        false
+      );
     case "TOO_LARGE":
-      return createToolError("SCHEMA_INVALID", info.message, info.details, false);
+      return createToolError(
+        "SCHEMA_INVALID",
+        info.message,
+        withCode("too_large"),
+        false
+      );
     case "PATH_NOT_ALLOWED":
       return createToolError(
         "PERMISSION_DENIED",
         info.message,
-        { ...info.details, failureKind: "path_not_allowed" },
+        withCode("path_not_allowed"),
         false
       );
     case "PATH_NOT_FOUND":
       return createToolError(
         "EXECUTION_FAILED",
         info.message,
-        { ...info.details, failureKind: "path_not_found" },
+        withCode("path_not_found"),
         false
       );
     case "UNSUPPORTED_PLATFORM":
-      return createToolError("EXECUTION_FAILED", info.message, info.details, false);
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withCode("unsupported_platform"),
+        false
+      );
     case "TIMEOUT":
-      return createToolError("TIMEOUT", info.message, info.details, true);
+      return createToolError("TIMEOUT", info.message, withCode("timeout"), true);
     case "BRIDGE_UNREACHABLE":
       return createToolError(
         "EXECUTION_FAILED",
         info.message,
-        { ...info.details, bridgeUnreachable: true },
+        withCode("bridge_unreachable", { bridgeUnreachable: true }),
         true
       );
     case "CLIPBOARD_FAILED":
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withCode("clipboard_failed"),
+        true
+      );
     case "REVEAL_FAILED":
-      return createToolError("EXECUTION_FAILED", info.message, info.details, true);
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withCode("reveal_failed"),
+        true
+      );
     default:
-      return createToolError("EXECUTION_FAILED", info.message, info.details, true);
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withCode("internal_error"),
+        true
+      );
   }
 }
 

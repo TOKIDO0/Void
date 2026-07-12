@@ -92,11 +92,14 @@ const BRIDGE_UNREACHABLE_RELAY_HINT = [
 
 /**
  * 调用后通常可以结束并汇报的终态工具（仍允许模型再补一句，但优先收口）。
+ * 本地整理链：place/verify/move/reveal 成功后也应收口，避免继续空转。
  */
 const TERMINAL_SUCCESS_TOOLS = new Set([
   "browser.revealInSystemBrowser",
   "file.placeDownload",
-  "file.verify"
+  "file.verify",
+  "file.move",
+  "desktop.revealPath"
 ]);
 
 /**
@@ -451,8 +454,11 @@ async function runAgentToolLoopInternal(
     if (lastTerminalSuccess) {
       messages.push({
         role: "system",
-        content:
-          "关键操作已完成（例如已在系统浏览器打开页面或已落盘）。请立刻用简洁中文向用户汇报：做了什么、标题、完整 URL、用户应去哪里看；不要再调用任何工具。"
+        content: [
+          "关键操作已完成（例如已在系统浏览器打开页面、已落盘、已移动/重命名，或已在资源管理器展示路径）。",
+          "请立刻用简洁中文向用户汇报：做了什么、关键路径或标题/URL、用户应去哪里看；",
+          "不要再调用任何工具，不要空口夸大未发生的动作。"
+        ].join("")
       });
     }
   }
@@ -627,19 +633,59 @@ async function runSingleToolCall(params: {
       });
     }
 
-    const bridgeUnreachable = result.error.details?.bridgeUnreachable === true;
+    // 回灌失败细节：fileCode/failureKind 让模型能点名 PATH_NOT_ALLOWED 等，
+    // 而不是只剩笼统的 PERMISSION_DENIED / EXECUTION_FAILED。
     return JSON.stringify({
       ok: false,
-      error: {
-        code: result.error.code,
-        message: result.error.message,
-        // 桥接不可达时透传标记，循环层据此给用户如实兜底话术
-        ...(bridgeUnreachable ? { bridgeUnreachable: true } : {})
-      }
+      error: buildToolFailureRelay(result.error)
     });
   } finally {
     params.signal?.removeEventListener("abort", onAbort);
   }
+}
+
+/**
+ * 把 ToolError 压成回灌模型的可读失败对象。
+ * 优先暴露 fileCode / desktopCode / failureKind，便于用户侧失败分类。
+ */
+function buildToolFailureRelay(error: {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}): Record<string, unknown> {
+  const details = error.details ?? {};
+  const relay: Record<string, unknown> = {
+    code: error.code,
+    message: error.message
+  };
+
+  if (details.bridgeUnreachable === true) {
+    relay.bridgeUnreachable = true;
+  }
+
+  const fileCode = typeof details.fileCode === "string" ? details.fileCode.trim() : "";
+  if (fileCode) {
+    relay.fileCode = fileCode;
+  }
+
+  const desktopCode =
+    typeof details.desktopCode === "string" ? details.desktopCode.trim() : "";
+  if (desktopCode) {
+    relay.desktopCode = desktopCode;
+  }
+
+  const failureKind =
+    typeof details.failureKind === "string" ? details.failureKind.trim() : "";
+  if (failureKind) {
+    relay.failureKind = failureKind;
+  }
+
+  // 允许根列表对排错有用，但保持短数组；其它细节不下发以免刷上下文
+  if (Array.isArray(details.allowedRoots)) {
+    relay.allowedRoots = details.allowedRoots.slice(0, 8);
+  }
+
+  return relay;
 }
 
 async function waitForAbortableConfirmation(
@@ -749,13 +795,29 @@ function extractToolErrorCode(parsed: Record<string, unknown> | null): string {
     return "EXECUTION_FAILED";
   }
   const error = parsed.error;
-  if (
-    error
-    && typeof error === "object"
-    && typeof (error as { code?: unknown }).code === "string"
-    && (error as { code: string }).code.trim()
-  ) {
-    return (error as { code: string }).code.trim();
+  if (!error || typeof error !== "object") {
+    return "EXECUTION_FAILED";
+  }
+
+  const record = error as {
+    fileCode?: unknown;
+    desktopCode?: unknown;
+    failureKind?: unknown;
+    code?: unknown;
+  };
+
+  // 优先更具体的文件/桌面错误码，方便用户听懂「不在允许根 / 目标已存在」
+  if (typeof record.fileCode === "string" && record.fileCode.trim()) {
+    return record.fileCode.trim();
+  }
+  if (typeof record.desktopCode === "string" && record.desktopCode.trim()) {
+    return record.desktopCode.trim();
+  }
+  if (typeof record.failureKind === "string" && record.failureKind.trim()) {
+    return record.failureKind.trim().toUpperCase();
+  }
+  if (typeof record.code === "string" && record.code.trim()) {
+    return record.code.trim();
   }
   return "EXECUTION_FAILED";
 }
