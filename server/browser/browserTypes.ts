@@ -115,6 +115,32 @@ export type BrowserCloseSessionData = {
   hadSession: boolean;
 };
 
+/** Q2：单个标签页摘要 */
+export type BrowserTabItem = {
+  pageId: string;
+  url: string;
+  title: string;
+  active: boolean;
+};
+
+/** Q2：列出任务内标签页 */
+export type BrowserTabsData = {
+  taskId: string;
+  activePageId?: string;
+  tabs: BrowserTabItem[];
+  count: number;
+};
+
+/** Q2：切换活动标签页 */
+export type BrowserSwitchTabData = {
+  taskId: string;
+  pageId: string;
+  url: string;
+  title: string;
+  previousPageId?: string;
+  broughtToFront: boolean;
+};
+
 /** 窄动作：点击（Playwright locator.click；selector 或 role+name） */
 export type BrowserClickData = {
   taskId: string;

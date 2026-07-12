@@ -36,6 +36,8 @@ import type {
   BrowserRevealInSystemBrowserData,
   BrowserScreenshotData,
   BrowserSearchData,
+  BrowserSwitchTabData,
+  BrowserTabsData,
   BrowserTypeData,
   BrowserWaitForData
 } from "./browserTypes";
@@ -318,6 +320,88 @@ export class BrowserSessionManager {
     });
 
     return { taskId: normalizedTaskId, created: true };
+  }
+
+  /**
+   * Q2：列出当前任务上下文内全部标签页（pageId/url/title/是否活动）。
+   * 只读；无会话时返回空列表而不是报错（便于模型先 tabs 再 open）。
+   */
+  async listTabs(input: { taskId: string }): Promise<BrowserTabsData> {
+    const normalizedTaskId = normalizeTaskId(input.taskId);
+    const session = this.sessions.get(normalizedTaskId);
+    if (!session) {
+      return {
+        taskId: normalizedTaskId,
+        tabs: [],
+        count: 0
+      };
+    }
+
+    session.lastUsedAt = Date.now();
+    const tabs = [];
+    for (const managed of session.pages.values()) {
+      let title = "";
+      try {
+        title = await managed.page.title();
+      } catch {
+        title = "";
+      }
+      tabs.push({
+        pageId: managed.pageId,
+        url: managed.page.url(),
+        title,
+        active: managed.pageId === session.activePageId
+      });
+    }
+
+    return {
+      taskId: session.taskId,
+      activePageId: session.activePageId,
+      tabs,
+      count: tabs.length
+    };
+  }
+
+  /**
+   * Q2：把指定 pageId 设为活动标签；后续未传 pageId 的动作走该页。
+   * 有头模式尽量 bringToFront。
+   */
+  async switchTab(input: {
+    taskId: string;
+    pageId: string;
+  }): Promise<BrowserSwitchTabData> {
+    const pageId = input.pageId?.trim() ?? "";
+    if (!pageId) {
+      throw createBrowserError("INVALID_REQUEST", "pageId 不能为空");
+    }
+
+    const session = this.requireSession(input.taskId);
+    const managedPage = this.requirePage(session, pageId);
+    const previousPageId = session.activePageId;
+    session.activePageId = managedPage.pageId;
+    session.lastUsedAt = Date.now();
+
+    let broughtToFront = false;
+    if (!isHeadlessMode()) {
+      try {
+        await managedPage.page.bringToFront();
+        broughtToFront = true;
+      } catch {
+        broughtToFront = false;
+      }
+    }
+
+    return {
+      taskId: session.taskId,
+      pageId: managedPage.pageId,
+      url: managedPage.page.url(),
+      title: await managedPage.page.title(),
+      previousPageId:
+        previousPageId && previousPageId !== managedPage.pageId
+          ? previousPageId
+          : undefined,
+      broughtToFront
+    };
   }
 
   async open(input: {

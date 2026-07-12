@@ -19,6 +19,8 @@ import type {
   BrowserRevealInSystemBrowserData,
   BrowserScreenshotData,
   BrowserSearchData,
+  BrowserSwitchTabData,
+  BrowserTabsData,
   BrowserTypeData,
   BrowserWaitForData
 } from "./browserBridgeTypes";
@@ -234,6 +236,22 @@ export async function browserScreenshot(
     input,
     signal
   );
+}
+
+/** Q2：列出任务内标签页 */
+export async function browserTabs(
+  input: { taskId: string },
+  signal?: AbortSignal
+): Promise<BrowserTabsData> {
+  return postBrowserApi<BrowserTabsData>("/void-browser/tabs", input, signal);
+}
+
+/** Q2：切换活动标签页 */
+export async function browserSwitchTab(
+  input: { taskId: string; pageId: string },
+  signal?: AbortSignal
+): Promise<BrowserSwitchTabData> {
+  return postBrowserApi<BrowserSwitchTabData>("/void-browser/switch-tab", input, signal);
 }
 
 /** 阶段 G1 / Q1：点击（selector 或 role+name） */

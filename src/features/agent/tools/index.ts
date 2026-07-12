@@ -51,6 +51,8 @@ export { browserClickTool } from "./builtin/browserClickTool";
 export { browserTypeTool } from "./builtin/browserTypeTool";
 export { browserWaitForTool } from "./builtin/browserWaitForTool";
 export { browserExtractTool } from "./builtin/browserExtractTool";
+export { browserTabsTool } from "./builtin/browserTabsTool";
+export { browserSwitchTabTool } from "./builtin/browserSwitchTabTool";
 export type {
   BrowserOpenToolInput,
   BrowserOpenToolOutput
@@ -83,6 +85,14 @@ export type {
   BrowserExtractToolInput,
   BrowserExtractToolOutput
 } from "./builtin/browserExtractTool";
+export type {
+  BrowserTabsToolInput,
+  BrowserTabsToolOutput
+} from "./builtin/browserTabsTool";
+export type {
+  BrowserSwitchTabToolInput,
+  BrowserSwitchTabToolOutput
+} from "./builtin/browserSwitchTabTool";
 export { browserSelectTargetTool } from "./builtin/browserSelectTargetTool";
 export { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 export { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";

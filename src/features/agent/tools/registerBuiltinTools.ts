@@ -8,6 +8,8 @@ import { browserRevealInSystemBrowserTool } from "./builtin/browserRevealInSyste
 import { browserScreenshotTool } from "./builtin/browserScreenshotTool";
 import { browserSearchTool } from "./builtin/browserSearchTool";
 import { browserSelectTargetTool } from "./builtin/browserSelectTargetTool";
+import { browserSwitchTabTool } from "./builtin/browserSwitchTabTool";
+import { browserTabsTool } from "./builtin/browserTabsTool";
 import { browserTypeTool } from "./builtin/browserTypeTool";
 import { browserWaitForTool } from "./builtin/browserWaitForTool";
 import { echoTool } from "./builtin/echoTool";
@@ -33,6 +35,8 @@ export function registerBuiltinTools() {
     browserTypeTool,
     browserWaitForTool,
     browserExtractTool,
+    browserTabsTool,
+    browserSwitchTabTool,
     fileDownloadToTempTool,
     filePlaceDownloadTool,
     fileVerifyTool

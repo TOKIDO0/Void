@@ -18,6 +18,8 @@ import type {
   BrowserReadResultData,
   BrowserScreenshotData,
   BrowserSearchData,
+  BrowserSwitchTabData,
+  BrowserTabsData,
   BrowserTypeData,
   BrowserWaitForData
 } from "./browserTypes";
@@ -147,6 +149,37 @@ export async function handleBrowserHttpRequest(
         throw Object.assign(new Error("缺少 taskId"), { browserCode: "INVALID_REQUEST" });
       }
       return browserSessionManager.closeSession(taskId);
+    });
+    return true;
+  }
+
+  // Q2：列出任务内标签页
+  if (pathname === "/void-browser/tabs") {
+    await withBrowserHandler<BrowserTabsData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const taskId = readString(body, "taskId");
+      if (!taskId) {
+        throw Object.assign(new Error("缺少 taskId"), {
+          browserCode: "INVALID_REQUEST"
+        });
+      }
+      return browserSessionManager.listTabs({ taskId });
+    });
+    return true;
+  }
+
+  // Q2：切换活动标签页
+  if (pathname === "/void-browser/switch-tab") {
+    await withBrowserHandler<BrowserSwitchTabData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const taskId = readString(body, "taskId");
+      const pageId = readString(body, "pageId");
+      if (!taskId || !pageId) {
+        throw Object.assign(new Error("缺少 taskId 或 pageId"), {
+          browserCode: "INVALID_REQUEST"
+        });
+      }
+      return browserSessionManager.switchTab({ taskId, pageId });
     });
     return true;
   }
