@@ -13,6 +13,8 @@ import { isVoiceSttBridgeServerEvent, type VoiceSttBridgeClientEvent } from "./v
  * 过短会把弱网当失败；过长会让开麦按钮像卡住。8s 覆盖正常握手余量。
  */
 const STT_READY_TIMEOUT_MS = 8000;
+const RECOVERABLE_ERROR_WINDOW_MS = 30_000;
+const MAX_RECOVERIES_PER_WINDOW = 2;
 
 /**
  * 豆包流式 STT 客户端。
@@ -33,6 +35,10 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
   private websocket: WebSocket | null = null;
   private encoder: VoicePcmEncoder | null = null;
   private sessionReady = false;
+  private reconnectPromise: Promise<void> | null = null;
+  private stopped = true;
+  private recoverableErrorCount = 0;
+  private recoverableErrorWindowStartedAt = 0;
   /** 用户主动 stop / 本地 teardown，close 事件不得再报「连接断开」。 */
   private intentionalClose = false;
 
@@ -41,6 +47,7 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
   }
 
   async start(options: VoiceSttStartOptions) {
+    this.stopped = false;
     this.intentionalClose = false;
     this.sessionReady = false;
 
@@ -59,7 +66,7 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
     }
 
     try {
-      this.websocket = new WebSocket(this.bridgeUrl);
+      this.createWebSocket();
     } catch (error) {
       stopMediaStream(microphoneStream);
       throw createNetworkError("托管 STT 服务连接失败。", this.bridgeUrl, error);
@@ -74,9 +81,15 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
     }
 
     // 仅在 ready 之后启动采集，避免把音频打进未就绪/已关闭的连接。
-    this.encoder = new VoicePcmEncoder(microphoneStream, (chunk) => {
-      this.sendAudioChunk(chunk.audioBase64);
-    });
+    this.encoder = new VoicePcmEncoder(
+      microphoneStream,
+      (chunk) => {
+        this.sendAudioChunk(chunk.audioBase64);
+      },
+      () => {
+        this.sendCommit();
+      }
+    );
     try {
       await this.encoder.ensureRunning();
     } catch (error) {
@@ -88,6 +101,7 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
   }
 
   async stop() {
+    this.stopped = true;
     this.intentionalClose = true;
     // 仅在连接仍打开时通知桥接收尾，避免对已关闭连接发送导致告警。
     if (this.websocket?.readyState === WebSocket.OPEN) {
@@ -97,6 +111,7 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
     await this.encoder?.stop();
     this.encoder = null;
     this.sessionReady = false;
+    this.reconnectPromise = null;
   }
 
   /**
@@ -178,7 +193,9 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
         }
 
         if (payload.type === "final") {
-          options.onFinalResult(payload.text);
+          options.onFinalResult(payload.text, {
+            commitImmediately: payload.commitImmediately === true
+          });
           return;
         }
 
@@ -186,6 +203,14 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
           const error = new Error(payload.message);
           if (!settled) {
             settleReject(error);
+            return;
+          }
+          if (payload.recoverable) {
+            if (!this.canRecoverAgain()) {
+              options.onError(new Error(`${payload.message}，短时间内已连续自动恢复失败。`));
+              return;
+            }
+            void this.reconnect(options);
             return;
           }
           options.onError(error);
@@ -197,6 +222,10 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
       };
 
       const onClose = (event: CloseEvent) => {
+        // 已切换到重连后的新 socket；旧 socket 的迟到 close 不得污染新会话。
+        if (websocket !== this.websocket) {
+          return;
+        }
         if (this.intentionalClose) {
           return;
         }
@@ -255,6 +284,80 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
       audioBase64
     };
     this.websocket.send(JSON.stringify(audioEvent));
+  }
+
+  private sendCommit() {
+    if (!this.websocket || !this.sessionReady || this.websocket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    this.websocket.send(JSON.stringify({
+      type: "commit"
+    } satisfies VoiceSttBridgeClientEvent));
+  }
+
+  private createWebSocket() {
+    this.websocket = new WebSocket(this.bridgeUrl);
+  }
+
+  private canRecoverAgain() {
+    const now = Date.now();
+    if (
+      !this.recoverableErrorWindowStartedAt
+      || now - this.recoverableErrorWindowStartedAt > RECOVERABLE_ERROR_WINDOW_MS
+    ) {
+      this.recoverableErrorWindowStartedAt = now;
+      this.recoverableErrorCount = 0;
+    }
+    this.recoverableErrorCount += 1;
+    return this.recoverableErrorCount <= MAX_RECOVERIES_PER_WINDOW;
+  }
+
+  /** 豆包通用服务端错误后的单通道重建；PCM 编码器和麦克风保持运行。 */
+  private reconnect(options: VoiceSttStartOptions) {
+    if (this.reconnectPromise) {
+      return this.reconnectPromise;
+    }
+
+    this.reconnectPromise = (async () => {
+      if (this.stopped) {
+        return;
+      }
+      const previousSocket = this.websocket;
+      this.websocket = null;
+      this.sessionReady = false;
+      this.intentionalClose = true;
+      try {
+        previousSocket?.close();
+      } catch {
+        // 旧连接已失败时无需重复处理关闭异常。
+      }
+
+      this.intentionalClose = false;
+      try {
+        if (this.stopped) {
+          return;
+        }
+        this.createWebSocket();
+        await this.waitUntilSessionReady(options);
+        if (this.stopped) {
+          this.teardownSocket();
+          return;
+        }
+        console.info("[VOID STT] 上游识别会话已自动恢复。");
+      } catch (error) {
+        if (!this.stopped) {
+          options.onError(
+            error instanceof Error
+              ? error
+              : new Error("STT 自动重连失败。")
+          );
+        }
+      } finally {
+        this.reconnectPromise = null;
+      }
+    })();
+
+    return this.reconnectPromise;
   }
 
   private teardownSocket() {

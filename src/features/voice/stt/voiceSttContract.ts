@@ -5,7 +5,7 @@ export type VoiceSttPartialResult = {
 
 export type VoiceSttStartOptions = {
   onPartialResult: (result: VoiceSttPartialResult) => void;
-  onFinalResult: (text: string) => void;
+  onFinalResult: (text: string, options?: { commitImmediately?: boolean }) => void;
   onError: (error: Error) => void;
 };
 

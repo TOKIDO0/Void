@@ -14,6 +14,8 @@ export type ReplySpeechGuardContext = {
   didRevealInSystemBrowser: boolean;
   /** 本轮是否出现过 automation open 成功 */
   didOpenAutomationWindow: boolean;
+  /** 本轮是否成功打开受限桌面系统位置 */
+  didOpenDesktopLocation: boolean;
   /** 可供核对的 URL（若有） */
   lastOpenedUrl?: string;
 };
@@ -33,7 +35,9 @@ export function applyReplySpeechGuard(reply: string, context: ReplySpeechGuardCo
     return text;
   }
 
-  const reallyOpened = context.didRevealInSystemBrowser || context.didOpenAutomationWindow;
+  const reallyOpened = context.didRevealInSystemBrowser
+    || context.didOpenAutomationWindow
+    || context.didOpenDesktopLocation;
   if (reallyOpened) {
     // 成功打开但回复缺 URL 时，补上可点击线索
     if (context.lastOpenedUrl && !text.includes(context.lastOpenedUrl)) {
@@ -55,10 +59,11 @@ export function inspectToolResultForOpenEvidence(
 ): {
   didReveal: boolean;
   didOpenAutomation: boolean;
+  didOpenDesktop: boolean;
   url?: string;
 } {
   if (!parsed || parsed.ok !== true) {
-    return { didReveal: false, didOpenAutomation: false };
+    return { didReveal: false, didOpenAutomation: false, didOpenDesktop: false };
   }
 
   const data =
@@ -78,7 +83,7 @@ export function inspectToolResultForOpenEvidence(
             : undefined;
 
   if (toolName === "browser.revealInSystemBrowser") {
-    return { didReveal: true, didOpenAutomation: false, url };
+    return { didReveal: true, didOpenAutomation: false, didOpenDesktop: false, url };
   }
 
   if (toolName === "browser.open") {
@@ -86,9 +91,14 @@ export function inspectToolResultForOpenEvidence(
     return {
       didReveal: openMode === "system_default_browser",
       didOpenAutomation: openMode !== "system_default_browser",
+      didOpenDesktop: false,
       url
     };
   }
 
-  return { didReveal: false, didOpenAutomation: false, url };
+  if (toolName === "desktop.openKnownLocation" && data.location === "this_pc") {
+    return { didReveal: false, didOpenAutomation: false, didOpenDesktop: true };
+  }
+
+  return { didReveal: false, didOpenAutomation: false, didOpenDesktop: false, url };
 }

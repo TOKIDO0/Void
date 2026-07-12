@@ -112,6 +112,13 @@ export function buildToolConfirmationDescription(
     ].filter(Boolean).join("\n");
   }
 
+  if (toolName === "desktop.openKnownLocation") {
+    return [
+      `将在 Windows 资源管理器中打开“此电脑”（风险 ${riskLevel}）。`,
+      "该工具只接受固定枚举 this_pc，不会执行任意程序、路径或命令。拒绝则不会启动资源管理器。"
+    ].join("\n");
+  }
+
   if (toolName === "browser.open") {
     const url = typeof record.url === "string" ? record.url : "";
     return [

@@ -24,6 +24,13 @@ export type DesktopRevealPathData = {
   revealedAt: number;
 };
 
+export type DesktopKnownLocation = "this_pc";
+
+export type DesktopOpenKnownLocationData = {
+  location: DesktopKnownLocation;
+  openedAt: number;
+};
+
 export type DesktopBridgeErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"

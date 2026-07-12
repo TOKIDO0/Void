@@ -52,13 +52,15 @@ export type AgentToolLoopOptions = {
   modelConfig: ModelConfig;
   /** 覆盖默认工具列表；默认从注册表生成 */
   tools?: ProviderToolDefinition[];
+  /** 上层回合路由允许暴露的内部工具名；缺省表示不过滤。 */
+  allowedToolNames?: string[];
   requestConfirmation?: (
     request: ConfirmationRequest
   ) => Promise<ConfirmationDecision>;
   /** 轻量进度文案（给回复层 / 状态机，不是工具控制台） */
   onProgress?: (message: string) => void;
   signal?: AbortSignal;
-  /** 模型请求轮次上限（含最终回复轮）；默认 6 */
+  /** 模型请求轮次上限（含最终回复轮）；默认 8 */
   maxRounds?: number;
   /** 单轮对话最多成功执行的工具次数；默认 8 */
   maxToolInvocations?: number;
@@ -78,7 +80,7 @@ export type AgentToolLoopResult = {
 };
 
 /** 模型请求次数：过大会刷爆 API；过小复杂任务完不成 */
-const DEFAULT_MAX_ROUNDS = 6;
+const DEFAULT_MAX_ROUNDS = 8;
 /** 工具实际执行次数预算（与模型轮次独立） */
 const DEFAULT_MAX_TOOL_INVOCATIONS = 8;
 /** 同一工具连续失败/空结果多少次后熔断 */
@@ -105,7 +107,8 @@ const TERMINAL_SUCCESS_TOOLS = new Set([
   "file.placeDownload",
   "file.verify",
   "file.move",
-  "desktop.revealPath"
+  "desktop.revealPath",
+  "desktop.openKnownLocation"
 ]);
 
 /**
@@ -184,12 +187,22 @@ async function runAgentToolLoopInternal(
     };
   }
 
+  const allowedToolNames = options.allowedToolNames
+    ? new Set(options.allowedToolNames)
+    : null;
   const tools = options.tools
     ? options.tools.filter((definition) => {
         const tool = getTool(fromModelToolName(definition.function.name));
-        return Boolean(tool && hasToolPermissionGrants(tool, permissionGrants));
+        return Boolean(
+          tool
+          && (!allowedToolNames || allowedToolNames.has(tool.name))
+          && hasToolPermissionGrants(tool, permissionGrants)
+        );
       })
-    : listModelToolDefinitions(permissionGrants);
+    : listModelToolDefinitions(permissionGrants).filter((definition) =>
+        !allowedToolNames
+        || allowedToolNames.has(fromModelToolName(definition.function.name))
+      );
   if (tools.length === 0) {
     const response = await provider.sendMessage(
       { messages: options.messages, signal: options.signal },
@@ -223,6 +236,7 @@ async function runAgentToolLoopInternal(
   // 话术护栏证据：本轮是否真实 open/reveal 成功，以及最后一次打开的 URL。
   let didRevealInSystemBrowser = false;
   let didOpenAutomationWindow = false;
+  let didOpenDesktopLocation = false;
   let lastOpenedUrl: string | undefined;
   // 桥接不可达兜底：本轮是否已回灌过「sidecar 未启动」的如实话术约束（只灌一次，避免刷屏）。
   let bridgeUnreachableRelayed = false;
@@ -268,6 +282,11 @@ async function runAgentToolLoopInternal(
     const toolCalls = forceFinalText ? [] : (response.toolCalls ?? []);
     if (toolCalls.length === 0) {
       let content = (response.content ?? "").trim();
+      // 部分 OpenAI-compatible 模型会在 toolChoice=none 时把工具协议写进正文。
+      // 终态已成功后禁止把内部协议展示给用户，也禁止把它当作新的工具调用执行。
+      if (forceFinalText && lastTerminalSuccess && containsToolProtocolMarkup(content)) {
+        content = lastTerminalSuccess.summary;
+      }
       if (!content && lastTerminalSuccess) {
         content = lastTerminalSuccess.summary;
       }
@@ -282,6 +301,7 @@ async function runAgentToolLoopInternal(
         usedTools,
         didRevealInSystemBrowser,
         didOpenAutomationWindow,
+        didOpenDesktopLocation,
         lastOpenedUrl
       });
       options.onProgress?.(usedTools ? "已完成操作，正在整理回复…" : "");
@@ -418,6 +438,9 @@ async function runAgentToolLoopInternal(
       if (openEvidence.didOpenAutomation) {
         didOpenAutomationWindow = true;
       }
+      if (openEvidence.didOpenDesktop) {
+        didOpenDesktopLocation = true;
+      }
       if (openEvidence.url) {
         lastOpenedUrl = openEvidence.url;
       }
@@ -482,6 +505,7 @@ async function runAgentToolLoopInternal(
         usedTools,
         didRevealInSystemBrowser,
         didOpenAutomationWindow,
+        didOpenDesktopLocation,
         lastOpenedUrl
       }),
       usedTools,
@@ -820,6 +844,12 @@ function safeParseJson(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function containsToolProtocolMarkup(content: string): boolean {
+  return /(?:<[^>]*DSML[^>]*tool_calls>|<tool_calls>|<function_calls>|<[^>]*tool_calls[^>]*>)/i.test(
+    content
+  );
 }
 
 /** 判断一次工具结果是否为「桥接不可达」失败（sidecar 未启动） */

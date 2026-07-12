@@ -15,6 +15,7 @@ import { browserWaitForTool } from "./builtin/browserWaitForTool";
 import { clipboardReadTool } from "./builtin/clipboardReadTool";
 import { clipboardWriteTool } from "./builtin/clipboardWriteTool";
 import { desktopRevealPathTool } from "./builtin/desktopRevealPathTool";
+import { desktopOpenKnownLocationTool } from "./builtin/desktopOpenKnownLocationTool";
 import { echoTool } from "./builtin/echoTool";
 import { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 import { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
@@ -47,6 +48,7 @@ export function registerBuiltinTools() {
     clipboardReadTool,
     clipboardWriteTool,
     desktopRevealPathTool,
+    desktopOpenKnownLocationTool,
     fileDownloadToTempTool,
     filePlaceDownloadTool,
     fileVerifyTool,

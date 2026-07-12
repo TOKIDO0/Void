@@ -27,6 +27,15 @@ export const DESKTOP_REVEAL_RESOURCES: ToolResourceRequirement[] = [
   }
 ];
 
+/** 打开固定系统位置同样独占资源管理器通道，避免连续弹窗。 */
+export const DESKTOP_KNOWN_LOCATION_RESOURCES: ToolResourceRequirement[] = [
+  {
+    kind: "desktop",
+    key: "known-location",
+    mode: "exclusive"
+  }
+];
+
 export function mapDesktopErrorToToolError(error: unknown): ToolError {
   const info = getDesktopBridgeErrorInfo(error);
   // 统一附带 desktopCode，供循环层回灌与熔断收口点名

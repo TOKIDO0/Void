@@ -8,6 +8,8 @@ import type {
   ClipboardWriteData,
   DesktopBridgeErrorCode,
   DesktopBridgeResponse,
+  DesktopKnownLocation,
+  DesktopOpenKnownLocationData,
   DesktopRevealPathData
 } from "./desktopBridgeTypes";
 
@@ -143,6 +145,17 @@ export async function revealPath(
   return postDesktopApi<DesktopRevealPathData>(
     "/void-desktop/reveal-path",
     { path: input.path },
+    signal
+  );
+}
+
+export async function openKnownLocation(
+  input: { location: DesktopKnownLocation },
+  signal?: AbortSignal
+): Promise<DesktopOpenKnownLocationData> {
+  return postDesktopApi<DesktopOpenKnownLocationData>(
+    "/void-desktop/open-known-location",
+    { location: input.location },
     signal
   );
 }

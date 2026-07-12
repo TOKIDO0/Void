@@ -57,7 +57,7 @@ export class VoiceTurnAssembler {
    * Worker 已判停后的 final。
    * 这里只做短窗合并与最短长度过滤，不再二次等待 1.5s。
    */
-  handleFinal(text: string) {
+  handleFinal(text: string, commitImmediately = false) {
     if (this.disposed) {
       return;
     }
@@ -74,6 +74,10 @@ export class VoiceTurnAssembler {
     this.onPreview(merged);
 
     this.clearCoalesceTimer();
+    if (commitImmediately) {
+      this.commitPendingFinal();
+      return;
+    }
     this.coalesceTimer = setTimeout(() => {
       this.coalesceTimer = null;
       this.commitPendingFinal();

@@ -26,6 +26,14 @@ export type DesktopRevealPathData = {
   revealedAt: number;
 };
 
+/** 代码内固定映射的 Windows 系统位置；不接受任意路径或命令。 */
+export type DesktopKnownLocation = "this_pc";
+
+export type DesktopOpenKnownLocationData = {
+  location: DesktopKnownLocation;
+  openedAt: number;
+};
+
 export type DesktopApiErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"

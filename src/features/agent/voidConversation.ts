@@ -6,6 +6,12 @@ import { retrieveMemories } from "../memory/memoryRetriever";
 import { projectMemories } from "../memory/memoryProjection";
 import { runAgentToolLoop } from "./loop/agentToolLoop";
 import type { ConfirmationDecision, ConfirmationRequest } from "./permissions";
+import {
+  resolveTurnCapability,
+  type TurnCapability
+} from "./turnRouting/turnCapabilityRouter";
+import { stripStageDirections } from "./responseTextDisplay";
+import { isVoidBridgeReachable } from "./bridge/bridgeHealthClient";
 
 export type VoidConversationAttachment = {
   id: string;
@@ -56,32 +62,47 @@ const THINKING_MODE_SYSTEM_SUFFIX = [
   "不要为了显得有思考感而故意拖慢表达。"
 ].join("");
 
-/** 短约束：何时用工具。不把完整工具手册塞进 System Prompt。 */
-const TOOL_USE_SYSTEM_SUFFIX = [
-  "你可以通过函数工具操作浏览器、本机白名单目录与系统剪贴板。",
+const TOOL_USE_COMMON_SUFFIX = [
   "任务边界：只执行「最新一条用户消息」里的请求；历史仅作背景，禁止顺带完成上一轮未完成的搜索/打开/下载。",
-  "剪贴板：clipboard.read 只读；clipboard.write 会覆盖剪贴板并需用户确认，勿写密码。",
+  "普通聊天不要调工具。参数缺失时先一句话确认，不要猜测。",
+  "敏感步骤会请用户确认；拒绝后停止并如实说明。",
+  "同一工具失败或空结果时不要死循环重试；换策略或向用户说明卡点。",
+  "工具报「桥接不可达 / sidecar 未启动」时，如实告诉用户本机服务未连接，禁止含糊声称已操作。",
+  "最终用简洁中文汇报，不要输出 JSON、内部字段名或 Markdown 控制符。"
+];
+
+const BROWSER_TOOL_USE_SUFFIX = [
+  "本轮只允许使用浏览器与必要的下载工具。",
   "当用户要求搜索、打开网页、看视频、下载文件时，必须调用工具，禁止假装已经操作。",
   "下载主路径（安装包/任意文件通用）：先拿到可直接 GET 的 http(s) 文件直链（URL 常以 .exe/.msi/.zip/.dmg 等结尾，或 Content-Disposition 指向文件），再 file.downloadToTemp → 用户确认后 file.placeDownload → file.verify；默认最终目录 D:\\AI\\void-runtime\\downloads。",
   "禁止把「在官网反复 click 下载按钮」当主路径：file.downloadToTemp 只认直链，不会自动捕获浏览器按钮触发的下载。",
   "找直链：browser.search 结果里优先挑文件直链；否则 open 后 browser.extract 找 href 含安装包扩展名的链接。拿不到直链时，立刻用中文说明「当前只能下载直链文件，官网按钮下载尚不支持」，并给出你看到的官网 URL；不要空转 click/open 耗尽预算。",
   "拒绝确认或 PATH_NOT_ALLOWED 时不得声称已保存。",
-  "本机文件整理：仅允许根内操作。查看用 file.listDirectory（只列当前一层，不递归）与 file.readText；新建一层目录用 file.createDirectory（父目录须已存在）；移动/重命名用 file.move（同盘原子移动，冲突默认 refuse，可 rename，绝不覆盖）；要在资源管理器里展示用 desktop.revealPath。",
-  "用户说「整理刚下载的文件 / 建文件夹并移进去 / 打开所在位置」时，必须按 listDirectory → createDirectory → move → desktop.revealPath 这类工具链执行；路径一律用绝对路径。",
-  "文件失败要如实说错误码：PATH_NOT_ALLOWED / DESTINATION_EXISTS / CROSS_DEVICE_MOVE / FILE_NOT_FOUND 等；禁止空口「已经移动/已经保存/已经打开文件夹」。",
   "找 B 站博主/视频：browser.search 必须设 engine=bilibili；不要只用全网搜索碰运气。",
   "browser.open 只打开 Playwright 自动化窗口（用户可能在任务栏另见一个浏览器图标，不是日常浏览器）；缺省每次 open 新建标签页并返回 pageId。",
   "多页时用 browser.tabs 列 pageId/url/title，用 browser.switchTab 切活动标签；后续未传 pageId 的动作走活动页。",
   "用户要「打开给我看 / 在我浏览器里看」时：拿到真实视频 URL 后必须再调 browser.revealInSystemBrowser，用系统默认浏览器打开；汇报时写明完整 URL，并说明请到常用浏览器查看。",
   "页面内操作顺序：看不清结构或 selector 不稳 → browser.extract → 再用返回的 suggestedSelector，或 extract 的 role+name 做 browser.click / browser.type；无稳定位时用 text/href 收窄，禁止空猜。",
   "browser.click / browser.type 定位二选一：selector，或 role+name（无障碍 getByRole）；必须唯一匹配。browser.waitFor 用于导航后等待；禁止假装已点击/已输入。",
-  "不要空口说「打开了」——只有工具返回 openMode=system_default_browser 或 automation_window 成功后才能那样说，并带上标题与 URL。",
-  "普通聊天不要调工具。参数缺失时先一句话确认，不要猜测。",
-  "敏感步骤会请用户确认；拒绝后停止并如实说明。",
-  "同一工具失败或空结果时不要死循环重试；换策略或向用户说明卡点。",
-  "工具报「桥接不可达 / sidecar 未启动」时，如实告诉用户本机浏览器服务未启动、需启动后重试，禁止含糊说「不能操控浏览器」。",
-  "最终用简洁中文汇报，不要输出 JSON 或内部字段名。"
-].join("");
+  "不要空口说「打开了」——只有工具返回成功证据后才能那样说，并带上标题与 URL。"
+];
+
+const FILE_TOOL_USE_SUFFIX = [
+  "本轮只允许操作白名单根目录内的本地文件。",
+  "查看用 file.listDirectory（只列当前一层，不递归）与 file.readText；新建一层目录用 file.createDirectory；移动/重命名用 file.move（同盘原子移动，绝不覆盖）；展示位置用 desktop.revealPath。",
+  "路径一律使用绝对路径。失败时如实说明 PATH_NOT_ALLOWED / DESTINATION_EXISTS / CROSS_DEVICE_MOVE / FILE_NOT_FOUND 等错误码。"
+];
+
+const DESKTOP_TOOL_USE_SUFFIX = [
+  "本轮只允许使用受限桌面工具。",
+  "用户要求打开「我的电脑 / 此电脑」时，只能调用 desktop.openKnownLocation 且 location=this_pc。",
+  "禁止请求或声称执行任意程序、Shell、命令行或未注册系统位置。"
+];
+
+const CLIPBOARD_TOOL_USE_SUFFIX = [
+  "本轮只允许使用系统剪贴板工具。",
+  "clipboard.read 只读；clipboard.write 会覆盖剪贴板并需用户确认，禁止写入密码或密钥。"
+];
 
 export async function sendVoidMessage(
   userInput: string,
@@ -97,28 +118,32 @@ export async function sendVoidMessage(
   // 记忆召回：按本轮用户输入的话题只取相关分区的少量长期记忆，投影成一段可注入文本。
   // 空召回时 projectMemories 返回空串，buildSystemPrompt 据此跳过注入，零副作用。
   const memoryContext = projectMemories(retrieveMemories(userInput));
-  const enableTools = runtimeOptions.enableTools !== false && Boolean(provider.supportsTools);
+  const turnRoute = resolveTurnCapability(userInput, conversationHistory);
+  const enableTools = runtimeOptions.enableTools !== false
+    && Boolean(provider.supportsTools)
+    && turnRoute.allowedToolNames.length > 0;
+  if (enableTools && !(await isVoidBridgeReachable(runtimeOptions.signal))) {
+    const content = turnRoute.capability === "desktop"
+      ? "本机控制组件未连接，所以现在不能打开“此电脑”。请启动 VOID 桌面端或本机控制服务后再试。"
+      : "本机工具服务未连接，所以现在无法执行这项操作。请启动 VOID 桌面端或本机控制服务后再试。";
+    onToken?.(content);
+    return { content };
+  }
   const messages: ProviderMessage[] = [
     {
       role: "system",
-      content: buildSystemPrompt(modelConfig, emotionContext, memoryContext, enableTools)
+      content: buildSystemPrompt(
+        modelConfig,
+        emotionContext,
+        memoryContext,
+        enableTools,
+        turnRoute.capability,
+        normalizedUserInput
+      )
     },
     ...buildRequestConversationHistory(conversationHistory),
     { role: "user", content: normalizedUserInput }
   ];
-
-  // 工具模式：再钉死「只做本轮最新用户消息」，避免历史里未完成下载被顺带执行
-  if (enableTools && normalizedUserInput.trim()) {
-    messages.push({
-      role: "system",
-      content: [
-        "【本轮任务边界】",
-        `只处理最新用户消息：「${clipForBoundaryHint(normalizedUserInput)}」。`,
-        "历史中的其他下载/打开/搜索请求一律忽略，不要同时打开多个无关官网，不要补做上一轮失败任务。",
-        "下载须拿到文件直链后再 downloadToTemp；拿不到直链就说明限制并停止空转。"
-      ].join("")
-    });
-  }
 
   // 支持 tools 的 provider：走 agent loop（非流式拿 tool_calls，最终回复一次性返回）
   if (enableTools) {
@@ -132,7 +157,8 @@ export async function sendVoidMessage(
         },
         requestConfirmation: runtimeOptions.requestConfirmation,
         onProgress: runtimeOptions.onProgress,
-        signal: runtimeOptions.signal
+        signal: runtimeOptions.signal,
+        allowedToolNames: turnRoute.allowedToolNames
       });
       // 兼容旧调用方：若有 onToken，把最终文本整段推一次，便于显示层刷新
       if (onToken && loopResult.content) {
@@ -163,9 +189,19 @@ function buildSystemPrompt(
   modelConfig: ModelConfig,
   emotionContext?: string,
   memoryContext?: string,
-  enableTools = false
+  enableTools = false,
+  capability: TurnCapability = "conversation",
+  latestUserInput = ""
 ) {
   const sections = [VOID_SYSTEM_PROMPT];
+
+  sections.push([
+    "【本轮边界】",
+    `只处理最新用户消息：「${clipForBoundaryHint(latestUserInput)}」。`,
+    capability === "conversation"
+      ? "本轮是普通对话，不调用任何工具，也不补做历史中的搜索、打开、下载或桌面操作。"
+      : "历史仅用于理解指代，不得顺带补做上一轮未完成任务。"
+  ].join(""));
 
   // 长期记忆召回上下文（可选）：排在人格之后、情绪与思考模式之前，
   // 让模型先建立「关于用户的已知事实」底座，再叠加本轮情绪与思考策略。缺省则不注入。
@@ -184,10 +220,23 @@ function buildSystemPrompt(
 
   // 工具短约束：仅在本轮启用 tools 时注入，不罗列全部参数 schema
   if (enableTools) {
-    sections.push(TOOL_USE_SYSTEM_SUFFIX);
+    sections.push(buildToolUseSystemSuffix(capability));
   }
 
   return sections.join("\n\n");
+}
+
+function buildToolUseSystemSuffix(capability: TurnCapability) {
+  const capabilityRules = capability === "browser"
+    ? BROWSER_TOOL_USE_SUFFIX
+    : capability === "file"
+      ? FILE_TOOL_USE_SUFFIX
+      : capability === "desktop"
+        ? DESKTOP_TOOL_USE_SUFFIX
+        : capability === "clipboard"
+          ? CLIPBOARD_TOOL_USE_SUFFIX
+          : [];
+  return [...TOOL_USE_COMMON_SUFFIX, ...capabilityRules].join("");
 }
 
 export function createPendingAssistantConversation(
@@ -218,7 +267,7 @@ export function applyAssistantStreamContent(
   const nextHistory = [...streamState.history];
   nextHistory[streamState.assistantMessageIndex] = {
     role: "assistant",
-    content: content.trimStart()
+    content: stripStageDirections(content).trimStart()
   };
 
   return nextHistory;
@@ -228,7 +277,7 @@ export function finalizeAssistantStreamContent(
   streamState: VoidAssistantStreamState,
   content: string
 ): VoidConversationMessage[] {
-  const normalizedContent = content.trim();
+  const normalizedContent = stripStageDirections(content).trim();
   if (!normalizedContent) {
     return removeAssistantMessageAt(streamState.history, streamState.assistantMessageIndex);
   }

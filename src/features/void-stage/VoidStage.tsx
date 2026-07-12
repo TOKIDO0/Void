@@ -792,8 +792,10 @@ export function VoidStage() {
     voiceOutputAbortControllerRef.current = null;
     voiceOutputStreamFinishedRef.current = true;
     voicePlaybackControllerRef.current.stop();
-    resetVoiceOutputState(voicePreferences.voiceInputEnabled ? "listening" : "idle");
-  }, [resetVoiceOutputState, voicePreferences.voiceInputEnabled]);
+    // 这里必须读取真实会话，而不是依赖 voiceInputEnabled state。
+    // 开麦会更新偏好 state；若此回调随之换引用，组件清理 effect 会误判为卸载并关闭正在握手的 STT。
+    resetVoiceOutputState(voiceSessionControllerRef.current ? "listening" : "idle");
+  }, [resetVoiceOutputState]);
 
   // 用户在 AI 思考/播报时开口即打断：停止播报、作废当前回合的后续副作用，并回滚乐观历史。
   const interruptForBargeIn = useCallback(() => {
@@ -1267,7 +1269,7 @@ function resolveChunkMinChars(chunkIndex: number) {
 // 朗读文本净化：AI 回复中形如「（轻声）」「(笑)」的括号情绪/动作标注，显示时保留（用户可见其情绪），
 // 但 TTS 合成前必须剥离，否则会被逐字读出。仅用于送入合成的文本，绝不改动显示层。
 function sanitizeTextForSpeech(text: string) {
-  return text
+  return stripStageDirections(text)
     // 成对括号及其内容：中文（）、英文 ()、【】、[]
     .replace(/（[^（）]*）/g, "")
     .replace(/\([^()]*\)/g, "")
@@ -1275,6 +1277,9 @@ function sanitizeTextForSpeech(text: string) {
     .replace(/\[[^[\]]*\]/g, "")
     // 流式分块可能把一对括号切散，残留的孤立括号符号一并清除
     .replace(/[（）()【】[\]]/g, "")
+    // 防止不完整流块残留孤立的 Markdown 控制符进入 TTS。
+    .replace(/(?:\*\*|__|~~|`)/g, "")
+    .replace(/^\s*#{1,6}\s+/gm, "")
     // 剥离后可能留下多余空白
     .replace(/[ \t]{2,}/g, " ")
     .trim();

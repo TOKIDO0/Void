@@ -21,6 +21,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "clipboard.read": "正在读取剪贴板…",
   "clipboard.write": "正在写入剪贴板…",
   "desktop.revealPath": "正在资源管理器中展示路径…",
+  "desktop.openKnownLocation": "正在打开此电脑…",
   "file.downloadToTemp": "正在下载到临时目录…",
   "file.placeDownload": "正在保存到下载目录…",
   "file.verify": "正在校验文件…",
@@ -39,6 +40,7 @@ const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "browser.open": "请确认是否打开该页面",
   "browser.revealInSystemBrowser": "请确认是否用系统浏览器打开",
   "desktop.revealPath": "请确认是否在资源管理器中展示",
+  "desktop.openKnownLocation": "请确认是否打开此电脑",
   "file.createDirectory": "请确认是否创建目录",
   "file.move": "请确认是否移动或重命名"
 };

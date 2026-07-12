@@ -56,6 +56,8 @@ const messages = [
     role: "system",
     content: [
       "你是 VOID。当用户要求搜索、打开网页、下载文件时，必须调用函数工具完成，不要假装已经操作。",
+      "下载时先找到可直接 GET 的文件直链，再依次调用 file.downloadToTemp、file.placeDownload、file.verify。",
+      "用户说默认目录时，直接使用 D:\\AI\\void-runtime\\downloads；保存冲突策略使用 rename，不要再次追问目录或覆盖策略。",
       "普通聊天不要调工具。",
       "工具执行后用简洁中文汇报结果。"
     ].join("")
@@ -70,7 +72,7 @@ const result = await runAgentToolLoop({
   messages,
   modelConfig,
   tools,
-  maxRounds: 6,
+  maxRounds: 8,
   onProgress: (message) => {
     if (message) {
       console.log("[progress]", message);

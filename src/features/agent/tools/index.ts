@@ -105,6 +105,7 @@ export { fileMoveTool } from "./builtin/fileMoveTool";
 export { clipboardReadTool } from "./builtin/clipboardReadTool";
 export { clipboardWriteTool } from "./builtin/clipboardWriteTool";
 export { desktopRevealPathTool } from "./builtin/desktopRevealPathTool";
+export { desktopOpenKnownLocationTool } from "./builtin/desktopOpenKnownLocationTool";
 export type {
   BrowserSelectTargetToolInput,
   BrowserSelectTargetToolOutput
@@ -133,3 +134,7 @@ export type {
   DesktopRevealPathToolInput,
   DesktopRevealPathToolOutput
 } from "./builtin/desktopRevealPathTool";
+export type {
+  DesktopOpenKnownLocationToolInput,
+  DesktopOpenKnownLocationToolOutput
+} from "./builtin/desktopOpenKnownLocationTool";

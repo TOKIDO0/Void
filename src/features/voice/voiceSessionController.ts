@@ -37,8 +37,8 @@ export class VoiceSessionController {
           this.turnAssembler.handlePartial(result.text);
         },
         // Worker 已完成 1.5s 静音判停后的 final；组装器再做短窗合并后唯一提交。
-        onFinalResult: (text) => {
-          this.turnAssembler.handleFinal(text);
+        onFinalResult: (text, resultOptions) => {
+          this.turnAssembler.handleFinal(text, resultOptions?.commitImmediately === true);
         },
         onError: this.onError
       });

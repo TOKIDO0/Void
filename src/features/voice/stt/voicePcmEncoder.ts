@@ -1,4 +1,7 @@
 const TARGET_SAMPLE_RATE = 16000;
+const SPEECH_START_RMS = 0.045;
+const SPEECH_END_RMS = 0.022;
+const SPEECH_END_SILENCE_MS = 1500;
 
 export type EncodedVoiceChunk = {
   audioBase64: string;
@@ -22,10 +25,18 @@ export class VoicePcmEncoder {
   private readonly processorNode: ScriptProcessorNode;
   private readonly silentGainNode: GainNode;
   private readonly onChunk: (chunk: EncodedVoiceChunk) => void;
+  private readonly onSpeechEnd?: () => void;
+  private speechActive = false;
+  private lastSpeechAt = 0;
 
-  constructor(mediaStream: MediaStream, onChunk: (chunk: EncodedVoiceChunk) => void) {
+  constructor(
+    mediaStream: MediaStream,
+    onChunk: (chunk: EncodedVoiceChunk) => void,
+    onSpeechEnd?: () => void
+  ) {
     this.mediaStream = mediaStream;
     this.onChunk = onChunk;
+    this.onSpeechEnd = onSpeechEnd;
     this.audioContext = new AudioContext();
     this.sourceNode = this.audioContext.createMediaStreamSource(mediaStream);
     this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
@@ -34,6 +45,7 @@ export class VoicePcmEncoder {
 
     this.processorNode.onaudioprocess = (event) => {
       const inputChannel = event.inputBuffer.getChannelData(0);
+      this.updateSpeechActivity(inputChannel);
       const downsampledBuffer = downsampleBuffer(inputChannel, this.audioContext.sampleRate, TARGET_SAMPLE_RATE);
       if (!downsampledBuffer.length) {
         return;
@@ -48,6 +60,29 @@ export class VoicePcmEncoder {
     this.sourceNode.connect(this.processorNode);
     this.processorNode.connect(this.silentGainNode);
     this.silentGainNode.connect(this.audioContext.destination);
+  }
+
+  /**
+   * 从正在发送给 STT 的同一条 PCM 流判断 speech-end，避免再打开一条麦克风流。
+   * 这里只发“持续静音”信号，最终文本仍由 Worker 的识别结果决定。
+   */
+  private updateSpeechActivity(inputChannel: Float32Array) {
+    const rms = calculateRms(inputChannel);
+    const now = performance.now();
+    if (rms >= SPEECH_START_RMS) {
+      this.speechActive = true;
+      this.lastSpeechAt = now;
+      return;
+    }
+
+    if (
+      this.speechActive
+      && rms <= SPEECH_END_RMS
+      && now - this.lastSpeechAt >= SPEECH_END_SILENCE_MS
+    ) {
+      this.speechActive = false;
+      this.onSpeechEnd?.();
+    }
   }
 
   /**
@@ -67,6 +102,14 @@ export class VoicePcmEncoder {
     this.mediaStream.getTracks().forEach((track) => track.stop());
     await this.audioContext.close();
   }
+}
+
+function calculateRms(samples: Float32Array) {
+  let sum = 0;
+  for (const sample of samples) {
+    sum += sample * sample;
+  }
+  return samples.length ? Math.sqrt(sum / samples.length) : 0;
 }
 
 function downsampleBuffer(inputBuffer: Float32Array, sourceSampleRate: number, targetSampleRate: number) {

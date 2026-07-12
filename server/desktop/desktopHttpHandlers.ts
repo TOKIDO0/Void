@@ -15,10 +15,12 @@ import {
   getDesktopErrorPayload
 } from "./clipboardManager";
 import { desktopRevealManager } from "./desktopRevealManager";
+import { desktopKnownLocationManager } from "./desktopKnownLocationManager";
 import type {
   ClipboardReadData,
   ClipboardWriteData,
   DesktopApiResponse,
+  DesktopOpenKnownLocationData,
   DesktopRevealPathData
 } from "./desktopTypes";
 
@@ -150,6 +152,20 @@ export async function handleDesktopHttpRequest(
         });
       }
       return desktopRevealManager.revealPath(path);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/open-known-location") {
+    await withDesktopHandler<DesktopOpenKnownLocationData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const location = body.location;
+      if (location !== "this_pc") {
+        throw Object.assign(new Error("location 只允许 this_pc"), {
+          desktopCode: "INVALID_REQUEST"
+        });
+      }
+      return desktopKnownLocationManager.open(location);
     });
     return true;
   }

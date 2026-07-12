@@ -3,10 +3,10 @@
  * Windows 仅调用固定 explorer.exe；绝不执行目标文件，禁止 shell=true。
  */
 
-import { spawn } from "node:child_process";
 import { statSync } from "node:fs";
 import { platform } from "node:os";
 import { assertAllowedFilePath } from "../file/filePathPolicy";
+import { launchWindowsExplorer } from "./explorerLauncher";
 import type { DesktopRevealPathData, DesktopRevealOpenMode } from "./desktopTypes";
 
 function createDesktopError(
@@ -56,29 +56,6 @@ function mapFilePolicyError(error: unknown): never {
   );
 }
 
-function launchExplorer(args: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    // 固定可执行名 + 结构化参数；不走 shell，避免把目标当命令执行
-    const child = spawn("explorer.exe", args, {
-      windowsHide: true,
-      shell: false,
-      detached: true,
-      stdio: "ignore"
-    });
-    child.unref();
-    child.on("error", (error) => {
-      reject(
-        createDesktopError(
-          "REVEAL_FAILED",
-          error instanceof Error ? error.message : "无法启动资源管理器"
-        )
-      );
-    });
-    // explorer 会立刻脱离；不把其退出码当失败依据
-    resolve();
-  });
-}
-
 export class DesktopRevealManager {
   async revealPath(pathValue: string): Promise<DesktopRevealPathData> {
     if (platform() !== "win32") {
@@ -108,10 +85,10 @@ export class DesktopRevealManager {
 
     try {
       if (openMode === "open") {
-        await launchExplorer([revealedPath]);
+        await launchWindowsExplorer([revealedPath]);
       } else {
         // /select,<path> 为 explorer 选中文件的固定参数形态
-        await launchExplorer([`/select,${revealedPath}`]);
+        await launchWindowsExplorer([`/select,${revealedPath}`]);
       }
     } catch (error) {
       if (

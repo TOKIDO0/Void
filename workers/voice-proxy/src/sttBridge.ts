@@ -32,6 +32,7 @@ const DOUBAO_FORCE_TO_SPEECH_TIME_MS = 1200;
 type SttClientEvent =
   | { type: "start"; sampleRate: number; format: string }
   | { type: "audio"; audioBase64: string }
+  | { type: "commit" }
   | { type: "stop" };
 
 type StartEvent = Extract<SttClientEvent, { type: "start" }>;
@@ -44,6 +45,10 @@ function normalizeForDedup(text: string): string {
 }
 
 export function handleSttSession(clientSocket: WebSocket, env: Env): void {
+  const sessionStartedAt = Date.now();
+  let audioChunkCount = 0;
+  let audioByteCount = 0;
+  let lastSuccessfulUpstreamResponseAt = 0;
   let upstreamSocket: WebSocket | null = null;
   let upstreamOpen = false;
   let clientOpen = true;
@@ -107,27 +112,22 @@ export function handleSttSession(clientSocket: WebSocket, env: Env): void {
   };
 
   // 停顿到阈值：把本段累积但尚未发送的定稿句合并为一条 final 发出。
-  const commitUtterance = () => {
-    let pending = committedSentences.slice(flushedCount).join("").trim();
-    let usedPartialFallback = false;
-
-    if (!pending && lastPartial.trim()) {
-      pending = lastPartial.trim();
-      usedPartialFallback = true;
-    }
+  const commitUtterance = (commitImmediately = false) => {
+    const partialFallback = lastPartial.trim();
+    const pending = `${committedSentences.slice(flushedCount).join("")}${partialFallback}`.trim();
 
     if (!pending) {
       return;
     }
 
     flushedCount = committedSentences.length;
-    if (usedPartialFallback) {
-      skipOnceDefiniteText = pending;
+    if (partialFallback) {
+      skipOnceDefiniteText = partialFallback;
       lastPartial = "";
     }
     lastLiveText = "";
     hasSentFinal = true;
-    sendToBrowser({ type: "final", text: pending });
+    sendToBrowser({ type: "final", text: pending, commitImmediately });
   };
 
   const scheduleCommit = () => {
@@ -142,10 +142,35 @@ export function handleSttSession(clientSocket: WebSocket, env: Env): void {
     }
 
     if (decoded.kind === "error") {
-      sendToBrowser({ type: "error", message: `豆包语音识别错误（${decoded.code}）：${decoded.message}` });
+      // 通用 big ASR 服务端错误已经在长语音中真实出现：先保全已识别文本，再让浏览器重建上游会话。
+      const recoverable = decoded.code === 55000000;
+      const pendingDefiniteCount = Math.max(0, committedSentences.length - flushedCount);
+      const partialCharacterCount = lastPartial.length;
+      if (recoverable) {
+        commitUtterance(true);
+      }
+      console.error("[VOID STT upstream error]", {
+        code: decoded.code,
+        recoverable,
+        sessionDurationMs: Date.now() - sessionStartedAt,
+        audioChunkCount,
+        audioByteCount,
+        lastSuccessfulUpstreamResponseAgeMs: lastSuccessfulUpstreamResponseAt
+          ? Date.now() - lastSuccessfulUpstreamResponseAt
+          : null,
+        pendingDefiniteCount,
+        partialCharacterCount
+      });
+      sendToBrowser({
+        type: "error",
+        message: `豆包语音识别错误（${decoded.code}）：${decoded.message}`,
+        recoverable
+      });
       closeAll();
       return;
     }
+
+    lastSuccessfulUpstreamResponseAt = Date.now();
 
     // 收到首个成功响应即视为会话就绪，通知浏览器并补发缓存音频。
     if (!upstreamReady) {
@@ -279,11 +304,19 @@ export function handleSttSession(clientSocket: WebSocket, env: Env): void {
 
     if (parsed.type === "audio") {
       const pcmChunk = new Uint8Array(Buffer.from(parsed.audioBase64, "base64"));
+      audioChunkCount += 1;
+      audioByteCount += pcmChunk.byteLength;
       if (!upstreamReady) {
         pendingAudioChunks.push(pcmChunk);
         return;
       }
       sendUpstreamBinary(encodeAudioRequest(Buffer.from(pcmChunk), false));
+      return;
+    }
+
+    if (parsed.type === "commit") {
+      clearCommitTimer();
+      commitUtterance();
       return;
     }
 

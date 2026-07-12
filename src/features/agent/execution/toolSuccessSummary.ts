@@ -108,6 +108,10 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
     return `${toolName} 完成：${modeLabel} ${record.revealedPath}`;
   }
 
+  if (toolName === "desktop.openKnownLocation" && record.location === "this_pc") {
+    return `${toolName} 完成：已打开 Windows 此电脑`;
+  }
+
   if (toolName === "clipboard.read") {
     if (record.empty) {
       return `${toolName} 完成：剪贴板为空`;
