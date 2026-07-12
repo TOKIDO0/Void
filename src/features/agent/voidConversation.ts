@@ -72,8 +72,9 @@ const TOOL_USE_COMMON_SUFFIX = [
 ];
 
 const BROWSER_TOOL_USE_SUFFIX = [
-  "本轮只允许使用浏览器、下载与下载后整理工具。",
+  "本轮只允许使用浏览器、下载与下载后整理工具；若本轮工具列表含 clipboard.read，还可读取剪贴板。",
   "当用户要求搜索、打开网页、看视频、下载文件时，必须调用工具，禁止假装已经操作。",
+  "剪贴板 URL 下载主路径（用户说从剪贴板/粘贴板下载链接、保存剪贴板网址等）：先 clipboard.read。读到文本后按主机分流，禁止跳过读取直接瞎猜 URL：① 空、非 http(s) URL、或明显不是链接 → 不要调用任何 download*，用中文说明剪贴板内容不是可下载链接；② B 站视频页（www/m.bilibili.com/video/BVxxx 或 avxxx，或 b23.tv 短链）→ file.downloadMediaPage(pageUrl) → 用户确认后 file.placeDownload → file.verify；禁止对 B 站视频页用 file.downloadToTemp；③ 可直接 GET 的文件直链（常见 .exe/.msi/.zip/.dmg 等）→ file.downloadToTemp → place → verify；④ YouTube 或其它未支持主机/普通 HTML 页 → 不要调用 download*，如实说明当前仅支持 B 站视频页与文件直链，并点名不支持的主机。未确认 place 前不得声称已保存到最终目录。",
   "下载主路径（安装包/任意文件通用）：先拿到可直接 GET 的 http(s) 文件直链（URL 常以 .exe/.msi/.zip/.dmg 等结尾，或 Content-Disposition 指向文件），再 file.downloadToTemp → 用户确认后 file.placeDownload → file.verify；默认最终目录 D:\\AI\\void-runtime\\downloads。",
   "下载后整理（用户要求归入子目录/按日期或任务名归档）：file.placeDownload 落到默认下载根后，file.createDirectory 在允许根内建一层子目录（父目录须已存在，不递归）→ file.move(sourcePath=place 的 finalPath, destinationPath=子目录\\文件名) → file.verify；需要时先 file.listDirectory 看现状。汇报最终 destinationPath。用户只要下载不要整理时，place+verify 后收口。",
   "禁止把「在官网反复 click 下载按钮」当主路径：file.downloadToTemp 只认直链，不会自动捕获浏览器按钮触发的下载。",
@@ -104,7 +105,8 @@ const DESKTOP_TOOL_USE_SUFFIX = [
 
 const CLIPBOARD_TOOL_USE_SUFFIX = [
   "本轮只允许使用系统剪贴板工具。",
-  "clipboard.read 只读；clipboard.write 会覆盖剪贴板并需用户确认，禁止写入密码或密钥。"
+  "clipboard.read 只读；clipboard.write 会覆盖剪贴板并需用户确认，禁止写入密码或密钥。",
+  "本轮没有下载工具：若用户其实要下载剪贴板里的链接，需明确下载意图后再执行；不要假装已下载。"
 ];
 
 export async function sendVoidMessage(

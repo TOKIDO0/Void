@@ -38,6 +38,15 @@ const BROWSER_TOOL_NAMES = [
   "file.move"
 ];
 
+/**
+ * T3.b：剪贴板 URL 下载。
+ * 必须同时暴露 clipboard.read 与 download*；仅 clipboard 没有下载，仅 browser 读不到剪贴板。
+ */
+const CLIPBOARD_DOWNLOAD_TOOL_NAMES = [
+  "clipboard.read",
+  ...BROWSER_TOOL_NAMES
+];
+
 const FILE_TOOL_NAMES = [
   "file.listDirectory",
   "file.readText",
@@ -68,6 +77,13 @@ const BROWSER_PATTERN = /(?:搜索|搜一下|上网查|联网查|网上查|打�
  */
 const ACTIVE_DOWNLOAD_INTENT_PATTERN =
   /(?:帮我|请)?(?:去)?(?:下载|抓取|拉取)(?!目录|文件夹|路径|好|完|过的?)(?:一[个下]|这个|该|到|并|视频|文件|安装包|[，。！？\s]|$)|(?:把|将).{0,12}下载到|(?:B\s*站|哔哩哔哩|视频页|BV[\w]+).{0,16}下载/i;
+
+/**
+ * T3.b：明确「从剪贴板/粘贴板取链接并下载」。
+ * 覆盖「下载剪贴板里的链接」「把剪贴板的 URL 下载下来」等；纯查看剪贴板不命中。
+ */
+const CLIPBOARD_DOWNLOAD_INTENT_PATTERN =
+  /(?:剪贴板|粘贴板).{0,20}(?:下载|拉取|抓取|保存)|(?:下载|拉取|抓取|保存).{0,20}(?:剪贴板|粘贴板)|(?:把|将).{0,10}(?:剪贴板|粘贴板).{0,16}(?:下载|保存|拉取|抓取)|(?:剪贴板|粘贴板).{0,12}(?:链接|网址|url|URL).{0,12}(?:下载|拉取|抓取|保存)/i;
 
 /**
  * 只判断“本轮允许暴露哪些能力”，不执行工具，也不做副作用。
@@ -102,9 +118,20 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
   if (THIS_PC_PATTERN.test(userInput)) {
     return createRoute("desktop", DESKTOP_TOOL_NAMES);
   }
+
+  // T3.b：剪贴板 URL 下载优先于纯剪贴板；capability 仍为 browser（下载主路径 + 整理）
+  if (CLIPBOARD_DOWNLOAD_INTENT_PATTERN.test(userInput)) {
+    return createRoute("browser", CLIPBOARD_DOWNLOAD_TOOL_NAMES);
+  }
+
   if (CLIPBOARD_PATTERN.test(userInput)) {
+    // 「读取剪贴板并下载」等：CLIPBOARD 命中但含下载意图 → 升级为剪贴板+下载工具组
+    if (ACTIVE_DOWNLOAD_INTENT_PATTERN.test(userInput)) {
+      return createRoute("browser", CLIPBOARD_DOWNLOAD_TOOL_NAMES);
+    }
     return createRoute("clipboard", CLIPBOARD_TOOL_NAMES);
   }
+
   // 先看 file 模式，但「下载并整理」类必须升级到 browser（含 createDirectory/move）
   if (FILE_PATTERN.test(userInput)) {
     if (ACTIVE_DOWNLOAD_INTENT_PATTERN.test(userInput)) {
