@@ -25,6 +25,12 @@ import { handleModelProxy } from "./voidProxyMiddleware";
 const DEFAULT_BRIDGE_PORT = 17872;
 const BRIDGE_HOST = "127.0.0.1";
 
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost:5173",
+  "tauri://localhost",
+  "http://tauri.localhost"
+]);
+
 // 允许携带的自定义请求头（与转发白名单一致，供 CORS 预检放行）。
 const CORS_ALLOWED_HEADERS = [
   "content-type",
@@ -48,15 +54,29 @@ function resolvePort(): number {
  * Tauri WebView 前端与 sidecar 端口不同源，跨源 fetch 会触发 CORS 预检。
  * 此处对回环请求放行本应用所需的方法与头；不使用通配符凭证，仅服务本地。
  */
-function applyCorsHeaders(response: ServerResponse): void {
-  response.setHeader("Access-Control-Allow-Origin", "*");
+function applyCorsHeaders(response: ServerResponse, origin: string): void {
+  response.setHeader("Access-Control-Allow-Origin", origin);
+  response.setHeader("Vary", "Origin");
   response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS);
   response.setHeader("Access-Control-Max-Age", "86400");
 }
 
 function handleHttpRequest(request: IncomingMessage, response: ServerResponse): void {
-  applyCorsHeaders(response);
+  const origin = request.headers.origin;
+  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+    response.statusCode = 403;
+    response.setHeader("Content-Type", "application/json; charset=utf-8");
+    response.end(JSON.stringify({
+      ok: false,
+      error: { code: "ORIGIN_FORBIDDEN", message: "请求 Origin 不在允许列表内" }
+    }));
+    return;
+  }
+
+  if (origin) {
+    applyCorsHeaders(response, origin);
+  }
 
   // 预检请求直接放行
   if (request.method === "OPTIONS") {

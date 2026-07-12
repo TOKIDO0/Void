@@ -6,6 +6,11 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
+  isInvalidJsonBody,
+  isRequestBodyTooLarge,
+  readJsonBody
+} from "../http/httpRequest";
+import {
   browserSessionManager,
   getBrowserErrorPayload
 } from "./browserSessionManager";
@@ -23,24 +28,6 @@ import type {
   BrowserTypeData,
   BrowserWaitForData
 } from "./browserTypes";
-
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
-  if (!raw) {
-    return {};
-  }
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    throw Object.assign(new Error("请求体不是合法 JSON"), {
-      browserCode: "INVALID_REQUEST"
-    });
-  }
-}
 
 function sendJson(response: ServerResponse, status: number, body: unknown) {
   response.statusCode = status;
@@ -83,6 +70,20 @@ async function withBrowserHandler<T>(
     const payload: BrowserApiResponse<T> = { ok: true, data };
     sendJson(response, 200, payload);
   } catch (error) {
+    if (isRequestBodyTooLarge(error)) {
+      sendJson(response, 413, {
+        ok: false,
+        error: { code: "REQUEST_BODY_TOO_LARGE", message: error.message }
+      });
+      return;
+    }
+    if (isInvalidJsonBody(error)) {
+      sendJson(response, 400, {
+        ok: false,
+        error: { code: "INVALID_REQUEST", message: error.message }
+      });
+      return;
+    }
     const payloadError = getBrowserErrorPayload(error);
     const status =
       payloadError.code === "INVALID_REQUEST"
