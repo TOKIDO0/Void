@@ -10,11 +10,13 @@
  *   HTTP /void-model-proxy → 模型接口转发（SSE 流式）
  *   HTTP /void-browser/*   → Playwright 只读浏览器工具
  *   HTTP /void-file/*      → 阶段 D 下载/落盘/校验
+ *   HTTP /void-desktop/*   → Q4 剪贴板 read/write
  */
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { browserSessionManager } from "./browser/browserSessionManager";
 import { handleBrowserHttpRequest } from "./browser/browserHttpHandlers";
+import { handleDesktopHttpRequest } from "./desktop/desktopHttpHandlers";
 import { handleFileHttpRequest } from "./file/fileHttpHandlers";
 import { ensureRuntimeDirectories } from "./file/fileRuntimePaths";
 import { handleModelProxy } from "./voidProxyMiddleware";
@@ -79,6 +81,12 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
   // 阶段 D：下载到临时目录 / 确认后落盘 / 校验
   if (pathname.startsWith("/void-file")) {
     void handleFileHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // Q4：桌面剪贴板
+  if (pathname.startsWith("/void-desktop")) {
+    void handleDesktopHttpRequest(request, response, pathname);
     return;
   }
 

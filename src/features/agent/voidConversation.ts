@@ -58,7 +58,8 @@ const THINKING_MODE_SYSTEM_SUFFIX = [
 
 /** 短约束：何时用工具。不把完整工具手册塞进 System Prompt。 */
 const TOOL_USE_SYSTEM_SUFFIX = [
-  "你可以通过函数工具操作浏览器与本机白名单目录。",
+  "你可以通过函数工具操作浏览器、本机白名单目录与系统剪贴板。",
+  "剪贴板：clipboard.read 只读；clipboard.write 会覆盖剪贴板并需用户确认，勿写密码。",
   "当用户要求搜索、打开网页、看视频、下载文件时，必须调用工具，禁止假装已经操作。",
   "找 B 站博主/视频：browser.search 必须设 engine=bilibili；不要只用全网搜索碰运气。",
   "browser.open 只打开 Playwright 自动化窗口（用户可能在任务栏另见一个浏览器图标，不是日常浏览器）；缺省每次 open 新建标签页并返回 pageId。",

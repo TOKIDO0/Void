@@ -293,6 +293,19 @@ function buildSuccessSummary(toolName: string, output: unknown) {
     return `${toolName} 完成：文件不存在`;
   }
 
+  if (toolName === "clipboard.read") {
+    if (record.empty) {
+      return `${toolName} 完成：剪贴板为空`;
+    }
+    const length = record.length ?? "?";
+    const truncated = record.truncated ? "，已截断" : "";
+    return `${toolName} 完成：${String(length)} 字符${truncated}`;
+  }
+
+  if (toolName === "clipboard.write") {
+    return `${toolName} 完成：已写入 ${String(record.length ?? "?")} 字符`;
+  }
+
   return `${toolName} 执行成功`;
 }
 

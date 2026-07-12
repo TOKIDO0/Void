@@ -18,6 +18,8 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "browser.extract": "正在抽取页面内容…",
   "browser.tabs": "正在列出标签页…",
   "browser.switchTab": "正在切换标签页…",
+  "clipboard.read": "正在读取剪贴板…",
+  "clipboard.write": "正在写入剪贴板…",
   "file.downloadToTemp": "正在下载到临时目录…",
   "file.placeDownload": "正在保存到下载目录…",
   "file.verify": "正在校验文件…",
@@ -28,6 +30,7 @@ const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "browser.selectTarget": "请确认要打开的目标",
   "file.downloadToTemp": "请确认是否下载该文件",
   "file.placeDownload": "请确认是否保存到下载目录",
+  "clipboard.write": "请确认是否写入剪贴板",
   "browser.open": "请确认是否打开该页面",
   "browser.revealInSystemBrowser": "请确认是否用系统浏览器打开"
 };

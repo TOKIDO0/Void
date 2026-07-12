@@ -97,6 +97,8 @@ export { browserSelectTargetTool } from "./builtin/browserSelectTargetTool";
 export { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 export { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
 export { fileVerifyTool } from "./builtin/fileVerifyTool";
+export { clipboardReadTool } from "./builtin/clipboardReadTool";
+export { clipboardWriteTool } from "./builtin/clipboardWriteTool";
 export type {
   BrowserSelectTargetToolInput,
   BrowserSelectTargetToolOutput
@@ -113,3 +115,11 @@ export type {
   FileVerifyToolInput,
   FileVerifyToolOutput
 } from "./builtin/fileVerifyTool";
+export type {
+  ClipboardReadToolInput,
+  ClipboardReadToolOutput
+} from "./builtin/clipboardReadTool";
+export type {
+  ClipboardWriteToolInput,
+  ClipboardWriteToolOutput
+} from "./builtin/clipboardWriteTool";

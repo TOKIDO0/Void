@@ -666,6 +666,19 @@ function buildConfirmationDescription(
       .join("\n");
   }
 
+  if (toolName === "clipboard.write") {
+    const text = typeof record.text === "string" ? record.text : "";
+    const preview = text.length > 120 ? `${text.slice(0, 120)}…` : text;
+    return [
+      `将覆盖写入本机系统剪贴板（风险 ${riskLevel}）。`,
+      `长度：${text.length} 字符`,
+      preview ? `预览：${preview}` : "内容为空（将清空剪贴板文本）",
+      "确认后会替换当前剪贴板文本；拒绝则不改动剪贴板。请勿写入密码等敏感凭证。"
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
   return `即将执行工具「${toolName}」（风险 ${riskLevel}）。请确认是否继续；拒绝则不会执行该步。`;
 }
 
