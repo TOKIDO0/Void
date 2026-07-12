@@ -19,7 +19,9 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.clipboard.write",
   "tool.file.downloadToTemp",
   "tool.file.placeDownload",
-  "tool.file.verify"
+  "tool.file.verify",
+  "tool.file.listDirectory",
+  "tool.file.readText"
 ]);
 
 export type PermissionGrants = ReadonlySet<string>;

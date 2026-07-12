@@ -18,6 +18,8 @@ import { echoTool } from "./builtin/echoTool";
 import { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 import { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
 import { fileVerifyTool } from "./builtin/fileVerifyTool";
+import { fileListDirectoryTool } from "./builtin/fileListDirectoryTool";
+import { fileReadTextTool } from "./builtin/fileReadTextTool";
 import { hasTool, registerTool } from "./toolRegistry";
 
 /**
@@ -43,7 +45,9 @@ export function registerBuiltinTools() {
     clipboardWriteTool,
     fileDownloadToTempTool,
     filePlaceDownloadTool,
-    fileVerifyTool
+    fileVerifyTool,
+    fileListDirectoryTool,
+    fileReadTextTool
   ] as const;
 
   for (const tool of tools) {

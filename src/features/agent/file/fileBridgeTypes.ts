@@ -40,6 +40,27 @@ export type FileVerifyData = {
   verifiedAt: number;
 };
 
+export type FileListDirectoryData = {
+  path: string;
+  entries: Array<{
+    name: string;
+    kind: "file" | "directory";
+    bytes?: number;
+    modifiedAt: number;
+  }>;
+  count: number;
+  truncated: boolean;
+};
+
+export type FileReadTextData = {
+  path: string;
+  fileName: string;
+  content: string;
+  bytes: number;
+  characters: number;
+  truncated: boolean;
+};
+
 export type FileBridgeResponse<T> =
   | { ok: true; data: T }
   | {

@@ -5,7 +5,9 @@
 import type {
   FileBridgeResponse,
   FileDownloadToTempData,
+  FileListDirectoryData,
   FilePlaceDownloadData,
+  FileReadTextData,
   FileVerifyData,
   OverwritePolicy
 } from "./fileBridgeTypes";
@@ -168,4 +170,18 @@ export async function verifyFile(
   signal?: AbortSignal
 ): Promise<FileVerifyData> {
   return postFileApi<FileVerifyData>("/void-file/verify", input, signal);
+}
+
+export async function listDirectory(
+  input: { path: string },
+  signal?: AbortSignal
+): Promise<FileListDirectoryData> {
+  return postFileApi<FileListDirectoryData>("/void-file/list-directory", input, signal);
+}
+
+export async function readText(
+  input: { path: string },
+  signal?: AbortSignal
+): Promise<FileReadTextData> {
+  return postFileApi<FileReadTextData>("/void-file/read-text", input, signal);
 }

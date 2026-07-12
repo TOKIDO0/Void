@@ -98,6 +98,8 @@ export { browserSelectTargetTool } from "./builtin/browserSelectTargetTool";
 export { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 export { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
 export { fileVerifyTool } from "./builtin/fileVerifyTool";
+export { fileListDirectoryTool } from "./builtin/fileListDirectoryTool";
+export { fileReadTextTool } from "./builtin/fileReadTextTool";
 export { clipboardReadTool } from "./builtin/clipboardReadTool";
 export { clipboardWriteTool } from "./builtin/clipboardWriteTool";
 export type {

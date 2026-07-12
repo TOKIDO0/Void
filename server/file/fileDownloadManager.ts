@@ -20,6 +20,7 @@ import {
   ensureRuntimeDirectories,
   resolveDownloadTempRoot
 } from "./fileRuntimePaths";
+import { assertAllowedFilePath } from "./filePathPolicy";
 import type {
   FileDownloadToTempData,
   FilePlaceDownloadData,
@@ -401,7 +402,7 @@ export class FileDownloadManager {
     if (!pathValue?.trim()) {
       throw createFileError("INVALID_REQUEST", "path 不能为空");
     }
-    const path = resolve(pathValue);
+    const path = assertAllowedFilePath(pathValue, { mustExist: false });
     if (!existsSync(path)) {
       return {
         path,

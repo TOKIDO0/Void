@@ -9,11 +9,14 @@ import {
   readJsonBody
 } from "../http/httpRequest";
 import { fileDownloadManager } from "./fileDownloadManager";
+import { fileAccessManager } from "./fileAccessManager";
 import { getFileErrorPayload } from "./fileRuntimePaths";
 import type {
   FileApiResponse,
   FileDownloadToTempData,
+  FileListDirectoryData,
   FilePlaceDownloadData,
+  FileReadTextData,
   FileVerifyData,
   OverwritePolicy
 } from "./fileTypes";
@@ -69,8 +72,12 @@ async function withFileHandler<T>(
         ? 400
         : payloadError.code === "PATH_NOT_ALLOWED" || payloadError.code === "OVERWRITE_REFUSED"
           ? 403
-          : payloadError.code === "FILE_NOT_FOUND"
-            ? 404
+        : payloadError.code === "FILE_NOT_FOUND"
+          ? 404
+          : payloadError.code === "FILE_TOO_LARGE"
+            ? 413
+            : payloadError.code === "INVALID_UTF8" || payloadError.code === "BINARY_FILE"
+              ? 415
             : 500;
     const payload: FileApiResponse<never> = {
       ok: false,
@@ -161,6 +168,30 @@ export async function handleFileHttpRequest(
         throw Object.assign(new Error("缺少 path"), { fileCode: "INVALID_REQUEST" });
       }
       return fileDownloadManager.verify(path);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/list-directory") {
+    await withFileHandler<FileListDirectoryData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const path = readString(body, "path");
+      if (!path) {
+        throw Object.assign(new Error("缺少 path"), { fileCode: "INVALID_REQUEST" });
+      }
+      return fileAccessManager.listDirectory(path);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/read-text") {
+    await withFileHandler<FileReadTextData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const path = readString(body, "path");
+      if (!path) {
+        throw Object.assign(new Error("缺少 path"), { fileCode: "INVALID_REQUEST" });
+      }
+      return fileAccessManager.readText(path);
     });
     return true;
   }

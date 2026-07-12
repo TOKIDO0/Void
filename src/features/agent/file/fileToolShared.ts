@@ -65,6 +65,15 @@ export function mapFileErrorToToolError(error: unknown): ToolError {
         withKind("file_not_found", info.details),
         false
       );
+    case "FILE_TOO_LARGE":
+    case "INVALID_UTF8":
+    case "BINARY_FILE":
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withKind(info.code.toLowerCase(), info.details),
+        false
+      );
     case "TIMEOUT":
       return createToolError("TIMEOUT", info.message, withKind("timeout", info.details), true);
     case "BRIDGE_UNREACHABLE":

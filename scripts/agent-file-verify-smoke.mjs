@@ -22,11 +22,12 @@ const CASES = [
 ];
 
 async function main() {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "void-verify-smoke-"));
+  process.env.VOID_FILE_ALLOW_ROOTS = tempDir;
   const { fileDownloadManager } = await import(
     pathToFileURL(path.join(root, "server/file/fileDownloadManager.ts")).href
   );
 
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "void-verify-smoke-"));
   let failed = false;
 
   try {
