@@ -40,6 +40,15 @@ import {
 } from "../emotion/emotionToResponsePolicy";
 import { loadAgentEmotionState, saveAgentEmotionState } from "../emotion/emotionStore";
 import type { AgentEmotionState, EmotionLabel, UserEmotionReading } from "../emotion/emotionTypes";
+import { recognizeSocialEvent } from "../emotion/socialEventRecognizer";
+import { evolveAgentAffect } from "../emotion/agentAffectEngine";
+import { loadAgentAffectState, saveAgentAffectState } from "../emotion/agentAffectStore";
+import type { AgentAffectState } from "../emotion/agentAffectTypes";
+import {
+  deriveBehaviorDecision,
+  type BehaviorDecision
+} from "../emotion/behaviorPolicy";
+import { classifyTaskContext } from "../emotion/taskContextClassifier";
 import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
 import { classifyMemory } from "../memory/memoryClassifier";
@@ -129,6 +138,8 @@ export function VoidStage() {
   const textExchangeActiveRef = useRef(false);
   // Agent 情绪状态（带惯性/衰减）：从本地持久化载入，随每轮对话演化后回写。
   const agentEmotionStateRef = useRef<AgentEmotionState>(loadAgentEmotionState());
+  // 二期关系情感（小时级）：与一期分钟级语气并行；键 void.agentAffectState，供 P1-P3 演化与门禁决策。
+  const agentAffectStateRef = useRef<AgentAffectState>(loadAgentAffectState());
   // 本轮用户情绪识别结果：供对话成功结束后判定「显著情绪」并写入 emotionTrend 记忆（D4）。
   const lastEmotionReadingRef = useRef<UserEmotionReading | null>(null);
   // 语音 final 内容闩锁：记录「上一条已发送定稿」的归一化文本（空串＝闩锁开放，允许下条放行）。
@@ -317,21 +328,46 @@ export function VoidStage() {
     tryCompleteVoiceOutputSession(nextVisualState);
   }, [tryCompleteVoiceOutputSession]);
 
-  // 本轮情绪结算：识别用户情绪 → 演化 Agent 情绪 → 持久化 → 派生策略。
+  // 本轮情绪结算：
+  // - 一期：识别用户情绪 → 演化短时 Agent 语气 → 持久化 → 派生 TTS/视觉/旧后缀
+  // - 二期 P1/P2：识别社会事件 → 演化小时级关系情感 → 派生关系行为与 Prompt 后缀
   // 必须在创建语音批处理器之前调用，使 TTS 表达参数（整轮一致）在首句合成前就绪。
-  // 一期只用文本；语音链路的声学线索后续接入 recognizeUserEmotion 第二参。
-  const resolveTurnEmotion = useCallback((message: string): EmotionResponsePolicy => {
+  const resolveTurnEmotion = useCallback((
+    message: string,
+    applySocialEvent = true
+  ): EmotionResponsePolicy & { behaviorDecision: BehaviorDecision } => {
     const emotionReading = recognizeUserEmotion(message);
     // 暂存本轮识别结果，供对话成功结束后的 emotionTrend 记忆写入判定（D4）。
     lastEmotionReadingRef.current = emotionReading;
     const nextAgentEmotion = evolveAgentEmotion(agentEmotionStateRef.current, emotionReading);
     agentEmotionStateRef.current = nextAgentEmotion;
     saveAgentEmotionState(nextAgentEmotion);
+
+    // 关系情感并行结算：与一期共用 safetyCritical，避免安全词表双写。
+    // 重新生成沿用同一条用户消息，不得再次累计同一个社会事件，否则一次辱骂会被重复记仇。
+    const socialReading = applySocialEvent ? recognizeSocialEvent(message) : null;
+    const nextAgentAffect = evolveAgentAffect(agentAffectStateRef.current, socialReading, {
+      safetyCritical: emotionReading.safetyCritical
+    });
+    agentAffectStateRef.current = nextAgentAffect;
+    saveAgentAffectState(nextAgentAffect);
+
+    // P3：任务情境与关系状态共同决定合作档位；安全/健康和重要数据保全不可被情绪拒绝。
+    const taskContext = classifyTaskContext(message, {
+      affectState: nextAgentAffect,
+      socialEvent: socialReading,
+      safetyCritical: emotionReading.safetyCritical
+    });
+    const behaviorDecision = deriveBehaviorDecision(
+      nextAgentAffect,
+      emotionReading,
+      taskContext
+    );
     const emotionPolicy = deriveEmotionResponsePolicy(nextAgentEmotion, emotionReading);
     // TTS 表达走 ref（整轮一致，合成时读取）；视觉偏移走 state（驱动中央流体重渲染）。
     turnTtsExpressionRef.current = emotionPolicy.ttsExpression;
     setEmotionVisualHint(emotionPolicy.visualHint);
-    return emotionPolicy;
+    return { ...emotionPolicy, behaviorDecision };
   }, []);
 
   // 记忆写入统一底层通道：接收已定分区/主体/敏感的候选记忆，走 policy 裁决后落库。
@@ -490,6 +526,7 @@ export function VoidStage() {
     attachments: VoidConversationAttachment[] = [],
     onStreamContent: ((content: string) => void) | undefined,
     emotionSystemPromptSuffix: string,
+    behaviorDecision: BehaviorDecision,
     signal: AbortSignal
   ) => {
     const modelConfig = {
@@ -526,8 +563,10 @@ export function VoidStage() {
         }
         : undefined,
       emotionSystemPromptSuffix,
+      behaviorDecision.systemPromptAffectSuffix,
       {
         requestConfirmation,
+        behaviorDecision,
         signal,
         onProgress: (progressMessage) => {
           if (!progressMessage.trim()) {
@@ -878,6 +917,7 @@ export function VoidStage() {
         attachments,
         syncStreamingAssistantMessage,
         emotionPolicy.systemPromptSuffix,
+        emotionPolicy.behaviorDecision,
         signal
       );
       if (activeExchangeIdRef.current !== exchangeId) {
@@ -936,7 +976,7 @@ export function VoidStage() {
     };
     const canStream = modelConfig.streamEnabled && modelConfig.provider === "openai-compatible";
     // 情绪先结算：使 TTS 表达参数在批处理器创建前就绪，整轮一致
-    const emotionPolicy = resolveTurnEmotion(content);
+    const emotionPolicy = resolveTurnEmotion(content, false);
     const streamingVoiceBatcher = canStream ? createStreamingVoiceBatcher() : null;
 
     try {
@@ -957,6 +997,7 @@ export function VoidStage() {
         targetMessage.attachments ?? [],
         syncStreamingAssistantMessage,
         emotionPolicy.systemPromptSuffix,
+        emotionPolicy.behaviorDecision,
         signal
       );
       if (activeExchangeIdRef.current !== exchangeId) {

@@ -45,6 +45,11 @@ import {
   formatToolConfirmWaitMessage,
   formatToolProgressMessage
 } from "./toolProgressCopy";
+import {
+  formatBehaviorToolRefusal,
+  isBehaviorToolGateBlocked,
+  type BehaviorDecision
+} from "../../emotion/behaviorPolicy";
 
 export type AgentToolLoopOptions = {
   /** 已含 system / 历史 / 本轮 user 的完整消息 */
@@ -54,6 +59,8 @@ export type AgentToolLoopOptions = {
   tools?: ProviderToolDefinition[];
   /** 上层回合路由允许暴露的内部工具名；缺省表示不过滤。 */
   allowedToolNames?: string[];
+  /** P3 关系情绪任务门禁；只收紧工具，不放宽路由、权限或风险等级。 */
+  taskGate?: BehaviorDecision["taskGate"];
   requestConfirmation?: (
     request: ConfirmationRequest
   ) => Promise<ConfirmationDecision>;
@@ -174,13 +181,39 @@ async function runAgentToolLoopInternal(
 
   const provider = getModelProvider(options.modelConfig.provider);
   const permissionGrants = getCurrentPermissionGrants();
+  const blockedByAffect = options.taskGate
+    ? isBehaviorToolGateBlocked(options.taskGate)
+    : false;
+
+  if (options.taskGate) {
+    appendExecutionLog({
+      taskId,
+      level: blockedByAffect ? "warn" : "info",
+      event: "affect.task_gate.rechecked",
+      message: blockedByAffect
+        ? "工具循环复核已拦截非安全工具"
+        : "工具循环复核允许继续",
+      data: {
+        layer: "tool_loop",
+        mood: options.taskGate.mood,
+        grievance: options.taskGate.grievance,
+        cooperation: options.taskGate.cooperation,
+        taskContext: options.taskGate.taskContext,
+        blockedTools: blockedByAffect,
+        reason: options.taskGate.reason
+      }
+    });
+  }
+
   if (!provider.supportsTools) {
     const response = await provider.sendMessage(
       { messages: options.messages, signal: options.signal },
       options.modelConfig
     );
     return {
-      content: response.content,
+      content: blockedByAffect && options.taskGate
+        ? formatBehaviorToolRefusal(options.taskGate)
+        : response.content,
       usedTools: false,
       rounds: 1,
       taskId
@@ -194,22 +227,27 @@ async function runAgentToolLoopInternal(
     ? options.tools.filter((definition) => {
         const tool = getTool(fromModelToolName(definition.function.name));
         return Boolean(
-          tool
+          !blockedByAffect
+          && tool
           && (!allowedToolNames || allowedToolNames.has(tool.name))
           && hasToolPermissionGrants(tool, permissionGrants)
         );
       })
-    : listModelToolDefinitions(permissionGrants).filter((definition) =>
-        !allowedToolNames
-        || allowedToolNames.has(fromModelToolName(definition.function.name))
-      );
+    : blockedByAffect
+      ? []
+      : listModelToolDefinitions(permissionGrants).filter((definition) =>
+          !allowedToolNames
+          || allowedToolNames.has(fromModelToolName(definition.function.name))
+        );
   if (tools.length === 0) {
     const response = await provider.sendMessage(
       { messages: options.messages, signal: options.signal },
       options.modelConfig
     );
     return {
-      content: response.content,
+      content: blockedByAffect && options.taskGate
+        ? formatBehaviorToolRefusal(options.taskGate)
+        : response.content,
       usedTools: false,
       rounds: 1,
       taskId
@@ -402,7 +440,8 @@ async function runAgentToolLoopInternal(
         requestConfirmation: options.requestConfirmation,
         signal: options.signal,
         onProgress: options.onProgress,
-        permissionGrants
+        permissionGrants,
+        taskGate: options.taskGate
       });
 
       toolInvocationCount += 1;
@@ -579,8 +618,34 @@ async function runSingleToolCall(params: {
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
   permissionGrants: PermissionGrants;
+  taskGate?: BehaviorDecision["taskGate"];
 }): Promise<string> {
   const toolName = params.toolName;
+
+  // 执行前最后一道关系 gate：必须早于 schema、权限确认和 executeToolCall。
+  if (params.taskGate && isBehaviorToolGateBlocked(params.taskGate)) {
+    appendExecutionLog({
+      level: "warn",
+      taskId: params.taskId,
+      stepId: params.stepId,
+      toolName,
+      event: "affect.task_gate.blocked_execution",
+      message: "关系情绪门禁阻止工具进入执行器",
+      data: {
+        mood: params.taskGate.mood,
+        grievance: params.taskGate.grievance,
+        cooperation: params.taskGate.cooperation,
+        taskContext: params.taskGate.taskContext,
+        blockedTools: true,
+        reason: params.taskGate.reason
+      }
+    });
+    return serializeToolFailure(
+      "本轮关系门禁已关闭普通、非安全工具；请如实说明没有执行，并请用户重新提出。",
+      "AFFECT_TOOL_GATE_BLOCKED"
+    );
+  }
+
   const tool = getTool(toolName);
 
   if (!tool) {

@@ -12,6 +12,12 @@ import {
 } from "./turnRouting/turnCapabilityRouter";
 import { stripStageDirections } from "./responseTextDisplay";
 import { isVoidBridgeReachable } from "./bridge/bridgeHealthClient";
+import {
+  formatBehaviorToolRefusal,
+  isBehaviorToolGateBlocked,
+  type BehaviorDecision
+} from "../emotion/behaviorPolicy";
+import { appendExecutionLog } from "./observability";
 
 export type VoidConversationAttachment = {
   id: string;
@@ -40,6 +46,8 @@ export type VoidMessageRuntimeOptions = {
   signal?: AbortSignal;
   /** 默认 true：支持 tools 的 provider 走 agent loop */
   enableTools?: boolean;
+  /** P3 关系情绪门禁；缺省表示调用方没有启用主体情绪决策。 */
+  behaviorDecision?: BehaviorDecision;
 };
 
 type StoredConversationPayload = {
@@ -72,14 +80,15 @@ const TOOL_USE_COMMON_SUFFIX = [
 ];
 
 const BROWSER_TOOL_USE_SUFFIX = [
-  "本轮只允许使用浏览器、下载与下载后整理工具；若本轮工具列表含 clipboard.read，还可读取剪贴板。",
+  "本轮只允许使用浏览器、下载与下载后整理工具；若本轮工具列表含 clipboard.read，还可读取剪贴板；若含 desktop.revealPath，可在落盘成功后打开资源管理器展示位置。",
   "当用户要求搜索、打开网页、看视频、下载文件时，必须调用工具，禁止假装已经操作。",
   "剪贴板 URL 下载主路径（用户说从剪贴板/粘贴板下载链接、保存剪贴板网址等）：先 clipboard.read。读到文本后按主机分流，禁止跳过读取直接瞎猜 URL：① 空、非 http(s) URL、或明显不是链接 → 不要调用任何 download*，用中文说明剪贴板内容不是可下载链接；② B 站视频页（www/m.bilibili.com/video/BVxxx 或 avxxx，或 b23.tv 短链）→ file.downloadMediaPage(pageUrl) → 用户确认后 file.placeDownload → file.verify；禁止对 B 站视频页用 file.downloadToTemp；③ 可直接 GET 的文件直链（常见 .exe/.msi/.zip/.dmg 等）→ file.downloadToTemp → place → verify；④ YouTube 或其它未支持主机/普通 HTML 页 → 不要调用 download*，如实说明当前仅支持 B 站视频页与文件直链，并点名不支持的主机。未确认 place 前不得声称已保存到最终目录。",
   "下载主路径（安装包/任意文件通用）：先拿到可直接 GET 的 http(s) 文件直链（URL 常以 .exe/.msi/.zip/.dmg 等结尾，或 Content-Disposition 指向文件），再 file.downloadToTemp → 用户确认后 file.placeDownload → file.verify；默认最终目录 D:\\AI\\void-runtime\\downloads。",
   "下载后整理（用户要求归入子目录/按日期或任务名归档）：file.placeDownload 落到默认下载根后，file.createDirectory 在允许根内建一层子目录（父目录须已存在，不递归）→ file.move(sourcePath=place 的 finalPath, destinationPath=子目录\\文件名) → file.verify；需要时先 file.listDirectory 看现状。汇报最终 destinationPath。用户只要下载不要整理时，place+verify 后收口。",
+  "落盘后打开位置（T3.c）：仅当 place 已成功且用户要求「打开所在位置 / 显示文件夹 / 在资源管理器里看 / 帮我打开下载目录」时，再调 desktop.revealPath(path=finalPath 或所在目录)。未确认 place 前禁止 reveal，也不得声称已打开目录。用户只要下载不要打开时，place+verify（及可选整理）后收口，不要强行 reveal。失败如实报 PATH_NOT_ALLOWED / PATH_NOT_FOUND / 桥接不可达等，禁止假装已打开。",
   "禁止把「在官网反复 click 下载按钮」当主路径：file.downloadToTemp 只认直链，不会自动捕获浏览器按钮触发的下载。",
   "找直链：browser.search 结果里优先挑文件直链；否则 open 后 browser.extract 找 href 含安装包扩展名的链接。拿不到直链时，立刻用中文说明「当前只能下载直链文件，官网按钮下载尚不支持」，并给出你看到的官网 URL；不要空转 click/open 耗尽预算。",
-  "拒绝确认或 PATH_NOT_ALLOWED / DESTINATION_EXISTS / CROSS_DEVICE_MOVE 时不得声称已保存或已整理。",
+  "拒绝确认或 PATH_NOT_ALLOWED / DESTINATION_EXISTS / CROSS_DEVICE_MOVE / PATH_NOT_FOUND 时不得声称已保存、已整理或已打开位置。",
   "找 B 站博主/视频：browser.search 必须设 engine=bilibili；不要只用全网搜索碰运气。",
   "B 站视频下载主路径：browser.search(engine=bilibili) → 向用户确认目标视频 → file.downloadMediaPage(pageUrl=该视频页) → 用户确认后 file.placeDownload → file.verify。需要整理时再接 createDirectory+move。不要对 B 站视频页调用 file.downloadToTemp（那是直链专用）。若报 YTDLP_NOT_FOUND / FFMPEG_NOT_FOUND，如实告诉用户需要本机安装 yt-dlp 与 ffmpeg。",
   "browser.open 只打开 Playwright 自动化窗口（用户可能在任务栏另见一个浏览器图标，不是日常浏览器）；缺省每次 open 新建标签页并返回 pageId。",
@@ -116,6 +125,7 @@ export async function sendVoidMessage(
   attachments: VoidConversationAttachment[] = [],
   onToken?: (token: string) => void,
   emotionContext?: string,
+  affectContext?: string,
   runtimeOptions: VoidMessageRuntimeOptions = {}
 ) {
   const provider = getModelProvider(modelConfig.provider);
@@ -124,9 +134,19 @@ export async function sendVoidMessage(
   // 空召回时 projectMemories 返回空串，buildSystemPrompt 据此跳过注入，零副作用。
   const memoryContext = projectMemories(retrieveMemories(userInput));
   const turnRoute = resolveTurnCapability(userInput, conversationHistory);
+  const taskGate = runtimeOptions.behaviorDecision?.taskGate;
+  const blockedByAffect = taskGate ? isBehaviorToolGateBlocked(taskGate) : false;
+  const routeHasTools = turnRoute.allowedToolNames.length > 0;
+  const relationshipToolRefusal = blockedByAffect && routeHasTools;
   const enableTools = runtimeOptions.enableTools !== false
     && Boolean(provider.supportsTools)
-    && turnRoute.allowedToolNames.length > 0;
+    && routeHasTools
+    && !blockedByAffect;
+
+  if (runtimeOptions.behaviorDecision) {
+    appendTaskGateAudit(runtimeOptions.behaviorDecision, relationshipToolRefusal);
+  }
+
   if (enableTools && !(await isVoidBridgeReachable(runtimeOptions.signal))) {
     const content = turnRoute.capability === "desktop"
       ? "本机控制组件未连接，所以现在不能打开“此电脑”。请启动 VOID 桌面端或本机控制服务后再试。"
@@ -140,15 +160,36 @@ export async function sendVoidMessage(
       content: buildSystemPrompt(
         modelConfig,
         emotionContext,
+        affectContext,
         memoryContext,
         enableTools,
         turnRoute.capability,
-        normalizedUserInput
+        normalizedUserInput,
+        taskGate
       )
     },
     ...buildRequestConversationHistory(conversationHistory),
     { role: "user", content: normalizedUserInput }
   ];
+
+  // soft/hard refuse 的工具回合仍让模型生成自然边界表达，但不暴露任何工具，
+  // 并强制非流式后做事实校验，避免流式阶段先展示“已执行”的错误声称。
+  if (relationshipToolRefusal && runtimeOptions.behaviorDecision) {
+    try {
+      const response = await provider.sendMessage(
+        { messages, signal: runtimeOptions.signal },
+        { ...modelConfig, streamEnabled: false }
+      );
+      const content = enforceRelationshipRefusalReply(
+        response.content,
+        runtimeOptions.behaviorDecision
+      );
+      onToken?.(content);
+      return { content };
+    } catch (error) {
+      throw provider.mapError(error);
+    }
+  }
 
   // 支持 tools 的 provider：走 agent loop（非流式拿 tool_calls，最终回复一次性返回）
   if (enableTools) {
@@ -163,7 +204,8 @@ export async function sendVoidMessage(
         requestConfirmation: runtimeOptions.requestConfirmation,
         onProgress: runtimeOptions.onProgress,
         signal: runtimeOptions.signal,
-        allowedToolNames: turnRoute.allowedToolNames
+        allowedToolNames: turnRoute.allowedToolNames,
+        taskGate
       });
       // 兼容旧调用方：若有 onToken，把最终文本整段推一次，便于显示层刷新
       if (onToken && loopResult.content) {
@@ -193,10 +235,12 @@ export async function sendVoidMessage(
 function buildSystemPrompt(
   modelConfig: ModelConfig,
   emotionContext?: string,
+  affectContext?: string,
   memoryContext?: string,
   enableTools = false,
   capability: TurnCapability = "conversation",
-  latestUserInput = ""
+  latestUserInput = "",
+  taskGate?: BehaviorDecision["taskGate"]
 ) {
   const sections = [VOID_SYSTEM_PROMPT];
 
@@ -223,12 +267,69 @@ function buildSystemPrompt(
     sections.push(emotionContext.trim());
   }
 
+  // 二期关系情感上下文（可选）：排在用户短时情绪之后、工具约束之前。
+  // P3 同时消费 taskGate；Prompt 负责表达，硬 gate 负责真实行为。
+  if (affectContext && affectContext.trim()) {
+    sections.push(affectContext.trim());
+  }
+
+  if (taskGate && isBehaviorToolGateBlocked(taskGate)) {
+    sections.push([
+      "【本轮关系门禁】",
+      "本轮普通、非安全工具已被真实关闭，任何下载、打开、移动、保存或写入都没有发生。",
+      "请用简短、克制的中文表达边界，并明确本轮没有执行；禁止声称操作已完成，也不要输出工具协议。",
+      taskGate.refuseMessageHint
+    ].filter(Boolean).join("\n"));
+  }
+
   // 工具短约束：仅在本轮启用 tools 时注入，不罗列全部参数 schema
   if (enableTools) {
     sections.push(buildToolUseSystemSuffix(capability));
   }
 
   return sections.join("\n\n");
+}
+
+function appendTaskGateAudit(
+  behaviorDecision: BehaviorDecision,
+  blockedTools: boolean
+) {
+  const taskGate = behaviorDecision.taskGate;
+  const gateClosed = isBehaviorToolGateBlocked(taskGate);
+  appendExecutionLog({
+    taskId: `affect_gate_${Date.now().toString(36)}`,
+    level: gateClosed ? "warn" : "info",
+    event: "affect.task_gate.decided",
+    message: blockedTools
+      ? "关系情绪门禁已拦截非安全工具"
+      : gateClosed
+        ? "关系情绪门禁已关闭，本轮没有路由工具"
+        : "关系情绪门禁允许本轮继续",
+    data: {
+      layer: "conversation",
+      mood: taskGate.mood,
+      grievance: taskGate.grievance,
+      cooperation: behaviorDecision.cooperation,
+      taskContext: taskGate.taskContext,
+      blockedTools,
+      reason: taskGate.reason
+    }
+  });
+}
+
+/** 拒绝回合没有工具证据；模型若仍声称完成操作，直接改成诚实边界回复。 */
+function enforceRelationshipRefusalReply(
+  content: string,
+  behaviorDecision: BehaviorDecision
+): string {
+  const text = content.trim();
+  const claimsExecution =
+    /(?:已|已经|成功)(?:经)?(?:下载|打开|移动|保存|写入|创建|执行|完成)|(?:下载|打开|移动|保存|写入|创建|操作)(?:完成|成功|好了)/.test(text);
+  if (text && !claimsExecution) {
+    return text;
+  }
+
+  return formatBehaviorToolRefusal(behaviorDecision.taskGate);
 }
 
 function buildToolUseSystemSuffix(capability: TurnCapability) {

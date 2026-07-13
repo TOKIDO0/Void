@@ -17,6 +17,8 @@ export type TurnCapabilityRoute = {
  * 浏览器/下载主路径工具。
  * T3.a：附带 list/createDirectory/move，使「下载并整理到子目录」可在同一能力回合完成，
  * 无需再切到纯 file 能力（纯 file 没有 download*）。
+ * T3.c：附带 desktop.revealPath，使 place+verify 成功后可在同一回合打开落盘位置；
+ * 不塞入 openKnownLocation 等其它桌面能力。
  */
 const BROWSER_TOOL_NAMES = [
   "browser.open",
@@ -35,12 +37,14 @@ const BROWSER_TOOL_NAMES = [
   "file.verify",
   "file.listDirectory",
   "file.createDirectory",
-  "file.move"
+  "file.move",
+  "desktop.revealPath"
 ];
 
 /**
  * T3.b：剪贴板 URL 下载。
  * 必须同时暴露 clipboard.read 与 download*；仅 clipboard 没有下载，仅 browser 读不到剪贴板。
+ * 继承 BROWSER_TOOL_NAMES，因此同样含 T3.c 的 desktop.revealPath。
  */
 const CLIPBOARD_DOWNLOAD_TOOL_NAMES = [
   "clipboard.read",

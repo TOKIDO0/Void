@@ -20,7 +20,7 @@ export const desktopRevealPathTool: ToolDefinition<
 > = {
   name: "desktop.revealPath",
   description:
-    "在 Windows 资源管理器中展示允许根内的已存在路径：目录直接打开，文件选中显示。绝不执行目标文件。",
+    "在 Windows 资源管理器中展示允许根内的已存在路径：目录直接打开，文件选中显示。绝不执行目标文件。下载 place+verify 成功后，若用户要看落盘位置，用 path=finalPath（或所在目录）调用本工具；未落盘成功前不要调用。",
   version: "1.0.0",
   riskLevel: "L2",
   inputSchema: {
