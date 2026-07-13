@@ -1,18 +1,19 @@
 // VOID 记忆系统 —— 类型唯一真源
-// 依据 21 号文档第 3 节与 04 号文档第 6 节。分区只此八类、主体只四类、敏感只三级。
+// 依据 21 号文档第 3 节与 04 号文档第 6/7 节。分区只此九类、主体只四类、敏感只三级。
 // 扩项必须先改 04 号文档，再回来同步这里；其它模块（store / classifier / retriever /
 // projection / UI）一律从本文件引入类型与常量，不得自建平行定义。
 
 /**
- * 记忆分区：八类分区知识库，互不混淆。
- * - userProfile    用户画像：昵称、称呼、语言偏好、重要身份
- * - emotionTrend   情绪状态：最近情绪走势、压力源、低落周期
- * - longTermGoal   长期目标：反复提到的目标和计划
- * - healthRecord   健康档案：用户本人或亲属健康信息（靠 subjectType 区分主体）
- * - relationship   人际关系：重要人物、关系状态、沟通困扰
- * - preference     偏好习惯：作息、表达习惯、回复风格偏好
- * - task           任务待办：明确时间、任务、提醒
- * - knowledgeCache 专业知识缓存：已查过且可复用的资料摘要
+ * 记忆分区：九类分区知识库，互不混淆。
+ * - userProfile       用户画像：昵称、称呼、语言偏好、重要身份
+ * - emotionTrend      情绪状态：最近情绪走势、压力源、低落周期
+ * - longTermGoal      长期目标：反复提到的目标和计划
+ * - healthRecord      健康档案：用户本人或亲属健康信息（靠 subjectType 区分主体）
+ * - relationship      人际关系：用户与朋友/亲属/伴侣等现实人际关系
+ * - preference        偏好习惯：作息、表达习惯、回复风格偏好
+ * - task              任务待办：明确时间、任务、提醒
+ * - knowledgeCache    专业知识缓存：已查过且可复用的资料摘要
+ * - agentRelationship VOID 与用户：仅显著关系事件中性摘要（P6；禁止混入 relationship）
  */
 export type MemoryType =
   | "userProfile"
@@ -22,7 +23,8 @@ export type MemoryType =
   | "relationship"
   | "preference"
   | "task"
-  | "knowledgeCache";
+  | "knowledgeCache"
+  | "agentRelationship";
 
 /** 记忆主体类型：把健康 / 人际信息落到正确的人身上，避免亲属信息混进本人档案。 */
 export type SubjectType = "self" | "relative" | "friend" | "other";
@@ -69,7 +71,8 @@ export const MEMORY_TYPES: readonly MemoryType[] = [
   "relationship",
   "preference",
   "task",
-  "knowledgeCache"
+  "knowledgeCache",
+  "agentRelationship"
 ];
 
 /** 全部合法主体类型 */
@@ -87,7 +90,8 @@ export const MEMORY_TYPE_LABELS: Record<MemoryType, string> = {
   relationship: "人际关系",
   preference: "偏好习惯",
   task: "任务待办",
-  knowledgeCache: "专业知识缓存"
+  knowledgeCache: "专业知识缓存",
+  agentRelationship: "VOID 与用户"
 };
 
 /** 主体类型中文标签 */

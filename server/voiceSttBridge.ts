@@ -338,8 +338,9 @@ function handleBrowserConnection(browserSocket: WebSocket) {
     }
 
     if (event.type === "commit") {
+      // 本地 VAD 已确认持续静音：立即提交，避免前端 400ms 合并窗再被残余 partial 冲掉。
       clearCommitTimer();
-      commitUtterance();
+      commitUtterance(true);
       return;
     }
 

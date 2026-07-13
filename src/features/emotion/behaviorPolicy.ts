@@ -4,6 +4,7 @@
 
 import type { AgentAffectState } from "./agentAffectTypes";
 import type { UserEmotionReading } from "./emotionTypes";
+import type { TtsExpressionAction } from "./expression/expressionTypes";
 import type { TaskContext, TaskContextKind } from "./taskContextClassifier";
 
 export type CooperationMode =
@@ -37,8 +38,8 @@ export type BehaviorDecision = {
     mood: AgentAffectState["mood"];
     grievance: number;
   };
-  /** P2 禁止抢跑表达动作，P4/P5 再扩展该字段 */
-  expressionPlan: [];
+  /** P4.a 最多一条 TTS 短插句；桌面表达动作仍不在本窗范围。 */
+  expressionPlan: TtsExpressionAction[];
   /** 本轮关系上下文；空串表示保持基础人格，不额外加戏 */
   systemPromptAffectSuffix: string;
 };

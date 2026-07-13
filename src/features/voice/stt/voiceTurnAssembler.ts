@@ -10,10 +10,17 @@
  * 1. 豆包可能对同一句先发无标点稿、再发带标点稿，短间隔内出现两条 final。
  * 2. 关麦时要立刻提交当前草稿，不能再等 Worker 静音计时。
  * 3. 把「何时真正交给 AI」收敛到唯一出口，便于后续继续调参。
+ *
+ * 关键修复：final 进入合并窗后，麦克风仍在推静音/残余音频，上游会继续吐 partial。
+ * 旧逻辑一律清空 pendingFinal，导致「只见预览、不进入思考，关麦才发送」。
+ * 合并窗内 partial 只能：忽略噪声、续说接管、或新句抢先提交旧 final。
  */
 
 /** 相邻 final 合并窗口：只合并标点修订/抖动重发，不拉长正常回合。 */
 const FINAL_COALESCE_MS = 400;
+
+/** 提交后短静默：挡住同一句的尾音/残余 partial 再次回调，避免误 barge-in。 */
+const POST_COMMIT_SUPPRESS_MS = 1200;
 
 /** 过短噪声不提交（语气词/误触），正常短指令如「你好」仍可通过。 */
 const MIN_COMMIT_CHARS = 1;
@@ -33,23 +40,70 @@ export class VoiceTurnAssembler {
   private coalesceTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingFinalText = "";
   private disposed = false;
+  /** 最近一次成功提交的归一化文本 + 时间，用于 residual partial 抑制。 */
+  private lastCommittedNormalized = "";
+  private lastCommittedAt = 0;
 
   constructor(options: VoiceTurnAssemblerOptions) {
     this.onPreview = options.onPreview;
     this.onCommit = options.onCommit;
   }
 
-  /** 识别中间结果：只更新预览与草稿，绝不提交。 */
+  /**
+   * 识别中间结果：只更新预览与草稿，绝不提交。
+   * 若已有 pending final，禁止无脑清空，否则会把已判停的回合永远卡在预览态。
+   */
   handlePartial(text: string) {
     if (this.disposed) {
       return;
     }
 
     const normalized = text.trim();
+    if (!normalized) {
+      return;
+    }
+
+    // 刚提交过：同一句的尾音/补标点 residual 直接丢弃，避免上层误判为新的用户打断。
+    if (this.shouldSuppressPostCommitPartial(normalized)) {
+      return;
+    }
+
+    // 合并窗打开期间：final 已判停，partial 只允许三种处理，禁止直接抹掉 pendingFinal。
+    if (this.coalesceTimer && this.pendingFinalText) {
+      if (!normalized) {
+        return;
+      }
+
+      const pendingKey = normalizeForCompare(this.pendingFinalText);
+      const partialKey = normalizeForCompare(normalized);
+
+      // 同一句的残余/标点抖动：忽略，让合并窗正常提交。
+      if (
+        !partialKey
+        || partialKey === pendingKey
+        || pendingKey.startsWith(partialKey)
+        || this.pendingFinalText.includes(normalized)
+      ) {
+        return;
+      }
+
+      // 用户其实还在续说：pending 只是中间定稿，取消提交，回到草稿跟读。
+      if (partialKey.startsWith(pendingKey) || normalized.includes(this.pendingFinalText)) {
+        this.clearCoalesceTimer();
+        this.pendingFinalText = "";
+        this.draftText = normalized;
+        this.onPreview(normalized);
+        return;
+      }
+
+      // 明显是下一句：立刻提交上一句，再开始新草稿。
+      this.commitPendingFinal();
+      this.draftText = normalized;
+      this.onPreview(normalized);
+      return;
+    }
+
     this.draftText = normalized;
-    // 新 partial 到来时，取消尚未落地的 final 合并，避免半截旧稿抢先提交。
-    this.clearCoalesceTimer();
-    this.pendingFinalText = "";
     this.onPreview(normalized);
   }
 
@@ -98,6 +152,8 @@ export class VoiceTurnAssembler {
     this.pendingFinalText = "";
     this.draftText = "";
     if (text && countCommitChars(text) >= MIN_COMMIT_CHARS) {
+      this.lastCommittedNormalized = normalizeForCompare(text);
+      this.lastCommittedAt = Date.now();
       this.onCommit(text);
     }
     this.onPreview("");
@@ -112,6 +168,7 @@ export class VoiceTurnAssembler {
   }
 
   private commitPendingFinal() {
+    this.clearCoalesceTimer();
     const text = this.pendingFinalText.trim();
     this.pendingFinalText = "";
     this.draftText = "";
@@ -121,7 +178,33 @@ export class VoiceTurnAssembler {
       return;
     }
 
+    this.lastCommittedNormalized = normalizeForCompare(text);
+    this.lastCommittedAt = Date.now();
     this.onCommit(text);
+  }
+
+  /**
+   * 提交后短窗内，若 partial 与上一句相同或互为前缀，视为 residual，不向 UI 冒泡。
+   * 真正的新句子（归一化后既不相等也不互为前缀）仍放行。
+   */
+  private shouldSuppressPostCommitPartial(text: string) {
+    if (!this.lastCommittedNormalized) {
+      return false;
+    }
+    if (Date.now() - this.lastCommittedAt > POST_COMMIT_SUPPRESS_MS) {
+      return false;
+    }
+
+    const partialKey = normalizeForCompare(text);
+    if (!partialKey) {
+      return true;
+    }
+
+    return (
+      partialKey === this.lastCommittedNormalized
+      || this.lastCommittedNormalized.startsWith(partialKey)
+      || partialKey.startsWith(this.lastCommittedNormalized)
+    );
   }
 
   private clearCoalesceTimer() {

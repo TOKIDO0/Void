@@ -63,10 +63,27 @@ export function handleTtsSession(clientSocket: WebSocket, env: Env): void {
     sendToBrowser({ type: "done" });
   };
 
+  // 正常收尾时不要立刻掐客户端：done 事件需要先被浏览器处理完再 close。
+  // 过早 close 会让前端走「桥接连接已关闭」，已收到的音频也播不出来。
+  let clientCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleClientClose = (delayMs = 80) => {
+    if (handshakeState === "closed" || clientCloseTimer) {
+      return;
+    }
+    clientCloseTimer = setTimeout(() => {
+      clientCloseTimer = null;
+      closeAll();
+    }, delayMs);
+  };
+
   const closeAll = () => {
     handshakeState = "closed";
     clientOpen = false;
     upstreamOpen = false;
+    if (clientCloseTimer) {
+      clearTimeout(clientCloseTimer);
+      clientCloseTimer = null;
+    }
     try {
       upstreamSocket?.close();
     } catch {
@@ -205,7 +222,8 @@ export function handleTtsSession(clientSocket: WebSocket, env: Env): void {
 
     if (decoded.type === MsgType.AudioOnlyServer) {
       if (decoded.payload.length > 0) {
-        sendToBrowser({ type: "audio", audioBase64: Buffer.from(decoded.payload).toString("base64") });
+        // 不用 Buffer：Workers 运行时对 base64 用 btoa 更稳，避免偶发依赖差异。
+        sendToBrowser({ type: "audio", audioBase64: bytesToBase64(decoded.payload) });
       }
       return;
     }
@@ -243,12 +261,15 @@ export function handleTtsSession(clientSocket: WebSocket, env: Env): void {
           return;
         }
         case EventType.SessionFinished: {
+          // 先 done 再 FinishConnection；给浏览器一个事件循环处理 done，
+          // 避免「done 未结算就被 close」导致客户端报桥接关闭且无声。
           emitDone();
           sendFinishConnection();
           return;
         }
         case EventType.ConnectionFinished: {
-          closeAll();
+          // 微延迟关客户端，确保 done 帧先被浏览器处理。
+          scheduleClientClose();
           return;
         }
         default:
@@ -313,12 +334,23 @@ export function handleTtsSession(clientSocket: WebSocket, env: Env): void {
     });
     upstream.addEventListener("close", () => {
       upstreamOpen = false;
-      if (handshakeState !== "closed") {
-        closeAll();
+      if (handshakeState === "closed") {
+        return;
       }
+      // 音频已收完并通知过浏览器：不要立刻硬关客户端，留给 done 结算窗口。
+      if (doneSent) {
+        scheduleClientClose();
+        return;
+      }
+      // 未完成就断：必须带错误消息，否则浏览器只会看到「桥接连接已关闭」。
+      failAndClose(`豆包 TTS 上游连接提前关闭（state=${handshakeState}）。`);
     });
     upstream.addEventListener("error", () => {
       upstreamOpen = false;
+      if (doneSent) {
+        scheduleClientClose();
+        return;
+      }
       failAndClose("豆包 TTS 连接异常。");
     });
 
@@ -371,4 +403,15 @@ export function handleTtsSession(clientSocket: WebSocket, env: Env): void {
     clientOpen = false;
     closeAll();
   });
+}
+
+/** Uint8Array → base64，不依赖 Node Buffer。 */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
 }

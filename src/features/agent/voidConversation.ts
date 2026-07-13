@@ -131,6 +131,7 @@ export async function sendVoidMessage(
   const provider = getModelProvider(modelConfig.provider);
   const normalizedUserInput = buildUserInputWithAttachments(userInput, attachments);
   // 记忆召回：按本轮用户输入的话题只取相关分区的少量长期记忆，投影成一段可注入文本。
+  // P6：仅当用户明确谈与 VOID 的关系时，retrieveMemories 才会额外并入最多 2 条 agentRelationship。
   // 空召回时 projectMemories 返回空串，buildSystemPrompt 据此跳过注入，零副作用。
   const memoryContext = projectMemories(retrieveMemories(userInput));
   const turnRoute = resolveTurnCapability(userInput, conversationHistory);

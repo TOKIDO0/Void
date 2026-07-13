@@ -1,9 +1,15 @@
 // VOID 记忆系统 —— 按意图召回
 // 职责单一：根据当前用户问题判出意图，只召回相关分区的有界条数记忆，绝不全量塞 prompt。
 // 分区映射对齐 04 号第 4 节召回规则。读库走 memoryStore，不写、不分类、不投影。
+// P6：agentRelationship 不进默认映射；仅用户明确谈与 VOID 的关系时额外最多 2 条。
 
 import type { MemoryEntry, MemoryType } from "./memoryTypes";
 import { listMemories } from "./memoryStore";
+import {
+  AGENT_RELATIONSHIP_RECALL_LIMIT,
+  isExplicitVoidRelationshipTopic,
+  selectAgentRelationshipEntries
+} from "./agentRelationshipMemory";
 
 /** 召回意图：从用户当前问题推断，决定拉哪些分区。 */
 export type RetrievalIntent =
@@ -11,7 +17,7 @@ export type RetrievalIntent =
   | "emotion" // 情绪倾诉
   | "task" // 任务整理
   | "professional" // 专业问题
-  | "relationship" // 人际关系
+  | "relationship" // 人际关系（用户现实人际，不含 VOID 自身）
   | "general"; // 泛化 / 无强意图
 
 /**
@@ -20,8 +26,9 @@ export type RetrievalIntent =
  * - 情绪：情绪状态 + 用户画像（近期相关上下文）
  * - 任务：任务待办 + 长期目标
  * - 专业：专业知识缓存（当前模型检索结果不在本模块）
- * - 人际：人际关系 + 情绪状态
+ * - 人际：人际关系 + 情绪状态（用户现实人际；不含 agentRelationship）
  * - 泛化：用户画像 + 偏好（提供最小人设底座）
+ * agentRelationship 永不进入本表，只走显式 VOID 关系话题旁路。
  */
 const INTENT_TYPE_MAP: Record<RetrievalIntent, readonly MemoryType[]> = {
   health: ["healthRecord", "userProfile"],
@@ -60,21 +67,48 @@ export type RetrieveResult = {
 /**
  * 按用户当前问题召回相关记忆。
  * 流程：判意图 → 取目标分区 → 过滤（分区匹配 + 未过期）→ 排序 → 截断。
+ * 若用户明确谈与 VOID 的关系，再并入最多 2 条 agentRelationship（不占默认分区配额外膨胀）。
  */
 export function retrieveMemories(query: string, options: RetrieveOptions = {}): RetrieveResult {
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
   const now = options.now ?? Date.now();
+  const allEntries = listMemories();
 
   const intent = detectIntent(query);
   const targetTypes = INTENT_TYPE_MAP[intent];
 
-  const entries = listMemories()
+  // 默认召回绝不包含 agentRelationship，避免普通闲聊/人际/任务把 VOID 关系档案塞进 prompt。
+  const baseEntries = allEntries
     .filter((entry) => targetTypes.includes(entry.memoryType))
     .filter((entry) => entry.expiresAt === undefined || entry.expiresAt > now)
     .sort(compareByRelevance)
     .slice(0, maxEntries);
 
-  return { intent, entries };
+  const relationshipEntries = isExplicitVoidRelationshipTopic(query)
+    ? selectAgentRelationshipEntries(allEntries, {
+        maxEntries: AGENT_RELATIONSHIP_RECALL_LIMIT,
+        now
+      })
+    : [];
+
+  // 先放默认分区，再追加关系档案；按 id 去重，总量仍受 maxEntries + 关系上限约束。
+  const merged = mergeUniqueEntries(baseEntries, relationshipEntries);
+
+  return { intent, entries: merged };
+}
+
+/** 保序合并并按 id 去重：base 在前，extra 追加。 */
+function mergeUniqueEntries(base: MemoryEntry[], extra: MemoryEntry[]): MemoryEntry[] {
+  const seen = new Set(base.map((entry) => entry.id));
+  const merged = [...base];
+  for (const entry of extra) {
+    if (seen.has(entry.id)) {
+      continue;
+    }
+    seen.add(entry.id);
+    merged.push(entry);
+  }
+  return merged;
 }
 
 /** 从用户问题推断召回意图，无强特征则归 general。 */

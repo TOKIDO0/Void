@@ -57,7 +57,8 @@ export class VoicePlaybackController {
       return;
     }
 
-    const audio = new Audio(nextAudioUrl);
+    const audio = new Audio();
+    audio.preload = "auto";
     this.currentAudio = audio;
     this.currentAudioUrl = nextAudioUrl;
 
@@ -77,7 +78,8 @@ export class VoicePlaybackController {
       }
 
       audio.pause();
-      audio.src = "";
+      audio.removeAttribute("src");
+      audio.load();
       URL.revokeObjectURL(nextAudioUrl);
       callback?.();
       this.playNext();
@@ -95,10 +97,14 @@ export class VoicePlaybackController {
     }, { once: true });
 
     audio.addEventListener("error", () => {
+      console.warn("[VOID TTS] audio element error", audio.error);
       finalizePlayback(this.lifecycle.onError);
     }, { once: true });
 
-    void audio.play().catch(() => {
+    // 先挂 src 再 play；部分 WebView 对「构造时带 src + 立刻 play」更挑剔。
+    audio.src = nextAudioUrl;
+    void audio.play().catch((error) => {
+      console.warn("[VOID TTS] audio.play() rejected", error);
       finalizePlayback(this.lifecycle.onError);
     });
   }

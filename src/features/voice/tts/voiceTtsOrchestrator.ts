@@ -1,6 +1,6 @@
 import { ProviderRequestError } from "../../../lib/model-providers/providerErrors";
 import type { VoiceRuntimeConfig } from "../voiceRuntimeConfig";
-import { synthesizeBidirectional } from "./doubaoBidirectional/doubaoBidirectionalSession";
+import { openBidirectionalStreamSession } from "./doubaoBidirectional/doubaoBidirectionalSession";
 import { toDoubaoAudioRate } from "./doubaoTtsProvider";
 import type {
   VoiceSynthesisExpression,
@@ -225,60 +225,81 @@ export class VoiceTtsOrchestrator {
   }
 
   /**
-   * 双向流式合成会话（播放选型 A：整段单音频）。
-   * 整轮所有句子累积后，在 complete() 时于单一 WS session 内连续合成，得到一条连续音频，
-   * 单次 onSentenceReady({index:0}) 回调播放 —— 架构上没有句界，根治句界音调跳变。
-   * 上层 push/complete 契约与逐句 HTTP 路径完全一致，播放层零改动。
+   * 双向流式合成会话（低延迟）：
+   * - 首句 push 即建连并喂文本，不必等整轮文字结束；
+   * - 音频首块到达后通过 MediaSource 边收边播（无 MSE 时回退整段 Blob）；
+   * - 同一 WS session 连续合成，保持整段韵律，播放层仍只收到一次 onSentenceReady。
    */
   private createBidirectionalStreamingSession(
     request: Omit<VoiceSynthesisRequest, "signal" | "text">,
     onSentenceReady: (sentenceResult: VoiceSentenceSynthesisResult) => Promise<void> | void,
     signal?: AbortSignal
   ): VoiceStreamingSynthesisSession {
-    const collectedSentences: string[] = [];
+    let streamSession: ReturnType<typeof openBidirectionalStreamSession> | null = null;
+    let pushedAnyText = false;
+    let playbackNotified = false;
+
+    const ensureStreamSession = () => {
+      if (streamSession) {
+        return streamSession;
+      }
+      streamSession = openBidirectionalStreamSession(
+        {
+          speaker: this.runtimeConfig.doubaoSpeakerId.trim(),
+          audioParams: buildBidirectionalAudioParams(request.expression)
+        },
+        {
+          onPlaybackReady: async (audioUrl, mimeType) => {
+            if (signal?.aborted) {
+              URL.revokeObjectURL(audioUrl);
+              return;
+            }
+            if (playbackNotified) {
+              return;
+            }
+            playbackNotified = true;
+            await onSentenceReady({
+              index: 0,
+              result: {
+                audioUrl,
+                mimeType,
+                provider: "doubao"
+              }
+            });
+          },
+          onError: (error) => {
+            // best-effort：语音失败不阻断文字回合。
+            // AbortError 是用户打断/新回合替换的正常路径，不刷黄字；其它错误才告警。
+            if (error instanceof DOMException && error.name === "AbortError") {
+              return;
+            }
+            console.warn("[VOID TTS bidirectional session]", error);
+          }
+        },
+        signal
+      );
+      return streamSession;
+    };
 
     return {
       push: (sentences: string[]) => {
+        if (signal?.aborted) {
+          return;
+        }
         for (const rawSentence of sentences) {
           const text = rawSentence.trim();
-          if (text) {
-            collectedSentences.push(text);
+          if (!text) {
+            continue;
           }
+          pushedAnyText = true;
+          ensureStreamSession().pushText(text);
         }
       },
       complete: async () => {
-        if (signal?.aborted || collectedSentences.length === 0) {
+        if (signal?.aborted || !pushedAnyText) {
           return;
         }
-
-        try {
-          const audioBlob = await synthesizeBidirectional(
-            collectedSentences,
-            {
-              speaker: this.runtimeConfig.doubaoSpeakerId.trim(),
-              audioParams: buildBidirectionalAudioParams(request.expression)
-            },
-            signal
-          );
-
-          // 中断可能在合成返回后、回调前发生：此时丢弃音频，不入播放队列。
-          if (signal?.aborted) {
-            URL.revokeObjectURL(URL.createObjectURL(audioBlob));
-            return;
-          }
-
-          await onSentenceReady({
-            index: 0,
-            result: {
-              audioUrl: URL.createObjectURL(audioBlob),
-              mimeType: audioBlob.type,
-              provider: "doubao"
-            }
-          });
-        } catch (error) {
-          // best-effort：语音失败不阻断文字回合，但必须打日志，避免「整段无声且控制台空白」。
-          console.warn("[VOID TTS bidirectional session]", error);
-        }
+        await ensureStreamSession().complete();
       }
     };
   }

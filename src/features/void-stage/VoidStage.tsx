@@ -48,6 +48,11 @@ import {
   deriveBehaviorDecision,
   type BehaviorDecision
 } from "../emotion/behaviorPolicy";
+import {
+  markTtsExpressionEmitted,
+  planTtsExpression
+} from "../emotion/expression/expressionPlanner";
+import type { TtsExpressionAction } from "../emotion/expression/expressionTypes";
 import { classifyTaskContext } from "../emotion/taskContextClassifier";
 import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
@@ -56,6 +61,8 @@ import { assessSalience } from "../memory/memorySalience";
 import { assessSensitivity, resolveWriteDecision } from "../memory/memoryPolicy";
 import { upsertMemoryDeduped } from "../memory/memoryStore";
 import type { MemoryType, SubjectType, Sensitivity } from "../memory/memoryTypes";
+import { deriveAgentRelationshipMemoryCandidate } from "../memory/agentRelationshipMemory";
+import type { SocialEventReading } from "../emotion/agentAffectTypes";
 
 // 情绪视觉偏移的中性初值：各字段乘性系数为 1，即不偏移（等价于纯 profile）。
 const NEUTRAL_VISUAL_HINT: VisualProfileHint = {
@@ -100,6 +107,9 @@ const RESPONSE_LAYER_IDLE_HIDE_MS = 32000;
 // AI 播报中会外放 TTS、回声风险最高，门槛更严；仅思考中（无外放）门槛较松。
 const BARGE_IN_MIN_CHARS_THINKING = 2;
 const BARGE_IN_MIN_CHARS_SPEAKING = 4;
+// 语音定稿刚发出后的短静默：这一窗口内的 residual partial / 尾音 VAD 不得打断新开的 AI 回合，
+// 否则会出现「模型已开始请求 → 立刻被 barge-in abort → TTS 永远无声」。
+const BARGE_IN_POST_COMMIT_GUARD_MS = 1600;
 const ERROR_RESPONSE_HIDE_MS = 14000;
 const THINKING_TEXT = "正在思考...";
 const REGENERATING_TEXT = "正在重新思考...";
@@ -142,12 +152,19 @@ export function VoidStage() {
   const agentAffectStateRef = useRef<AgentAffectState>(loadAgentAffectState());
   // 本轮用户情绪识别结果：供对话成功结束后判定「显著情绪」并写入 emotionTrend 记忆（D4）。
   const lastEmotionReadingRef = useRef<UserEmotionReading | null>(null);
+  // P6：本轮社会事件与事件前 affect 快照，供成功回合后写 agentRelationship；重新生成不累计。
+  const lastSocialReadingRef = useRef<SocialEventReading | null>(null);
+  const lastAffectBeforeEventRef = useRef<AgentAffectState>(agentAffectStateRef.current);
   // 语音 final 内容闩锁：记录「上一条已发送定稿」的归一化文本（空串＝闩锁开放，允许下条放行）。
   // 与桥接/豆包分句时序完全解耦地拦截同一句的重复 final（无标点稿↔带标点定稿、上游抖动重发），
   // 根治双发双回复；闩锁在 onInterimTranscript 检出「明显是新一句」时开放。见 26 号 §4.1。
   const sentVoiceUtteranceNormalizedRef = useRef<string>("");
+  // 上一条语音定稿提交时刻：用于 post-commit 护窗，挡住残余 partial 误 barge-in。
+  const lastVoiceCommitAtRef = useRef(0);
   // 本轮情绪派生的 TTS 表达参数：整轮一致，供流式/整段合成透传给豆包 audio_params。
   const turnTtsExpressionRef = useRef<VoiceSynthesisExpression>({});
+  // P4.a 本轮最多一句 TTS-only 边界表达；不写入回复历史，也不参与工具事实结算。
+  const turnTtsExpressionActionRef = useRef<TtsExpressionAction | null>(null);
   // 情绪视觉偏移：驱动中央流体 profile 的乘性偏移，需触发重渲染故用 state。
   const [emotionVisualHint, setEmotionVisualHint] = useState<VisualProfileHint>(NEUTRAL_VISUAL_HINT);
   const responseLayerHideTimeoutRef = useRef(0);
@@ -345,8 +362,12 @@ export function VoidStage() {
 
     // 关系情感并行结算：与一期共用 safetyCritical，避免安全词表双写。
     // 重新生成沿用同一条用户消息，不得再次累计同一个社会事件，否则一次辱骂会被重复记仇。
+    // P6 同样依赖 applySocialEvent：只有正常发送才记下社会事件，成功后才写长期关系档案。
+    const previousAffect = agentAffectStateRef.current;
     const socialReading = applySocialEvent ? recognizeSocialEvent(message) : null;
-    const nextAgentAffect = evolveAgentAffect(agentAffectStateRef.current, socialReading, {
+    lastAffectBeforeEventRef.current = previousAffect;
+    lastSocialReadingRef.current = socialReading;
+    const nextAgentAffect = evolveAgentAffect(previousAffect, socialReading, {
       safetyCritical: emotionReading.safetyCritical
     });
     agentAffectStateRef.current = nextAgentAffect;
@@ -358,14 +379,19 @@ export function VoidStage() {
       socialEvent: socialReading,
       safetyCritical: emotionReading.safetyCritical
     });
-    const behaviorDecision = deriveBehaviorDecision(
+    const baseBehaviorDecision = deriveBehaviorDecision(
       nextAgentAffect,
       emotionReading,
       taskContext
     );
+    const behaviorDecision: BehaviorDecision = {
+      ...baseBehaviorDecision,
+      expressionPlan: planTtsExpression(message, baseBehaviorDecision)
+    };
     const emotionPolicy = deriveEmotionResponsePolicy(nextAgentEmotion, emotionReading);
     // TTS 表达走 ref（整轮一致，合成时读取）；视觉偏移走 state（驱动中央流体重渲染）。
     turnTtsExpressionRef.current = emotionPolicy.ttsExpression;
+    turnTtsExpressionActionRef.current = behaviorDecision.expressionPlan[0] ?? null;
     setEmotionVisualHint(emotionPolicy.visualHint);
     return { ...emotionPolicy, behaviorDecision };
   }, []);
@@ -382,6 +408,10 @@ export function VoidStage() {
     sensitivity: Sensitivity;
     /** 去重合并时间窗（毫秒）；情绪趋势按窗合并，普通记忆不传即永久去重。 */
     mergeWindowMs?: number;
+    /** 来源标记；普通对话事实默认 conversation，P6 关系事件用 agentAffect。 */
+    source?: string;
+    /** 置信度；缺省 0.6，P6 可透传社会事件置信度。 */
+    confidence?: number;
   }) => {
     const decision = resolveWriteDecision({
       memoryType: candidate.memoryType,
@@ -402,8 +432,8 @@ export function VoidStage() {
         subjectType: candidate.subjectType,
         subjectName: candidate.subjectName,
         content: candidate.content,
-        confidence: 0.6,
-        source: "conversation",
+        confidence: candidate.confidence ?? 0.6,
+        source: candidate.source ?? "conversation",
         sensitivity: candidate.sensitivity,
         createdAt: now,
         updatedAt: now
@@ -456,6 +486,31 @@ export function VoidStage() {
       sensitivity: assessSensitivity("emotionTrend", content),
       // 同一情绪 2 小时内合并为一条，避免情绪流水账。
       mergeWindowMs: EMOTION_MEMORY_MERGE_WINDOW_MS
+    });
+  }, [persistCandidateMemory]);
+
+  // P6：显著关系事件写入 agentRelationship。
+  // - 只消费 SocialEventReading + 事件前 affect，不新开第二套识别。
+  // - 仅正常发送成功路径调用；重新生成不调用，避免同一事件重复累计。
+  // - 中性摘要 + 6 小时同类合并；不存原话、分数、健康或亲属信息。
+  const captureAgentRelationshipMemory = useCallback(() => {
+    const candidate = deriveAgentRelationshipMemoryCandidate(
+      lastSocialReadingRef.current,
+      lastAffectBeforeEventRef.current
+    );
+    if (!candidate) {
+      return;
+    }
+
+    persistCandidateMemory({
+      memoryType: candidate.memoryType,
+      subjectType: candidate.subjectType,
+      subjectName: candidate.subjectName,
+      content: candidate.content,
+      sensitivity: candidate.sensitivity,
+      source: candidate.source,
+      confidence: candidate.confidence,
+      mergeWindowMs: candidate.mergeWindowMs
     });
   }, [persistCandidateMemory]);
 
@@ -605,9 +660,11 @@ export function VoidStage() {
       return;
     }
 
-    // 送入合成前剥离括号情绪标注（显示层保留原文）；净化后为空则无需发声
+    // 送入合成前剥离括号情绪标注；P4.a 插句仅进入 TTS，不写入显示或历史。
     const speechText = sanitizeTextForSpeech(responseText);
-    if (!speechText) {
+    const expressionAction = turnTtsExpressionActionRef.current;
+    const speechSegments = [expressionAction?.text ?? "", speechText].filter(Boolean);
+    if (!speechSegments.length) {
       setVisualState("idle");
       return;
     }
@@ -620,24 +677,33 @@ export function VoidStage() {
     }
 
     const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
-    const synthesisResult = await orchestrator.synthesize({
-      text: speechText,
-      requestMode: runtimeConfig.requestMode,
-      voiceMode: "default",
-      preferredGender: "female",
-      scene: "default",
-      // 本轮情绪表达（整轮一致）：非流式整段路径同样透传
-      expression: turnTtsExpressionRef.current
-    });
-    if (!synthesisResult) {
-      // 双向流式路径不会走到这里；若落到空供应商列表，至少给出可诊断日志。
-      console.warn("[VOID TTS] 合成结果为空，已跳过播放。");
-      setVisualState("idle");
-      return;
-    }
+    const signal = startVoiceOutputSession();
+    await orchestrator.synthesizeSentences(
+      speechSegments,
+      {
+        requestMode: runtimeConfig.requestMode,
+        voiceMode: "default",
+        preferredGender: "female",
+        scene: "default",
+        // 插句与普通回复复用同一整轮表达参数，禁止逐句改变音色或语速。
+        expression: turnTtsExpressionRef.current
+      },
+      ({ index, result }) => {
+        if (signal.aborted) {
+          URL.revokeObjectURL(result.audioUrl);
+          return;
+        }
 
-    startVoiceOutputSession();
-    voicePlaybackControllerRef.current.enqueue(synthesisResult.audioUrl);
+        voicePlaybackControllerRef.current.enqueue(result.audioUrl);
+        if (expressionAction && index === 0) {
+          markTtsExpressionEmitted(expressionAction);
+          if (turnTtsExpressionActionRef.current === expressionAction) {
+            turnTtsExpressionActionRef.current = null;
+          }
+        }
+      },
+      signal
+    );
     finalizeVoiceOutputSession("idle");
   }, [finalizeVoiceOutputSession, scheduleResponseLayerHide, showResponseLayer, startVoiceOutputSession, voicePreferences.voiceOutputEnabled]);
 
@@ -704,6 +770,8 @@ export function VoidStage() {
 
     const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
     const signal = startVoiceOutputSession();
+    const expressionAction = turnTtsExpressionActionRef.current;
+    let didQueueExpression = false;
     // 整轮语音输出只维护一个流式合成会话：全局并发受控，按 index 顺序入队，避免打爆供应商触发 429
     const synthesisSession = orchestrator.createStreamingSession(
       {
@@ -714,19 +782,38 @@ export function VoidStage() {
         // 本轮情绪表达（整轮一致）：resolveTurnEmotion 已在本批处理器创建前写入 ref
         expression: turnTtsExpressionRef.current
       },
-      ({ result }) => {
+      ({ index, result }) => {
         if (signal.aborted) {
           URL.revokeObjectURL(result.audioUrl);
           return;
         }
 
         voicePlaybackControllerRef.current.enqueue(result.audioUrl);
+        if (expressionAction && didQueueExpression && index === 0) {
+          markTtsExpressionEmitted(expressionAction);
+          if (turnTtsExpressionActionRef.current === expressionAction) {
+            turnTtsExpressionActionRef.current = null;
+          }
+        }
       },
       signal
     );
     let synthesizedCursor = 0;
     // 本轮已产出的合成块数量，供渐进式阈值定位（首块最短、后续渐长）
     let emittedChunkCount = 0;
+
+    const pushSpeechSentences = (sentences: string[]) => {
+      const speechSentences = sentences.map(sanitizeTextForSpeech).filter(Boolean);
+      if (!speechSentences.length) {
+        return;
+      }
+
+      if (expressionAction && !didQueueExpression) {
+        didQueueExpression = true;
+        synthesisSession.push([expressionAction.text]);
+      }
+      synthesisSession.push(speechSentences);
+    };
 
     return {
       push(content: string) {
@@ -738,8 +825,7 @@ export function VoidStage() {
 
         synthesizedCursor += consumedLength;
         emittedChunkCount += sentences.length;
-        // 送入合成前剥离括号情绪标注（显示层不受影响）；空句由合成会话内部跳过
-        synthesisSession.push(sentences.map(sanitizeTextForSpeech));
+        pushSpeechSentences(sentences);
       },
       async complete(content: string) {
         const segment = content.slice(synthesizedCursor);
@@ -747,7 +833,7 @@ export function VoidStage() {
         synthesizedCursor += consumedLength;
         emittedChunkCount += sentences.length;
         if (sentences.length) {
-          synthesisSession.push(sentences.map(sanitizeTextForSpeech));
+          pushSpeechSentences(sentences);
         }
         await synthesisSession.complete();
         finalizeVoiceOutputSession("idle");
@@ -925,9 +1011,11 @@ export function VoidStage() {
       }
       const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
       commitConversationHistory(finalConversationHistory);
-      // 本回合成功结束（未被打断）：把用户输入建档，并按显著性写入情绪趋势记忆。
+      // 本回合成功结束（未被打断）：用户事实、情绪趋势、显著关系事件分别建档。
+      // 重新生成路径不调用本段，避免同一社会事件重复累计到 agentRelationship。
       captureMemoryFromUserMessage(message);
       captureEmotionTrendMemory();
+      captureAgentRelationshipMemory();
       if (streamingVoiceBatcher) {
         await streamingVoiceBatcher.complete(assistantResponse.content);
         showResponseLayer({
@@ -947,7 +1035,7 @@ export function VoidStage() {
       }
       failTextResponse(error, "error", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [beginExchange, captureEmotionTrendMemory, captureMemoryFromUserMessage, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled, trySettlePendingConfirmationByUtterance]);
+  }, [beginExchange, captureAgentRelationshipMemory, captureEmotionTrendMemory, captureMemoryFromUserMessage, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled, trySettlePendingConfirmationByUtterance]);
 
   const handleRegenerateLatestUserMessage = useCallback(async (messageIndex: number, content: string) => {
     const currentHistory = conversationHistoryRef.current;
@@ -1043,15 +1131,37 @@ export function VoidStage() {
           const trimmedText = text.trim();
           const isSpeaking = !voicePlaybackControllerRef.current.isIdle(); // AI 正在外放 TTS，回声风险最高
           const isAgentBusy = textExchangeActiveRef.current || isSpeaking;
+          const interimNormalized = trimmedText ? normalizeVoiceFinal(trimmedText) : "";
+          const sentNormalized = sentVoiceUtteranceNormalizedRef.current;
 
           if (isAgentBusy) {
-            // 方案 A（AI 优先）：AI 思考/播报期间，先压制识别文字——不让环境音/回声被 STT 识别出的
-            // 幻觉文字覆盖 AI 当前输出或误触发打断。仅当同时满足以下二者，才判定为「真实的用户打断」：
-            //   1) 本地音量 VAD 二次确认真实人声（能量高于环境噪声阈值，非回声/低电平噪声幻觉）；
-            //   2) STT 文本达到最小字数门槛（播报中回声风险高、门槛更严）。
+            // 方案 A（AI 优先）：AI 思考/播报期间，先压制识别文字。
+            // 真实打断必须同时满足：
+            //   1) 本地音量 VAD 确认真实人声；
+            //   2) STT 文本达到最小字数；
+            //   3) 不在「刚提交完本句」的护窗内（挡住尾音/残余 partial）；
+            //   4) 文本不是上一条已发送定稿的回声/残余（相同或互为前缀）。
+            if (!trimmedText || !interimNormalized) {
+              return;
+            }
+
+            const now = Date.now();
+            const inPostCommitGuard = now - lastVoiceCommitAtRef.current < BARGE_IN_POST_COMMIT_GUARD_MS;
+            const isEchoOfLastCommit = Boolean(
+              sentNormalized
+              && (
+                interimNormalized === sentNormalized
+                || sentNormalized.startsWith(interimNormalized)
+                || interimNormalized.startsWith(sentNormalized)
+              )
+            );
+            if (inPostCommitGuard || isEchoOfLastCommit) {
+              return;
+            }
+
             const isRealHumanVoice = voiceActivityLevelRef.current === "active";
             const minChars = isSpeaking ? BARGE_IN_MIN_CHARS_SPEAKING : BARGE_IN_MIN_CHARS_THINKING;
-            if (isRealHumanVoice && trimmedText.length >= minChars) {
+            if (isRealHumanVoice && interimNormalized.length >= minChars) {
               // 确认打断：停 AI、作废该回合，并把用户识别文字接管到预览层。
               interruptForBargeIn();
               setVoiceTranscriptPreview(text);
@@ -1070,12 +1180,8 @@ export function VoidStage() {
           // 实时预览出现「明显是新一句」——归一化后已不再是「上一条已发送定稿」的前缀（含不相等），
           // 说明用户开始说不同内容，遂开放闩锁让下一条 final 正常放行。同一句的补标点/续说预览
           // 仍是其前缀，不会误开；与豆包时序、下标、标点全解耦。
-          const sentNormalized = sentVoiceUtteranceNormalizedRef.current;
-          if (sentNormalized && trimmedText) {
-            const interimNormalized = normalizeVoiceFinal(trimmedText);
-            if (interimNormalized && !sentNormalized.startsWith(interimNormalized)) {
-              sentVoiceUtteranceNormalizedRef.current = "";
-            }
+          if (sentNormalized && interimNormalized && !sentNormalized.startsWith(interimNormalized)) {
+            sentVoiceUtteranceNormalizedRef.current = "";
           }
 
           // AI 空闲：正常显示识别预览。
@@ -1099,6 +1205,7 @@ export function VoidStage() {
             return;
           }
           sentVoiceUtteranceNormalizedRef.current = normalized;
+          lastVoiceCommitAtRef.current = Date.now();
           void handleTextMessage(text, []);
         },
         onError: handleVoiceSessionError
