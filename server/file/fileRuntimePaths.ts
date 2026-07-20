@@ -3,7 +3,7 @@
  * 强制优先 D 盘 AI 运行时目录，避免写满 C 盘。
  */
 
-import { mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { isAbsolute, join, normalize, resolve, sep } from "node:path";
 
 /** 运行时根目录（可用 VOID_RUNTIME_ROOT 覆盖） */
@@ -56,20 +56,49 @@ export function ensureRuntimeDirectories() {
 }
 
 /**
- * 判断 candidate 是否落在 allowedRoot 之下（规范化后）。
+ * 判断 candidate 是否落在 allowedRoot 之下（规范化后，含路径分隔符边界）。
  */
 export function isPathInsideRoot(candidate: string, allowedRoot: string): boolean {
   const resolvedCandidate = resolve(candidate);
   const resolvedRoot = resolve(allowedRoot);
-  if (resolvedCandidate === resolvedRoot) {
+  if (resolvedCandidate.toLowerCase() === resolvedRoot.toLowerCase()) {
     return true;
   }
   const prefix = resolvedRoot.endsWith(sep) ? resolvedRoot : resolvedRoot + sep;
-  return resolvedCandidate.startsWith(prefix);
+  // Windows 路径比较不区分大小写
+  return resolvedCandidate.toLowerCase().startsWith(prefix.toLowerCase());
 }
 
 /**
- * 校验最终目标目录是否在白名单内。
+ * 若路径存在，拒绝自身为符号链接/junction；并尽量 realpath 后再做白名单判断。
+ */
+function resolveRealIfExists(pathText: string): string {
+  const resolved = resolve(pathText);
+  if (!existsSync(resolved)) {
+    return resolved;
+  }
+  try {
+    const st = lstatSync(resolved);
+    if (st.isSymbolicLink()) {
+      throw createFileError(
+        "PATH_NOT_ALLOWED",
+        `拒绝符号链接/junction 路径：${resolved}`
+      );
+    }
+  } catch (error) {
+    if (typeof error === "object" && error && "fileCode" in error) {
+      throw error;
+    }
+  }
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
+/**
+ * 校验最终目标目录是否在白名单内（含 realpath，防 symlink 逃逸）。
  */
 export function assertAllowedDestinationDirectory(directoryPath: string): string {
   if (!directoryPath || !directoryPath.trim()) {
@@ -79,8 +108,14 @@ export function assertAllowedDestinationDirectory(directoryPath: string): string
     throw createFileError("INVALID_REQUEST", `目标目录必须是绝对路径：${directoryPath}`);
   }
 
-  const resolved = resolve(directoryPath);
-  const allowed = listAllowedDownloadRoots();
+  const resolved = resolveRealIfExists(directoryPath);
+  const allowed = listAllowedDownloadRoots().map((root) => {
+    try {
+      return existsSync(root) ? realpathSync(root) : resolve(root);
+    } catch {
+      return resolve(root);
+    }
+  });
   const ok = allowed.some((root) => isPathInsideRoot(resolved, root));
   if (!ok) {
     throw createFileError(
@@ -131,6 +166,11 @@ export function getFileErrorPayload(error: unknown): {
     | "MOVE_FAILED"
     | "OVERWRITE_REFUSED"
     | "VERIFY_FAILED"
+    | "FILE_TOO_LARGE"
+    | "INVALID_UTF8"
+    | "BINARY_FILE"
+    | "DESTINATION_EXISTS"
+    | "CROSS_DEVICE_MOVE"
     | "MEDIA_HOST_NOT_ALLOWED"
     | "YTDLP_NOT_FOUND"
     | "FFMPEG_NOT_FOUND"

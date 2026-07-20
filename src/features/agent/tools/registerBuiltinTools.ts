@@ -2,6 +2,7 @@
 
 import { browserClickTool } from "./builtin/browserClickTool";
 import { browserExtractTool } from "./builtin/browserExtractTool";
+import { browserLongPressTool } from "./builtin/browserLongPressTool";
 import { browserOpenTool } from "./builtin/browserOpenTool";
 import { browserReadResultTool } from "./builtin/browserReadResultTool";
 import { browserRevealInSystemBrowserTool } from "./builtin/browserRevealInSystemBrowserTool";
@@ -25,6 +26,9 @@ import { fileListDirectoryTool } from "./builtin/fileListDirectoryTool";
 import { fileReadTextTool } from "./builtin/fileReadTextTool";
 import { fileCreateDirectoryTool } from "./builtin/fileCreateDirectoryTool";
 import { fileMoveTool } from "./builtin/fileMoveTool";
+import { softwareListSupportedTool } from "./builtin/softwareListSupportedTool";
+import { softwareResolveInstallerTool } from "./builtin/softwareResolveInstallerTool";
+import { softwareDownloadInstallerTool } from "./builtin/softwareDownloadInstallerTool";
 import { hasTool, registerTool } from "./toolRegistry";
 
 /**
@@ -41,6 +45,7 @@ export function registerBuiltinTools() {
     browserSelectTargetTool,
     browserRevealInSystemBrowserTool,
     browserClickTool,
+    browserLongPressTool,
     browserTypeTool,
     browserWaitForTool,
     browserExtractTool,
@@ -57,7 +62,10 @@ export function registerBuiltinTools() {
     fileListDirectoryTool,
     fileReadTextTool,
     fileCreateDirectoryTool,
-    fileMoveTool
+    fileMoveTool,
+    softwareListSupportedTool,
+    softwareResolveInstallerTool,
+    softwareDownloadInstallerTool
   ] as const;
 
   for (const tool of tools) {

@@ -32,7 +32,7 @@ export const browserSearchTool: ToolDefinition<
 > = {
   name: "browser.search",
   description:
-    "搜索并返回标题/URL/摘要列表。engine=duckduckgo 为全网搜索；找 B 站博主或视频时必须用 engine=bilibili。只读。打开后用户若要在自己常用浏览器里看，再调 browser.revealInSystemBrowser。",
+    "搜索并返回标题/URL/摘要列表。engine=duckduckgo 为全网搜索；找 B 站博主或视频时必须用 engine=bilibili。query 要用具体人名/作品名/风格词，禁止把用户口语原句（如「好玩的博主」）原封不动当唯一关键词；可先换 2～3 个具体检索词。只读。打开后用户若要在自己常用浏览器里看，再调 browser.revealInSystemBrowser。",
   version: "1.1.0",
   riskLevel: "L0",
   inputSchema: {

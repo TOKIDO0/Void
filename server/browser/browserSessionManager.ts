@@ -41,6 +41,7 @@ import type {
   BrowserCloseSessionData,
   BrowserExtractData,
   BrowserExtractMode,
+  BrowserLongPressData,
   BrowserOpenData,
   BrowserReadResultData,
   BrowserRevealInSystemBrowserData,
@@ -519,6 +520,64 @@ export class BrowserSessionManager {
       pageTitle: await managedPage.page.title(),
       button,
       clickCount
+    };
+  }
+
+  /**
+   * 窄动作：长按。Playwright hover + mouse down/up，按住 holdMs。
+   * 专供 B 站三连等「按住」交互；禁止当作通用键鼠。
+   */
+  async longPress(input: {
+    taskId: string;
+    pageId?: string;
+    selector?: string;
+    role?: string;
+    name?: string;
+    button?: "left" | "right" | "middle";
+    holdMs?: number;
+  }): Promise<BrowserLongPressData> {
+    const button = input.button === "right" || input.button === "middle" ? input.button : "left";
+    // 默认 3000ms（B 站三连常见时长）；夹在 500–8000，防止误传超长阻塞
+    const holdMs =
+      typeof input.holdMs === "number" && Number.isFinite(input.holdMs)
+        ? Math.min(8_000, Math.max(500, Math.floor(input.holdMs)))
+        : 3_000;
+
+    const session = this.requireSession(input.taskId);
+    const managedPage = this.requirePage(session, input.pageId ?? session.activePageId);
+    const { locator, targetLabel, via } = resolveActionTarget(managedPage.page, input);
+
+    try {
+      await locator.first().waitFor({ state: "visible", timeout: 15_000 });
+      await assertSingleMatch(locator, targetLabel);
+      await locator.scrollIntoViewIfNeeded();
+      const box = await locator.boundingBox();
+      if (!box) {
+        throw createBrowserError("TIMEOUT", `目标不可见或无几何信息：${targetLabel}`);
+      }
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await managedPage.page.mouse.move(x, y);
+      await managedPage.page.mouse.down({ button });
+      await managedPage.page.waitForTimeout(holdMs);
+      await managedPage.page.mouse.up({ button });
+    } catch (error) {
+      throw mapLocatorActionError(error, "longPress", targetLabel);
+    }
+
+    session.lastUsedAt = Date.now();
+    session.activePageId = managedPage.pageId;
+
+    return {
+      taskId: session.taskId,
+      pageId: managedPage.pageId,
+      selector: targetLabel,
+      role: via === "role" ? normalizeA11yRole(input.role ?? "") : undefined,
+      name: via === "role" ? normalizeA11yName(input.name ?? "") : undefined,
+      pageUrl: managedPage.page.url(),
+      pageTitle: await managedPage.page.title(),
+      button,
+      holdMs
     };
   }
 

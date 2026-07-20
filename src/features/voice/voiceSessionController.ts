@@ -1,11 +1,15 @@
 import type { VoiceSttProvider } from "./stt/voiceSttContract";
 import { VoiceTurnAssembler } from "./stt/voiceTurnAssembler";
+import type { VoiceActivityLevel, VoiceInputRuntimeStatus, VoiceInputState } from "./voiceState";
 
 type VoiceSessionControllerOptions = {
   sttProvider: VoiceSttProvider;
   onInterimTranscript: (text: string) => void;
   onFinalTranscript: (text: string) => void;
   onError: (error: Error) => void;
+  onInputStateChange?: (inputState: VoiceInputState) => void;
+  onActivityLevelChange?: (activityLevel: VoiceActivityLevel) => void;
+  onRuntimeStatusChange?: (status: VoiceInputRuntimeStatus) => void;
 };
 
 /**
@@ -19,10 +23,16 @@ export class VoiceSessionController {
   private readonly sttProvider: VoiceSttProvider;
   private readonly onError: (error: Error) => void;
   private readonly turnAssembler: VoiceTurnAssembler;
+  private readonly onInputStateChange?: (inputState: VoiceInputState) => void;
+  private readonly onActivityLevelChange?: (activityLevel: VoiceActivityLevel) => void;
+  private readonly onRuntimeStatusChange?: (status: VoiceInputRuntimeStatus) => void;
 
   constructor(options: VoiceSessionControllerOptions) {
     this.sttProvider = options.sttProvider;
     this.onError = options.onError;
+    this.onInputStateChange = options.onInputStateChange;
+    this.onActivityLevelChange = options.onActivityLevelChange;
+    this.onRuntimeStatusChange = options.onRuntimeStatusChange;
     this.turnAssembler = new VoiceTurnAssembler({
       onPreview: options.onInterimTranscript,
       onCommit: options.onFinalTranscript
@@ -40,7 +50,10 @@ export class VoiceSessionController {
         onFinalResult: (text, resultOptions) => {
           this.turnAssembler.handleFinal(text, resultOptions?.commitImmediately === true);
         },
-        onError: this.onError
+        onError: this.onError,
+        onInputStateChange: this.onInputStateChange,
+        onActivityLevelChange: this.onActivityLevelChange,
+        onRuntimeStatusChange: this.onRuntimeStatusChange
       });
     } catch (error) {
       // 握手/麦克风等启动失败必须可见，禁止 void start() 后静默。

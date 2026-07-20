@@ -1,3 +1,4 @@
+import { isSoftwareInstallerIntent } from "../software/softwareDownloadIntent";
 import type { VoidConversationMessage } from "../voidConversation";
 
 export type TurnCapability =
@@ -5,7 +6,8 @@ export type TurnCapability =
   | "browser"
   | "file"
   | "desktop"
-  | "clipboard";
+  | "clipboard"
+  | "software";
 
 export type TurnCapabilityRoute = {
   capability: TurnCapability;
@@ -26,6 +28,7 @@ const BROWSER_TOOL_NAMES = [
   "browser.selectTarget",
   "browser.revealInSystemBrowser",
   "browser.click",
+  "browser.longPress",
   "browser.type",
   "browser.waitFor",
   "browser.extract",
@@ -69,11 +72,50 @@ const CLIPBOARD_TOOL_NAMES = [
   "clipboard.write"
 ];
 
+/**
+ * 官方软件安装包自动化（通用领域，非某一站专线）。
+ * list → resolve → downloadInstaller → 可选 revealPath。
+ */
+const SOFTWARE_TOOL_NAMES = [
+  "software.listSupported",
+  "software.resolveInstaller",
+  "software.downloadInstaller",
+  "desktop.revealPath"
+];
+
 const EXPLICIT_CONTINUATION_PATTERN = /^(?:继续|接着|接着做|继续刚才|接着刚才|把刚才|刚才那个|再试一次|重试)(?:[，。,.！!？?\s]|$)/;
 const THIS_PC_PATTERN = /(?:打开|进入|显示|启动).{0,6}(?:我的电脑|此电脑|这台电脑)/;
 const CLIPBOARD_PATTERN = /(?:(?:读取|查看|看看|写入|复制到|放到|清空).{0,6}(?:剪贴板|粘贴板)|(?:剪贴板|粘贴板).{0,6}(?:有什么|内容|读取|查看|写入|清空))/;
 const FILE_PATTERN = /(?:(?:整理|列出|查看|读取|移动|重命名|新建|创建|打开所在位置).{0,12}(?:本地文件|文件夹|目录|路径|文件)|(?:本地文件|文件夹|目录|路径|文件).{0,12}(?:有什么|里面|整理|列出|查看|读取|移动|重命名|新建|创建|打开所在位置)|[A-Za-z]:\\[^\n]{0,80}(?:有什么|里面|列出|查看|整理))/;
-const BROWSER_PATTERN = /(?:搜索|搜一下|上网查|联网查|网上查|打开网页|打开网站|用浏览器打开|官网|网址|下载|安装包|找.{0,8}(?:视频|B站|哔哩哔哩)|(?:B站|哔哩哔哩).{0,8}(?:搜索|找|打开))/i;
+
+/**
+ * 浏览器/网页/平台动作意图。
+ * 覆盖口语「打开快手」「打开最新视频」「在 Edge 打开」「点赞/三连/评论」等，
+ * 避免被误判为普通聊天后模型只能空口解释或教用户手动命令。
+ * 仍不覆盖「打开此电脑」——那条由 THIS_PC_PATTERN 优先接管。
+ */
+const KNOWN_WEB_PLATFORM_PATTERN =
+  /(?:B\s*站|哔哩哔哩|bilibili|抖音|快手|小红书|微博|知乎|YouTube|youtu\.be|淘宝|京东|拼多多|百度|谷歌|google|推特|twitter|x\.com|instagram|tiktok)/i;
+const BROWSER_PATTERN = new RegExp(
+  [
+    // 显式搜索 / 下载 / 网页
+    "(?:搜索|搜一下|搜一搜|帮我搜|给我搜|查一下|上网查|联网查|网上查|官网|网址|下载|安装包)",
+    // 显式浏览器/网页打开
+    "(?:打开网页|打开网站|用浏览器打开|在浏览器(?:里|中)?打开|浏览器里打开)",
+    // 指定浏览器品牌打开（系统默认浏览器 reveal；不能保证一定是 Edge，但必须进工具路径）
+    "(?:(?:用|在)?(?:edge|chrome|微软?edge|谷歌(?:浏览器)?|chrome浏览器).{0,12}打开|打开.{0,12}(?:edge|chrome|微软?edge))",
+    // 打开已知平台 / App 名 / 主页 / 最新视频
+    `(?:(?:打开|进入|访问|去|看看|看一下|看下).{0,16}${KNOWN_WEB_PLATFORM_PATTERN.source})`,
+    `(?:${KNOWN_WEB_PLATFORM_PATTERN.source}.{0,16}(?:打开|搜索|搜|找|进入|主页|首页|视频|直播|博主|up主))`,
+    // 视频/博主导航口语
+    "(?:打开.{0,16}(?:视频|主页|首页|博主|up主|直播间)|(?:最新|最近).{0,8}(?:一期|一集|视频)|(?:这个|该|那个).{0,8}(?:博主|up主|视频).{0,12}(?:打开|最新|主页))",
+    // 找视频/博主
+    "(?:找.{0,8}(?:视频|博主|up主|主播)|(?:B站|哔哩哔哩).{0,8}(?:搜索|找|打开|看))",
+    // 社交互动意图（先进入 browser 工具组；具体能力后续切片实现，至少不再当闲聊）
+    "(?:点赞|三连|收藏|投币|转发|关注|评论区|评论一下|评论这个|写评论|发评论)"
+  ].join("|"),
+  "i"
+);
 
 /**
  * 进行中的下载/拉取意图（区别于「下载目录」「下载好的文件」这类本地整理指代）。
@@ -121,6 +163,11 @@ export function resolveTurnCapability(
 function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
   if (THIS_PC_PATTERN.test(userInput)) {
     return createRoute("desktop", DESKTOP_TOOL_NAMES);
+  }
+
+  // 官方软件安装包意图优先于 browser/media，避免「客户端」被当成视频或乱点官网。
+  if (isSoftwareInstallerIntent(userInput)) {
+    return createRoute("software", SOFTWARE_TOOL_NAMES);
   }
 
   // T3.b：剪贴板 URL 下载优先于纯剪贴板；capability 仍为 browser（下载主路径 + 整理）

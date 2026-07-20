@@ -173,7 +173,6 @@ export function LuminousTextEntry({
   const isFocusedRef = useRef(false);
   const isHoveredRef = useRef(false);
   const lastPointerYRef = useRef<number | null>(null);
-  const isSendingRef = useRef(false);
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<VoidConversationAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
@@ -343,11 +342,10 @@ export function LuminousTextEntry({
 
   const submitMessage = useCallback(async () => {
     const trimmedMessage = inputValue.trim();
-    if ((!trimmedMessage && !attachments.length) || disabled || isSendingRef.current) {
+    if ((!trimmedMessage && !attachments.length) || disabled) {
       return;
     }
 
-    isSendingRef.current = true;
     resetEntryContent();
     gsap.fromTo(
       sendSweepRef,
@@ -362,11 +360,7 @@ export function LuminousTextEntry({
         }
       }
     );
-    try {
-      await onSend(trimmedMessage, attachments);
-    } finally {
-      isSendingRef.current = false;
-    }
+    await onSend(trimmedMessage, attachments);
   }, [attachments, disabled, inputValue, onSend, resetEntryContent]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {

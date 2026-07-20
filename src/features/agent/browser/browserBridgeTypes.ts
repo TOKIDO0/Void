@@ -109,6 +109,22 @@ export type BrowserClickData = {
   clickCount: number;
 };
 
+/**
+ * 窄动作：长按（按住 holdMs 毫秒）。
+ * 用于 B 站三连等；不是通用桌面键鼠。
+ */
+export type BrowserLongPressData = {
+  taskId: string;
+  pageId: string;
+  selector: string;
+  role?: string;
+  name?: string;
+  pageUrl: string;
+  pageTitle: string;
+  button: "left" | "right" | "middle";
+  holdMs: number;
+};
+
 export type BrowserTypeData = {
   taskId: string;
   pageId: string;

@@ -1,46 +1,122 @@
-// VOID 记忆系统 —— 记忆管理面板（只建不挂载）
-// 职责：按分区分组展示本地记忆条目，支持删除单条 / 清空某个分区。
+// VOID 记忆系统 —— 记忆管理面板
+// 职责：双栏展示本地记忆（左筛选 / 右卡片），支持搜索、单条删除、分区/全部清空。
 // 只消费 memoryStore 的读写 API，不做分类 / 召回 / 投影。
-// 视觉对齐现有 ModelSettingsModal（深青玻璃、直角、青色描边），此处用内联样式自包含，
-// 不耦合共享样式表。挂载点在 VoidStage（属窗口 A），收尾串行阶段再接（21 号 §0.3 铁律 4）。
+// 视觉对齐设置模态的中性深色玻璃体系（base.css .memory-manager*）。
 
-import { CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
-import type { MemoryEntry } from "../memoryTypes";
-import {
-  MEMORY_TYPES,
-  MEMORY_TYPE_LABELS,
-  SUBJECT_TYPE_LABELS,
-  SENSITIVITY_LABELS
-} from "../memoryTypes";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { MemoryEntry, MemoryType } from "../memoryTypes";
+import { MEMORY_TYPES } from "../memoryTypes";
 import { listMemories, removeMemory, clearMemories } from "../memoryStore";
+import {
+  loadSettingsLanguage,
+  saveSettingsLanguage,
+  type SettingsLanguage
+} from "../../settings/settingsI18n";
+import {
+  formatMemoryTimestamp,
+  getMemoryManagerCopy
+} from "./memoryManagerI18n";
 
 interface MemoryManagerPanelProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+type ConfirmState =
+  | { kind: "none" }
+  | { kind: "clear-all" }
+  | { kind: "clear-section"; memoryType: MemoryType };
+
+const ALL_CATEGORY = "all" as const;
+type CategoryId = typeof ALL_CATEGORY | MemoryType;
+
 export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps) {
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
+  const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
+  const [selectedCategory, setSelectedCategory] = useState<CategoryId>(ALL_CATEGORY);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [confirmState, setConfirmState] = useState<ConfirmState>({ kind: "none" });
 
-  // 打开时从本地存储加载最新记忆快照。
+  const copy = getMemoryManagerCopy(language);
+
+  // 打开时从本地存储加载最新记忆快照，并同步设置页语言。
   const refresh = useCallback(() => {
     setEntries(listMemories());
   }, []);
 
   useEffect(() => {
-    if (isOpen) {
-      refresh();
+    if (!isOpen) {
+      return;
     }
+
+    setLanguage(loadSettingsLanguage());
+    setSelectedCategory(ALL_CATEGORY);
+    setSearchQuery("");
+    setConfirmState({ kind: "none" });
+    refresh();
   }, [isOpen, refresh]);
 
-  // 按分区顺序分组：只保留有条目的分区，避免空分区占位。
-  const groups = useMemo(() => {
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (confirmState.kind !== "none") {
+          setConfirmState({ kind: "none" });
+          return;
+        }
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [confirmState.kind, isOpen, onClose]);
+
+  // 左侧分区：全部始终显示；其它分区仅在有条目时显示。
+  const categoryStats = useMemo(() => {
     return MEMORY_TYPES.map((type) => ({
-      type,
-      label: MEMORY_TYPE_LABELS[type],
-      items: entries.filter((entry) => entry.memoryType === type)
-    })).filter((group) => group.items.length > 0);
-  }, [entries]);
+      id: type as CategoryId,
+      label: copy.typeLabels[type],
+      count: entries.filter((entry) => entry.memoryType === type).length
+    })).filter((item) => item.count > 0);
+  }, [copy.typeLabels, entries]);
+
+  const filteredEntries = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    return entries.filter((entry) => {
+      if (selectedCategory !== ALL_CATEGORY && entry.memoryType !== selectedCategory) {
+        return false;
+      }
+
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      const haystack = [
+        entry.content,
+        entry.subjectName,
+        copy.subjectLabels[entry.subjectType],
+        copy.typeLabels[entry.memoryType],
+        entry.source
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(normalizedQuery);
+    });
+  }, [copy.subjectLabels, copy.typeLabels, entries, searchQuery, selectedCategory]);
+
+  const activeSectionLabel =
+    selectedCategory === ALL_CATEGORY ? copy.all : copy.typeLabels[selectedCategory];
+
+  const handleLanguageChange = (nextLanguage: SettingsLanguage) => {
+    setLanguage(nextLanguage);
+    saveSettingsLanguage(nextLanguage);
+  };
 
   const handleRemoveOne = useCallback(
     (id: string) => {
@@ -50,317 +126,306 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
     [refresh]
   );
 
-  const handleClearGroup = useCallback(
-    (type: MemoryEntry["memoryType"]) => {
-      listMemories()
-        .filter((entry) => entry.memoryType === type)
-        .forEach((entry) => removeMemory(entry.id));
-      refresh();
-    },
-    [refresh]
-  );
-
-  // 清空全部记忆：破坏性操作，先二次确认再执行。
-  const handleClearAll = useCallback(() => {
-    const confirmed = window.confirm("确定要清空全部记忆吗？此操作不可撤销。");
-    if (!confirmed) {
-      return;
+  const handleConfirmClear = useCallback(() => {
+    if (confirmState.kind === "clear-all") {
+      clearMemories();
+      setSelectedCategory(ALL_CATEGORY);
     }
-    clearMemories();
+
+    if (confirmState.kind === "clear-section") {
+      listMemories()
+        .filter((entry) => entry.memoryType === confirmState.memoryType)
+        .forEach((entry) => removeMemory(entry.id));
+
+      // 清空当前分区后回到「全部」，避免停在空分区。
+      setSelectedCategory(ALL_CATEGORY);
+    }
+
+    setConfirmState({ kind: "none" });
     refresh();
-  }, [refresh]);
+  }, [confirmState, refresh]);
 
   if (!isOpen) {
     return null;
   }
 
+  const hasAnyEntries = entries.length > 0;
+  const hasVisibleEntries = filteredEntries.length > 0;
+  const isSearching = searchQuery.trim().length > 0;
+  const canClearSection = selectedCategory !== ALL_CATEGORY && filteredEntries.length > 0;
+
   return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={panelStyle} onClick={(event) => event.stopPropagation()}>
-        <div style={headerStyle}>
-          <div>
-            <p style={eyebrowStyle}>本地长期记忆</p>
-            <h2 style={titleStyle}>记忆管理</h2>
+    <div className="memory-manager" role="presentation" onMouseDown={onClose}>
+      <div
+        className="memory-manager__panel"
+        role="dialog"
+        aria-label={copy.title}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="memory-manager__header">
+          <div className="memory-manager__title-group">
+            <div className="memory-manager__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 3c-4.97 0-9 2.239-9 5v8c0 2.761 4.03 5 9 5s9-2.239 9-5V8c0-2.761-4.03-5-9-5z"
+                />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8c0 2.761 4.03 5 9 5s9-2.239 9-5" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 13c0 2.761 4.03 5 9 5s9-2.239 9-5" />
+              </svg>
+            </div>
+            <div>
+              <p className="memory-manager__eyebrow">{copy.eyebrow}</p>
+              <h2>{copy.title}</h2>
+            </div>
           </div>
-          <button style={closeButtonStyle} onClick={onClose} aria-label="关闭">
-            ×
-          </button>
+          <button
+            className="memory-manager__close"
+            type="button"
+            aria-label={copy.close}
+            onClick={onClose}
+          />
         </div>
 
-        <div style={bodyStyle}>
-          {groups.length === 0 ? (
-            <p style={emptyStyle}>暂无任何记忆条目。</p>
-          ) : (
-            groups.map((group) => (
-              <section key={group.type} style={groupStyle}>
-                <div style={groupHeaderStyle}>
-                  <span style={groupTitleStyle}>
-                    {group.label}
-                    <span style={groupCountStyle}>{group.items.length}</span>
-                  </span>
-                  <button style={clearButtonStyle} onClick={() => handleClearGroup(group.type)}>
-                    清空本区
+        <div className="memory-manager__body">
+          <aside className="memory-manager__sidebar">
+            <div className="memory-manager__search">
+              <svg
+                className="memory-manager__search-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path strokeLinecap="round" d="M20 20l-3.5-3.5" />
+              </svg>
+              <input
+                type="search"
+                value={searchQuery}
+                placeholder={copy.searchPlaceholder}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+            </div>
+
+            <div>
+              <div className="memory-manager__sidebar-label">{copy.all}</div>
+              <div className="memory-manager__category-list">
+                <button
+                  type="button"
+                  className={`memory-manager__category-card${
+                    selectedCategory === ALL_CATEGORY ? " is-active" : ""
+                  }`}
+                  onClick={() => setSelectedCategory(ALL_CATEGORY)}
+                >
+                  <span>{copy.all}</span>
+                  <span className="memory-manager__category-count">{entries.length}</span>
+                </button>
+
+                {categoryStats.map((category) => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    className={`memory-manager__category-card${
+                      selectedCategory === category.id ? " is-active" : ""
+                    }`}
+                    onClick={() => setSelectedCategory(category.id)}
+                  >
+                    <span>{category.label}</span>
+                    <span className="memory-manager__category-count">{category.count}</span>
                   </button>
-                </div>
+                ))}
+              </div>
+            </div>
 
-                <ul style={listStyle}>
-                  {group.items.map((entry) => (
-                    <li key={entry.id} style={itemStyle}>
-                      <div style={itemMainStyle}>
-                        <div style={itemMetaRowStyle}>
-                          <span style={subjectBadgeStyle}>
-                            {SUBJECT_TYPE_LABELS[entry.subjectType]}
-                            {entry.subjectName ? `·${entry.subjectName}` : ""}
-                          </span>
-                          <span style={sensitivityBadgeStyle(entry.sensitivity)}>
-                            {SENSITIVITY_LABELS[entry.sensitivity]}
-                          </span>
-                        </div>
-                        <p style={contentStyle}>{entry.content}</p>
-                      </div>
-                      <button
-                        style={removeButtonStyle}
-                        onClick={() => handleRemoveOne(entry.id)}
-                        aria-label="删除该条记忆"
-                      >
-                        删除
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))
-          )}
+            {hasAnyEntries ? (
+              <button
+                type="button"
+                className="memory-manager__clear-all"
+                onClick={() => setConfirmState({ kind: "clear-all" })}
+              >
+                {copy.clearAll}
+              </button>
+            ) : null}
+          </aside>
+
+          <div className="memory-manager__content">
+            <div className="memory-manager__list-header">
+              <div className="memory-manager__list-heading">
+                <h3 className="memory-manager__list-title">{activeSectionLabel}</h3>
+                <span className="memory-manager__count-badge">{filteredEntries.length}</span>
+              </div>
+              {canClearSection ? (
+                <button
+                  type="button"
+                  className="memory-manager__clear-section"
+                  onClick={() =>
+                    setConfirmState({
+                      kind: "clear-section",
+                      memoryType: selectedCategory as MemoryType
+                    })
+                  }
+                >
+                  {copy.clearSection}
+                </button>
+              ) : null}
+            </div>
+
+            {hasVisibleEntries ? (
+              <div className="memory-manager__list">
+                {filteredEntries.map((entry) => (
+                  <MemoryCard
+                    key={entry.id}
+                    entry={entry}
+                    language={language}
+                    copy={copy}
+                    onDelete={() => handleRemoveOne(entry.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="memory-manager__empty">
+                <div className="memory-manager__empty-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v14l-4-2-4 2-4-2-4 2V6a2 2 0 012-2z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <h4>{isSearching ? copy.emptySearchTitle : copy.emptyTitle}</h4>
+                  <p>{isSearching ? copy.emptySearchText : copy.emptyText}</p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {groups.length > 0 && (
-          <div style={footerStyle}>
-            <button style={clearAllButtonStyle} onClick={handleClearAll}>
-              清空全部记忆
+        <div className="memory-manager__footer">
+          <div className="memory-manager__footer-left">
+            <div className="memory-manager__sync">
+              <span className="memory-manager__sync-dot" />
+              <span>{copy.localSynced}</span>
+            </div>
+            <div className="memory-manager__lang-switch" aria-label="Language">
+              <button
+                type="button"
+                className={language === "zh-CN" ? "is-active" : ""}
+                onClick={() => handleLanguageChange("zh-CN")}
+              >
+                简
+              </button>
+              <span>/</span>
+              <button
+                type="button"
+                className={language === "en-US" ? "is-active" : ""}
+                onClick={() => handleLanguageChange("en-US")}
+              >
+                EN
+              </button>
+            </div>
+          </div>
+
+          <div className="memory-manager__actions">
+            <button type="button" className="is-primary" onClick={onClose}>
+              {copy.done}
             </button>
           </div>
-        )}
+        </div>
+
+        {confirmState.kind !== "none" ? (
+          <div className="memory-manager__confirm" role="presentation">
+            <div className="memory-manager__confirm-card" role="alertdialog" aria-modal="true">
+              <div className="memory-manager__confirm-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+                  />
+                </svg>
+              </div>
+              <h3>
+                {confirmState.kind === "clear-all"
+                  ? copy.confirmClearAllTitle
+                  : copy.confirmClearSectionTitle}
+              </h3>
+              <p>
+                {confirmState.kind === "clear-all"
+                  ? copy.confirmClearAllText
+                  : copy.confirmClearSectionText}
+              </p>
+              <div className="memory-manager__confirm-actions">
+                <button type="button" onClick={() => setConfirmState({ kind: "none" })}>
+                  {copy.confirmCancel}
+                </button>
+                <button type="button" className="is-danger" onClick={handleConfirmClear}>
+                  {copy.confirmDanger}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// 内联样式：配色对齐 ModelSettingsModal（深青玻璃、直角、青色描边）
-// ---------------------------------------------------------------------------
+function MemoryCard({
+  entry,
+  language,
+  copy,
+  onDelete
+}: {
+  entry: MemoryEntry;
+  language: SettingsLanguage;
+  copy: ReturnType<typeof getMemoryManagerCopy>;
+  onDelete: () => void;
+}) {
+  const subjectLabel = entry.subjectName
+    ? `${copy.subjectLabels[entry.subjectType]}·${entry.subjectName}`
+    : copy.subjectLabels[entry.subjectType];
 
-const overlayStyle: CSSProperties = {
-  position: "absolute",
-  inset: 0,
-  zIndex: 8,
-  display: "grid",
-  placeItems: "center",
-  padding: 24,
-  background:
-    "linear-gradient(180deg, rgba(11, 38, 52, 0.5), rgba(0, 0, 0, 0.58)), rgba(0, 0, 0, 0.36)",
-  backdropFilter: "blur(8px)",
-  WebkitBackdropFilter: "blur(8px)"
-};
+  const confidenceDots = Math.max(0, Math.min(5, Math.round(entry.confidence * 5)));
 
-const panelStyle: CSSProperties = {
-  width: "min(720px, calc(100vw - 40px))",
-  maxHeight: "calc(100dvh - 48px)",
-  display: "flex",
-  flexDirection: "column",
-  border: "1px solid rgba(132, 226, 255, 0.38)",
-  padding: "22px 24px 20px",
-  background:
-    "linear-gradient(135deg, rgba(172, 238, 255, 0.12), rgba(16, 57, 75, 0.28) 42%, rgba(3, 13, 20, 0.86)), rgba(5, 20, 29, 0.88)",
-  boxShadow: "inset 0 1px 0 rgba(188, 244, 255, 0.16), 0 22px 76px rgba(0, 0, 0, 0.5)",
-  color: "rgba(235, 252, 255, 0.92)",
-  backdropFilter: "blur(24px) saturate(1.2)",
-  WebkitBackdropFilter: "blur(24px) saturate(1.2)"
-};
+  return (
+    <article className="memory-manager__card">
+      <div className="memory-manager__card-top">
+        <div className="memory-manager__badges">
+          <span className="memory-manager__badge">{subjectLabel}</span>
+          <span className={`memory-manager__badge memory-manager__badge--${entry.sensitivity}`}>
+            {copy.sensitivityLabels[entry.sensitivity]}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="memory-manager__delete"
+          aria-label={copy.deleteAria}
+          onClick={onDelete}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M9 7V5h6v2m-7 0l1 12h6l1-12" />
+          </svg>
+        </button>
+      </div>
 
-const headerStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: 18,
-  marginBottom: 18
-};
+      <p className="memory-manager__card-content">{entry.content}</p>
 
-const eyebrowStyle: CSSProperties = {
-  margin: 0,
-  color: "rgba(174, 231, 245, 0.58)",
-  fontSize: 12,
-  lineHeight: 1.3
-};
-
-const titleStyle: CSSProperties = {
-  margin: "4px 0 0",
-  fontSize: 22,
-  fontWeight: 520,
-  lineHeight: 1.2
-};
-
-const closeButtonStyle: CSSProperties = {
-  width: 32,
-  height: 32,
-  flex: "0 0 auto",
-  border: "1px solid rgba(132, 226, 255, 0.28)",
-  padding: 0,
-  background: "rgba(0, 25, 38, 0.46)",
-  color: "rgba(218, 248, 255, 0.8)",
-  fontSize: 20,
-  lineHeight: 1,
-  cursor: "pointer"
-};
-
-const bodyStyle: CSSProperties = {
-  overflowY: "auto",
-  display: "flex",
-  flexDirection: "column",
-  gap: 18,
-  paddingRight: 4
-};
-
-const emptyStyle: CSSProperties = {
-  margin: "12px 0",
-  color: "rgba(174, 231, 245, 0.5)",
-  fontSize: 13
-};
-
-const groupStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 10
-};
-
-const groupHeaderStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  paddingBottom: 6,
-  borderBottom: "1px solid rgba(132, 226, 255, 0.18)"
-};
-
-const groupTitleStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 8,
-  fontSize: 14,
-  fontWeight: 520,
-  color: "rgba(223, 250, 255, 0.9)"
-};
-
-const groupCountStyle: CSSProperties = {
-  minWidth: 20,
-  height: 18,
-  padding: "0 6px",
-  display: "inline-grid",
-  placeItems: "center",
-  background: "rgba(86, 167, 255, 0.14)",
-  border: "1px solid rgba(132, 226, 255, 0.24)",
-  fontSize: 11,
-  color: "rgba(200, 240, 255, 0.85)"
-};
-
-const clearButtonStyle: CSSProperties = {
-  border: "1px solid rgba(132, 226, 255, 0.24)",
-  padding: "4px 10px",
-  background: "rgba(0, 20, 30, 0.52)",
-  color: "rgba(200, 236, 250, 0.75)",
-  fontSize: 12,
-  cursor: "pointer"
-};
-
-const listStyle: CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "flex",
-  flexDirection: "column",
-  gap: 8
-};
-
-const itemStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: 12,
-  padding: "10px 12px",
-  border: "1px solid rgba(132, 226, 255, 0.16)",
-  background: "rgba(6, 24, 34, 0.5)"
-};
-
-const itemMainStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 6,
-  minWidth: 0
-};
-
-const itemMetaRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  flexWrap: "wrap"
-};
-
-const subjectBadgeStyle: CSSProperties = {
-  padding: "1px 7px",
-  border: "1px solid rgba(132, 226, 255, 0.22)",
-  background: "rgba(0, 20, 30, 0.42)",
-  fontSize: 11,
-  color: "rgba(196, 236, 250, 0.82)"
-};
-
-// 敏感级别徽标：普通青、敏感琥珀、高敏橙红，颜色对齐现有辉光渐变。
-function sensitivityBadgeStyle(sensitivity: MemoryEntry["sensitivity"]): CSSProperties {
-  const palette: Record<MemoryEntry["sensitivity"], { border: string; color: string }> = {
-    normal: { border: "rgba(132, 226, 255, 0.22)", color: "rgba(196, 236, 250, 0.82)" },
-    sensitive: { border: "rgba(255, 215, 138, 0.4)", color: "rgba(255, 224, 168, 0.9)" },
-    highSensitive: { border: "rgba(255, 154, 103, 0.48)", color: "rgba(255, 184, 150, 0.92)" }
-  };
-  const tone = palette[sensitivity];
-  return {
-    padding: "1px 7px",
-    border: `1px solid ${tone.border}`,
-    background: "rgba(0, 20, 30, 0.3)",
-    fontSize: 11,
-    color: tone.color
-  };
+      <div className="memory-manager__card-meta">
+        <span>{formatMemoryTimestamp(entry.createdAt, language)}</span>
+        <span className="memory-manager__confidence" title={`${copy.confidence}: ${entry.confidence}`}>
+          <span>{copy.confidence}</span>
+          <span className="memory-manager__confidence-dots" aria-hidden="true">
+            {Array.from({ length: 5 }, (_, index) => (
+              <span key={index} className={index < confidenceDots ? "is-on" : ""} />
+            ))}
+          </span>
+        </span>
+      </div>
+    </article>
+  );
 }
-
-const contentStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 13,
-  lineHeight: 1.5,
-  color: "rgba(235, 252, 255, 0.88)",
-  wordBreak: "break-word"
-};
-
-const removeButtonStyle: CSSProperties = {
-  flex: "0 0 auto",
-  border: "1px solid rgba(255, 154, 103, 0.4)",
-  padding: "4px 10px",
-  background: "rgba(40, 14, 10, 0.4)",
-  color: "rgba(255, 190, 160, 0.85)",
-  fontSize: 12,
-  cursor: "pointer"
-};
-
-// 底部全局操作区：与列表用描边分隔，清空全部按钮靠右。
-const footerStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  marginTop: 16,
-  paddingTop: 14,
-  borderTop: "1px solid rgba(132, 226, 255, 0.18)"
-};
-
-const clearAllButtonStyle: CSSProperties = {
-  border: "1px solid rgba(255, 154, 103, 0.45)",
-  padding: "6px 14px",
-  background: "rgba(40, 14, 10, 0.45)",
-  color: "rgba(255, 190, 160, 0.9)",
-  fontSize: 12,
-  cursor: "pointer"
-};

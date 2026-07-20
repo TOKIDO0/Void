@@ -71,6 +71,21 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
     return `${toolName} 完成：${fileName || record.finalPath}（${mediaKind}, ${String(bytes)} bytes）→ ${record.finalPath}`;
   }
 
+  if (toolName === "software.listSupported" && typeof record.count === "number") {
+    return `${toolName} 完成：已登记 ${record.count} 款官方软件`;
+  }
+
+  if (toolName === "software.resolveInstaller" && typeof record.displayName === "string") {
+    const ready = record.canAutoDownload === true ? "可自动下载" : "适配器未就绪";
+    return `${toolName} 完成：${record.displayName}（${ready}）`;
+  }
+
+  if (toolName === "software.downloadInstaller" && typeof record.finalPath === "string") {
+    const fileName = typeof record.fileName === "string" ? record.fileName : "";
+    const bytes = record.bytes ?? "?";
+    return `${toolName} 完成：${fileName || record.finalPath}（${String(bytes)} bytes）→ ${record.finalPath}`;
+  }
+
   if (toolName === "file.verify") {
     if (record.exists) {
       const fileName = typeof record.fileName === "string" ? record.fileName : "";

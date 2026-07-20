@@ -18,11 +18,18 @@ export type VoiceSynthesisRequest = {
   signal?: AbortSignal;
 };
 
-export type VoiceSynthesisResult = {
-  audioUrl: string;
-  mimeType?: string;
-  provider: "doubao" | "minimax" | "fishaudio";
-};
+export type VoiceSynthesisResult =
+  | {
+      audioUrl: string;
+      mimeType?: string;
+      provider: "doubao" | "minimax" | "fishaudio";
+    }
+  | {
+      pcmStream: ReadableStream<Uint8Array>;
+      sampleRate: number;
+      sessionId: string;
+      provider: "doubao";
+    };
 
 export interface VoiceTtsProvider {
   synthesize(request: VoiceSynthesisRequest): Promise<VoiceSynthesisResult>;

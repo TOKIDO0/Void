@@ -139,7 +139,7 @@ export async function assertSingleMatch(
 
 export function mapLocatorActionError(
   error: unknown,
-  action: "click" | "type" | "waitFor",
+  action: "click" | "type" | "waitFor" | "longPress",
   targetLabel: string
 ) {
   if (isBrowserCodedError(error)) {

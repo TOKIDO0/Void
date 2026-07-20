@@ -271,10 +271,13 @@ async function runAgentToolLoopInternal(
     streakCount: number;
   } | null = null;
   let lastTerminalSuccess: { toolName: string; summary: string } | null = null;
-  // 话术护栏证据：本轮是否真实 open/reveal 成功，以及最后一次打开的 URL。
+  // 话术护栏证据：本轮是否真实 open/reveal/下载/点击成功，以及最后一次打开的 URL。
   let didRevealInSystemBrowser = false;
   let didOpenAutomationWindow = false;
   let didOpenDesktopLocation = false;
+  let didCompleteDownload = false;
+  let didPageClick = false;
+  let didLongPress = false;
   let lastOpenedUrl: string | undefined;
   // 桥接不可达兜底：本轮是否已回灌过「sidecar 未启动」的如实话术约束（只灌一次，避免刷屏）。
   let bridgeUnreachableRelayed = false;
@@ -340,6 +343,9 @@ async function runAgentToolLoopInternal(
         didRevealInSystemBrowser,
         didOpenAutomationWindow,
         didOpenDesktopLocation,
+        didCompleteDownload,
+        didPageClick,
+        didLongPress,
         lastOpenedUrl
       });
       options.onProgress?.(usedTools ? "已完成操作，正在整理回复…" : "");
@@ -480,6 +486,15 @@ async function runAgentToolLoopInternal(
       if (openEvidence.didOpenDesktop) {
         didOpenDesktopLocation = true;
       }
+      if (openEvidence.didCompleteDownload) {
+        didCompleteDownload = true;
+      }
+      if (openEvidence.didPageClick) {
+        didPageClick = true;
+      }
+      if (openEvidence.didLongPress) {
+        didLongPress = true;
+      }
       if (openEvidence.url) {
         lastOpenedUrl = openEvidence.url;
       }
@@ -545,6 +560,9 @@ async function runAgentToolLoopInternal(
         didRevealInSystemBrowser,
         didOpenAutomationWindow,
         didOpenDesktopLocation,
+        didCompleteDownload,
+        didPageClick,
+        didLongPress,
         lastOpenedUrl
       }),
       usedTools,

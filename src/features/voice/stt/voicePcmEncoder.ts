@@ -1,77 +1,150 @@
+import type { VoiceActivityLevel } from "../voiceState";
+
 const TARGET_SAMPLE_RATE = 16000;
 const SPEECH_START_RMS = 0.045;
 const SPEECH_END_RMS = 0.022;
 const SPEECH_END_SILENCE_MS = 1500;
+const PCM_PROCESSOR_NAME = "void-voice-pcm-processor";
 
 export type EncodedVoiceChunk = {
   audioBase64: string;
   sampleRate: number;
 };
 
+type VoicePcmEncoderOptions = {
+  onChunk: (chunk: EncodedVoiceChunk) => void;
+  onSpeechEnd?: () => void;
+  onActivityLevelChange?: (activityLevel: VoiceActivityLevel) => void;
+  onRuntimeStateChange?: (state: AudioContextState) => void;
+};
+
 /**
- * 麦克风 PCM 采集与 16k/s16le 编码。
- *
- * 约束：
- * - 只在 STT 会话 ready 后创建，避免空推音频。
- * - 创建后立即 resume AudioContext，防止「用户手势 → 异步握手」后 context 处于 suspended，
- *   导致 onaudioprocess 不触发、表现为完全不识别。
- * - ScriptProcessor 必须挂到可运行图上才会回调；经 0 增益节点接到 destination，
- *   满足浏览器要求且不把麦克风直通到扬声器。
+ * 单一麦克风 PCM owner。
+ * 同一条 MediaStream 同时负责 16k/s16le 编码、speech-end 和本地音量活动，
+ * 避免旧实现为 VAD 与 STT 各开一条麦克风流。
  */
 export class VoicePcmEncoder {
   private readonly audioContext: AudioContext;
   private readonly mediaStream: MediaStream;
-  private readonly sourceNode: MediaStreamAudioSourceNode;
-  private readonly processorNode: ScriptProcessorNode;
-  private readonly silentGainNode: GainNode;
-  private readonly onChunk: (chunk: EncodedVoiceChunk) => void;
-  private readonly onSpeechEnd?: () => void;
+  private readonly options: VoicePcmEncoderOptions;
+  private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private processorNode: AudioWorkletNode | null = null;
+  private silentGainNode: GainNode | null = null;
   private speechActive = false;
   private lastSpeechAt = 0;
+  private lastChunkAt = 0;
+  private stopped = false;
 
-  constructor(
-    mediaStream: MediaStream,
-    onChunk: (chunk: EncodedVoiceChunk) => void,
-    onSpeechEnd?: () => void
-  ) {
+  constructor(mediaStream: MediaStream, options: VoicePcmEncoderOptions) {
     this.mediaStream = mediaStream;
-    this.onChunk = onChunk;
-    this.onSpeechEnd = onSpeechEnd;
+    this.options = options;
     this.audioContext = new AudioContext();
-    this.sourceNode = this.audioContext.createMediaStreamSource(mediaStream);
-    this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
+    this.audioContext.addEventListener("statechange", this.handleAudioContextStateChange);
+  }
+
+  get contextState() {
+    return this.audioContext.state;
+  }
+
+  get lastPcmChunkAt() {
+    return this.lastChunkAt;
+  }
+
+  async start() {
+    await this.audioContext.audioWorklet.addModule(
+      new URL("./voicePcmWorkletProcessor.js", import.meta.url)
+    );
+    if (this.stopped) {
+      return;
+    }
+
+    this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
+    this.processorNode = new AudioWorkletNode(this.audioContext, PCM_PROCESSOR_NAME, {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [1]
+    });
     this.silentGainNode = this.audioContext.createGain();
     this.silentGainNode.gain.value = 0;
+    this.processorNode.port.onmessage = this.handleWorkletMessage;
 
-    this.processorNode.onaudioprocess = (event) => {
-      const inputChannel = event.inputBuffer.getChannelData(0);
-      this.updateSpeechActivity(inputChannel);
-      const downsampledBuffer = downsampleBuffer(inputChannel, this.audioContext.sampleRate, TARGET_SAMPLE_RATE);
-      if (!downsampledBuffer.length) {
-        return;
-      }
-
-      this.onChunk({
-        audioBase64: encodePcm16ToBase64(downsampledBuffer),
-        sampleRate: TARGET_SAMPLE_RATE
-      });
-    };
-
+    // AudioWorklet 必须位于可运行音频图中；零增益输出不会把麦克风回放到扬声器。
     this.sourceNode.connect(this.processorNode);
     this.processorNode.connect(this.silentGainNode);
     this.silentGainNode.connect(this.audioContext.destination);
+    await this.ensureRunning();
+    this.lastChunkAt = Date.now();
   }
 
-  /**
-   * 从正在发送给 STT 的同一条 PCM 流判断 speech-end，避免再打开一条麦克风流。
-   * 这里只发“持续静音”信号，最终文本仍由 Worker 的识别结果决定。
-   */
+  async ensureRunning() {
+    if (this.audioContext.state === "suspended") {
+      await this.audioContext.resume();
+    }
+    if (this.audioContext.state !== "running") {
+      throw new Error(`麦克风 AudioContext 未运行（state=${this.audioContext.state}）。`);
+    }
+  }
+
+  async stop() {
+    if (this.stopped) {
+      return;
+    }
+    this.stopped = true;
+    this.audioContext.removeEventListener("statechange", this.handleAudioContextStateChange);
+    if (this.processorNode) {
+      this.processorNode.port.onmessage = null;
+      this.processorNode.disconnect();
+      this.processorNode = null;
+    }
+    this.sourceNode?.disconnect();
+    this.sourceNode = null;
+    this.silentGainNode?.disconnect();
+    this.silentGainNode = null;
+    this.mediaStream.getTracks().forEach((track) => track.stop());
+    if (this.audioContext.state !== "closed") {
+      await this.audioContext.close();
+    }
+    this.updateActivityLevel(false);
+  }
+
+  private readonly handleAudioContextStateChange = () => {
+    this.options.onRuntimeStateChange?.(this.audioContext.state);
+  };
+
+  private readonly handleWorkletMessage = (event: MessageEvent<Float32Array>) => {
+    if (this.stopped) {
+      return;
+    }
+    const inputChannel = event.data;
+    if (!(inputChannel instanceof Float32Array) || inputChannel.length === 0) {
+      return;
+    }
+
+    this.lastChunkAt = Date.now();
+    this.updateSpeechActivity(inputChannel);
+    const downsampledBuffer = downsampleBuffer(
+      inputChannel,
+      this.audioContext.sampleRate,
+      TARGET_SAMPLE_RATE
+    );
+    if (!downsampledBuffer.length) {
+      return;
+    }
+    this.options.onChunk({
+      audioBase64: encodePcm16ToBase64(downsampledBuffer),
+      sampleRate: TARGET_SAMPLE_RATE
+    });
+  };
+
   private updateSpeechActivity(inputChannel: Float32Array) {
     const rms = calculateRms(inputChannel);
     const now = performance.now();
     if (rms >= SPEECH_START_RMS) {
-      this.speechActive = true;
       this.lastSpeechAt = now;
+      if (!this.speechActive) {
+        this.speechActive = true;
+        this.updateActivityLevel(true);
+      }
       return;
     }
 
@@ -81,26 +154,13 @@ export class VoicePcmEncoder {
       && now - this.lastSpeechAt >= SPEECH_END_SILENCE_MS
     ) {
       this.speechActive = false;
-      this.onSpeechEnd?.();
+      this.updateActivityLevel(false);
+      this.options.onSpeechEnd?.();
     }
   }
 
-  /**
-   * 确保 AudioContext 处于 running。
-   * 必须在 STT ready 后、开始依赖 PCM 前 await；否则 suspended 时完全无识别。
-   */
-  async ensureRunning() {
-    if (this.audioContext.state === "suspended") {
-      await this.audioContext.resume();
-    }
-  }
-
-  async stop() {
-    this.processorNode.disconnect();
-    this.sourceNode.disconnect();
-    this.silentGainNode.disconnect();
-    this.mediaStream.getTracks().forEach((track) => track.stop());
-    await this.audioContext.close();
+  private updateActivityLevel(active: boolean) {
+    this.options.onActivityLevelChange?.(active ? "active" : "silent");
   }
 }
 
@@ -127,12 +187,10 @@ function downsampleBuffer(inputBuffer: Float32Array, sourceSampleRate: number, t
     const nextInputIndex = Math.round((outputIndex + 1) * sampleRateRatio);
     let accumulated = 0;
     let sampleCount = 0;
-
     for (let readIndex = inputIndex; readIndex < nextInputIndex && readIndex < inputBuffer.length; readIndex += 1) {
       accumulated += inputBuffer[readIndex];
       sampleCount += 1;
     }
-
     outputBuffer[outputIndex] = sampleCount > 0 ? accumulated / sampleCount : 0;
     outputIndex += 1;
     inputIndex = nextInputIndex;
@@ -150,9 +208,9 @@ function encodePcm16ToBase64(floatBuffer: Float32Array) {
 
   const bytes = new Uint8Array(pcmBuffer.buffer);
   let binary = "";
-  for (let index = 0; index < bytes.length; index += 1) {
-    binary += String.fromCharCode(bytes[index]);
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
   }
-
   return window.btoa(binary);
 }

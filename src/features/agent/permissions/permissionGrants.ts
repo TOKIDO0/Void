@@ -10,6 +10,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.browser.selectTarget",
   "tool.browser.reveal",
   "tool.browser.click",
+  "tool.browser.longPress",
   "tool.browser.type",
   "tool.browser.wait",
   "tool.browser.extract",
@@ -26,7 +27,10 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.file.listDirectory",
   "tool.file.readText",
   "tool.file.createDirectory",
-  "tool.file.move"
+  "tool.file.move",
+  "tool.software.listSupported",
+  "tool.software.resolveInstaller",
+  "tool.software.downloadInstaller"
 ]);
 
 export type PermissionGrants = ReadonlySet<string>;

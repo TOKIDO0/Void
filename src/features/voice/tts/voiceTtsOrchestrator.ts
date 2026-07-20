@@ -9,8 +9,9 @@ import type {
   VoiceTtsProvider
 } from "./voiceTtsContract";
 
-// 双向流式回吐 mp3；与 doubaoBidirectionalSession / StartSession audio_params.format 一致。
-const DOUBAO_BIDIRECTIONAL_AUDIO_FORMAT = "mp3";
+// 双向流式回吐 pcm_s16le；与 doubaoBidirectionalSession / StartSession audio_params.format 一致。
+// PCM + AudioWorklet 边收边播，避免 mp3+HTMLAudio/MSE 在 Tauri 上假有声与整段等待。
+const DOUBAO_BIDIRECTIONAL_AUDIO_FORMAT = "pcm";
 const DOUBAO_BIDIRECTIONAL_SAMPLE_RATE = 24000;
 
 type VoiceTtsProviderRegistration = {
@@ -225,61 +226,57 @@ export class VoiceTtsOrchestrator {
   }
 
   /**
-   * 双向流式合成会话（低延迟）：
-   * - 首句 push 即建连并喂文本，不必等整轮文字结束；
-   * - 音频首块到达后通过 MediaSource 边收边播（无 MSE 时回退整段 Blob）；
-   * - 同一 WS session 连续合成，保持整段韵律，播放层仍只收到一次 onSentenceReady。
+   * 双向流式合成会话（低延迟主线）：
+   * - 会话创建时立即预连接 Worker，不必等首句才握手；
+   * - 首句 push 后边喂文本边收 PCM；
+   * - 首块 PCM 以 ReadableStream 交给 AudioWorklet 边收边播；
+   * - 同一 WS session 连续合成，保持整段韵律，播放层只收到一次 onSentenceReady。
    */
   private createBidirectionalStreamingSession(
     request: Omit<VoiceSynthesisRequest, "signal" | "text">,
     onSentenceReady: (sentenceResult: VoiceSentenceSynthesisResult) => Promise<void> | void,
     signal?: AbortSignal
   ): VoiceStreamingSynthesisSession {
-    let streamSession: ReturnType<typeof openBidirectionalStreamSession> | null = null;
-    let pushedAnyText = false;
     let playbackNotified = false;
 
-    const ensureStreamSession = () => {
-      if (streamSession) {
-        return streamSession;
-      }
-      streamSession = openBidirectionalStreamSession(
-        {
-          speaker: this.runtimeConfig.doubaoSpeakerId.trim(),
-          audioParams: buildBidirectionalAudioParams(request.expression)
-        },
-        {
-          onPlaybackReady: async (audioUrl, mimeType) => {
-            if (signal?.aborted) {
-              URL.revokeObjectURL(audioUrl);
-              return;
-            }
-            if (playbackNotified) {
-              return;
-            }
-            playbackNotified = true;
-            await onSentenceReady({
-              index: 0,
-              result: {
-                audioUrl,
-                mimeType,
-                provider: "doubao"
-              }
-            });
-          },
-          onError: (error) => {
-            // best-effort：语音失败不阻断文字回合。
-            // AbortError 是用户打断/新回合替换的正常路径，不刷黄字；其它错误才告警。
-            if (error instanceof DOMException && error.name === "AbortError") {
-              return;
-            }
-            console.warn("[VOID TTS bidirectional session]", error);
+    // 预连接：创建即握手，与首句文本并行，降低 TTFA。
+    const streamSession = openBidirectionalStreamSession(
+      {
+        speaker: this.runtimeConfig.doubaoSpeakerId.trim(),
+        audioParams: buildBidirectionalAudioParams(request.expression)
+      },
+      {
+        onPcmStreamReady: async (pcmStream, sampleRate, sessionId) => {
+          if (signal?.aborted) {
+            void pcmStream.cancel();
+            return;
           }
+          if (playbackNotified) {
+            void pcmStream.cancel();
+            return;
+          }
+          playbackNotified = true;
+          await onSentenceReady({
+            index: 0,
+            result: {
+              pcmStream,
+              sampleRate,
+              sessionId,
+              provider: "doubao"
+            }
+          });
         },
-        signal
-      );
-      return streamSession;
-    };
+        onError: (error) => {
+          // best-effort：语音失败不阻断文字回合。
+          // AbortError 是用户打断/新回合替换的正常路径，不刷黄字；其它错误才告警。
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          console.warn("[VOID TTS bidirectional session]", error);
+        }
+      },
+      signal
+    );
 
     return {
       push: (sentences: string[]) => {
@@ -291,15 +288,16 @@ export class VoiceTtsOrchestrator {
           if (!text) {
             continue;
           }
-          pushedAnyText = true;
-          ensureStreamSession().pushText(text);
+          streamSession.pushText(text);
         }
       },
       complete: async () => {
-        if (signal?.aborted || !pushedAnyText) {
+        if (signal?.aborted) {
           return;
         }
-        await ensureStreamSession().complete();
+        // 预连接后若本轮无任何可读文本，仍要 complete 收口，避免悬挂 WebSocket。
+        // 会话内部对「零文本」会直接 settle，不会空等豆包音频。
+        await streamSession.complete();
       }
     };
   }

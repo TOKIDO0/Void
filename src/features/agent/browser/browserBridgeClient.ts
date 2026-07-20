@@ -14,6 +14,7 @@ import type {
   BrowserEnsureSessionData,
   BrowserExtractData,
   BrowserExtractMode,
+  BrowserLongPressData,
   BrowserOpenData,
   BrowserReadResultData,
   BrowserRevealInSystemBrowserData,
@@ -268,6 +269,25 @@ export async function browserClick(
   signal?: AbortSignal
 ): Promise<BrowserClickData> {
   return postBrowserApi<BrowserClickData>("/void-browser/click", input, signal);
+}
+
+/**
+ * S3：长按（selector 或 role+name）。
+ * 默认按住 3000ms，供 B 站三连；不是通用键鼠。
+ */
+export async function browserLongPress(
+  input: {
+    taskId: string;
+    pageId?: string;
+    selector?: string;
+    role?: string;
+    name?: string;
+    button?: "left" | "right" | "middle";
+    holdMs?: number;
+  },
+  signal?: AbortSignal
+): Promise<BrowserLongPressData> {
+  return postBrowserApi<BrowserLongPressData>("/void-browser/long-press", input, signal);
 }
 
 /** 阶段 G1 / Q1：输入文本（selector 或 role+name） */

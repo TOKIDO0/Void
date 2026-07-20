@@ -10,6 +10,7 @@ import {
   resolveTurnCapability,
   type TurnCapability
 } from "./turnRouting/turnCapabilityRouter";
+import { planBrowserSearchIntent } from "./turnRouting/searchIntentPlanner";
 import { stripStageDirections } from "./responseTextDisplay";
 import { isVoidBridgeReachable } from "./bridge/bridgeHealthClient";
 import {
@@ -18,6 +19,7 @@ import {
   type BehaviorDecision
 } from "../emotion/behaviorPolicy";
 import { appendExecutionLog } from "./observability";
+import { applyReplySpeechGuard } from "./loop/replySpeechGuard";
 
 export type VoidConversationAttachment = {
   id: string;
@@ -81,9 +83,15 @@ const TOOL_USE_COMMON_SUFFIX = [
 
 const BROWSER_TOOL_USE_SUFFIX = [
   "本轮只允许使用浏览器、下载与下载后整理工具；若本轮工具列表含 clipboard.read，还可读取剪贴板；若含 desktop.revealPath，可在落盘成功后打开资源管理器展示位置。",
-  "当用户要求搜索、打开网页、看视频、下载文件时，必须调用工具，禁止假装已经操作。",
+  "当用户要求搜索、打开网页/平台/视频/主页、看视频、下载文件，或点赞/三连/收藏/评论时，必须调用工具，禁止假装已经操作。",
+  "打开站点或 App 网页版（如快手/抖音/B站）：用 browser.open 打开对应 https 页面；若用户要在自己日常浏览器里看，成功后必须再调 browser.revealInSystemBrowser。",
+  "用户说「在 Edge/Chrome 打开」：当前只能用系统默认浏览器 reveal，不能单独指定品牌；先尽力 open/reveal，再如实说明是否为默认浏览器，禁止甩 Win+R/msedge 手工命令当主方案，也禁止空口说已在 Edge 打开。",
+  "模糊搜索（如「好玩的博主」「有趣的视频」）：不要把用户口语原句原封不动当唯一 query。先理解平台与风格，改写成具体检索词（可先列 2～3 个候选名/关键词），B 站场景用 engine=bilibili；拿不准平台时先一句话确认或按上下文默认 B 站。",
+  "打开「某博主最新视频」：browser.search(engine=bilibili, query=具体UP名或视频关键词) → 从结果里选视频页 URL → browser.open 或 revealInSystemBrowser；没有真实 URL 时禁止说已打开。",
+  "点赞/收藏/三连/评论：必须先有当前视频页（open 成功）。点赞/收藏用 browser.click；B 站三连用 browser.longPress（默认 holdMs=3000）按住点赞按钮，其它平台没有三连就说明并改做点赞/收藏。评论：extract/click 打开评论区 → browser.type 填入用户原话 → 发送前若需确认则走确认。未登录、点不到或 longPress 失败时必须如实说还没完成，禁止假称已点赞/已三连/已评论。",
   "剪贴板 URL 下载主路径（用户说从剪贴板/粘贴板下载链接、保存剪贴板网址等）：先 clipboard.read。读到文本后按主机分流，禁止跳过读取直接瞎猜 URL：① 空、非 http(s) URL、或明显不是链接 → 不要调用任何 download*，用中文说明剪贴板内容不是可下载链接；② B 站视频页（www/m.bilibili.com/video/BVxxx 或 avxxx，或 b23.tv 短链）→ file.downloadMediaPage(pageUrl) → 用户确认后 file.placeDownload → file.verify；禁止对 B 站视频页用 file.downloadToTemp；③ 可直接 GET 的文件直链（常见 .exe/.msi/.zip/.dmg 等）→ file.downloadToTemp → place → verify；④ YouTube 或其它未支持主机/普通 HTML 页 → 不要调用 download*，如实说明当前仅支持 B 站视频页与文件直链，并点名不支持的主机。未确认 place 前不得声称已保存到最终目录。",
-  "下载主路径（安装包/任意文件通用）：先拿到可直接 GET 的 http(s) 文件直链（URL 常以 .exe/.msi/.zip/.dmg 等结尾，或 Content-Disposition 指向文件），再 file.downloadToTemp → 用户确认后 file.placeDownload → file.verify；默认最终目录 D:\\AI\\void-runtime\\downloads。",
+  "下载主路径（任意文件直链通用，不是某一软件专线）：先拿到可直接 GET 的 http(s) 文件直链（URL 常以 .exe/.msi/.zip/.dmg 等结尾，或 Content-Disposition 指向文件），再 file.downloadToTemp → 用户确认后 file.placeDownload → file.verify；默认最终目录 D:\\AI\\void-runtime\\downloads。",
+  "「客户端/电脑版/官方安装包」且没有直链时：不要本轮硬点官网按钮；那是 software 能力（若本轮工具列表没有 software.*，请用户用「下载 XX 客户端/安装包」触发官方软件自动化，或提供官方直链）。",
   "下载后整理（用户要求归入子目录/按日期或任务名归档）：file.placeDownload 落到默认下载根后，file.createDirectory 在允许根内建一层子目录（父目录须已存在，不递归）→ file.move(sourcePath=place 的 finalPath, destinationPath=子目录\\文件名) → file.verify；需要时先 file.listDirectory 看现状。汇报最终 destinationPath。用户只要下载不要整理时，place+verify 后收口。",
   "落盘后打开位置（T3.c）：仅当 place 已成功且用户要求「打开所在位置 / 显示文件夹 / 在资源管理器里看 / 帮我打开下载目录」时，再调 desktop.revealPath(path=finalPath 或所在目录)。未确认 place 前禁止 reveal，也不得声称已打开目录。用户只要下载不要打开时，place+verify（及可选整理）后收口，不要强行 reveal。失败如实报 PATH_NOT_ALLOWED / PATH_NOT_FOUND / 桥接不可达等，禁止假装已打开。",
   "禁止把「在官网反复 click 下载按钮」当主路径：file.downloadToTemp 只认直链，不会自动捕获浏览器按钮触发的下载。",
@@ -95,7 +103,7 @@ const BROWSER_TOOL_USE_SUFFIX = [
   "多页时用 browser.tabs 列 pageId/url/title，用 browser.switchTab 切活动标签；后续未传 pageId 的动作走活动页。",
   "用户要「打开给我看 / 在我浏览器里看」时：拿到真实视频 URL 后必须再调 browser.revealInSystemBrowser，用系统默认浏览器打开；汇报时写明完整 URL，并说明请到常用浏览器查看。",
   "页面内操作顺序：看不清结构或 selector 不稳 → browser.extract → 再用返回的 suggestedSelector，或 extract 的 role+name 做 browser.click / browser.type；无稳定位时用 text/href 收窄，禁止空猜。",
-  "browser.click / browser.type 定位二选一：selector，或 role+name（无障碍 getByRole）；必须唯一匹配。browser.waitFor 用于导航后等待；禁止假装已点击/已输入。",
+  "browser.click / browser.longPress / browser.type 定位二选一：selector，或 role+name（无障碍 getByRole）；必须唯一匹配。browser.waitFor 用于导航后等待；禁止假装已点击/已长按/已输入。",
   "不要空口说「打开了」——只有工具返回成功证据后才能那样说，并带上标题与 URL。"
 ];
 
@@ -116,6 +124,20 @@ const CLIPBOARD_TOOL_USE_SUFFIX = [
   "本轮只允许使用系统剪贴板工具。",
   "clipboard.read 只读；clipboard.write 会覆盖剪贴板并需用户确认，禁止写入密码或密钥。",
   "本轮没有下载工具：若用户其实要下载剪贴板里的链接，需明确下载意图后再执行；不要假装已下载。"
+];
+
+/**
+ * 官方软件安装包自动化（通用领域）。
+ * 斗鱼/B站等只是目录样例，禁止当成「只会下这两个」的专线产品来解释。
+ */
+const SOFTWARE_TOOL_USE_SUFFIX = [
+  "本轮是「官方软件安装包」自动化能力，属于多功能助手的一个可扩展领域，不是某一两个软件的专线。",
+  "用户说下载/安装客户端、电脑版、桌面版、Windows 版、官方安装包时，必须走 software 工具，禁止用 file.downloadMediaPage（那是视频），也禁止空口说已下载。",
+  "先 software.resolveInstaller(query=用户说的软件名)。若失败码 UNSUPPORTED_SOFTWARE：说明未登记，可 software.listSupported 列目录，或请用户给官方直链后改走通用文件下载；禁止去第三方下载站乱搜。",
+  "若返回 ADAPTER_NOT_READY / canAutoDownload=false：诚实说明已识别软件但自动解析适配器尚未就绪，给出 officialPageUrls，禁止声称已经下载或安装。",
+  "若 canAutoDownload=true 且有 resolutionId：向用户简述软件名/来源主机/文件名（若有），确认后调用 software.downloadInstaller(resolutionId)。成功后汇报 finalPath、bytes、sha256、signatureStatus；用户要求打开位置时再 desktop.revealPath(path=finalPath)。",
+  "download 失败时必须点名 failureCode（如 DOWNLOAD_TRIGGER_NOT_FOUND / SIGNATURE_INVALID / PATH_NOT_ALLOWED），禁止空口「工具失败」。",
+  "禁止把 B 站「客户端安装包」和 B 站「视频下载」混为一谈；禁止为讨好用户假装支持未登记软件。"
 ];
 
 export async function sendVoidMessage(
@@ -219,15 +241,44 @@ export async function sendVoidMessage(
   }
 
   try {
+    // 非工具路径也做假成功护栏：防止模型空口说「已打开/已下载/已点赞」
     if (modelConfig.streamEnabled && provider.streamMessage) {
-      return await provider.streamMessage({
+      const streamed = await provider.streamMessage({
         messages,
         onToken,
         signal: runtimeOptions.signal
       }, modelConfig);
+      // 流式过程中 onToken 已推送原文；这里只校正返回值。
+      // 路由放宽后，打开/下载类意图会进工具路径，此分支主要兜底纯闲聊误声称。
+      const guarded = applyReplySpeechGuard(streamed.content ?? "", {
+        usedTools: false,
+        didRevealInSystemBrowser: false,
+        didOpenAutomationWindow: false,
+        didOpenDesktopLocation: false,
+        didCompleteDownload: false,
+        didPageClick: false,
+        didLongPress: false
+      });
+      return { content: guarded };
     }
 
-    return await provider.sendMessage({ messages, signal: runtimeOptions.signal }, modelConfig);
+    const response = await provider.sendMessage(
+      { messages, signal: runtimeOptions.signal },
+      modelConfig
+    );
+    const guarded = applyReplySpeechGuard(response.content ?? "", {
+      usedTools: false,
+      didRevealInSystemBrowser: false,
+      didOpenAutomationWindow: false,
+      didOpenDesktopLocation: false,
+      didCompleteDownload: false,
+      didPageClick: false,
+      didLongPress: false
+    });
+    if (onToken && guarded) {
+      onToken(guarded);
+    }
+    return { content: guarded };
   } catch (error) {
     throw provider.mapError(error);
   }
@@ -286,6 +337,13 @@ function buildSystemPrompt(
   // 工具短约束：仅在本轮启用 tools 时注入，不罗列全部参数 schema
   if (enableTools) {
     sections.push(buildToolUseSystemSuffix(capability));
+    // S2：浏览器回合附加「改写检索词 / 站点线索」，减少字面搜索与假打开
+    if (capability === "browser") {
+      const searchIntent = planBrowserSearchIntent(latestUserInput);
+      if (searchIntent?.promptHint) {
+        sections.push(searchIntent.promptHint);
+      }
+    }
   }
 
   return sections.join("\n\n");
@@ -342,7 +400,9 @@ function buildToolUseSystemSuffix(capability: TurnCapability) {
         ? DESKTOP_TOOL_USE_SUFFIX
         : capability === "clipboard"
           ? CLIPBOARD_TOOL_USE_SUFFIX
-          : [];
+          : capability === "software"
+            ? SOFTWARE_TOOL_USE_SUFFIX
+            : [];
   return [...TOOL_USE_COMMON_SUFFIX, ...capabilityRules].join("");
 }
 

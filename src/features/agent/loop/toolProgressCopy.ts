@@ -13,6 +13,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "browser.selectTarget": "正在确认搜索目标…",
   "browser.revealInSystemBrowser": "正在用系统浏览器打开给你看…",
   "browser.click": "正在点击页面元素…",
+  "browser.longPress": "正在长按页面元素…",
   "browser.type": "正在输入内容…",
   "browser.waitFor": "正在等待页面就绪…",
   "browser.extract": "正在抽取页面内容…",
@@ -30,6 +31,9 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "file.readText": "正在读取文本…",
   "file.createDirectory": "正在创建目录…",
   "file.move": "正在移动或重命名…",
+  "software.listSupported": "正在查看已支持的官方软件…",
+  "software.resolveInstaller": "正在解析官方安装包信息…",
+  "software.downloadInstaller": "正在下载并校验官方安装包…",
   echo: "正在执行内部校验…"
 };
 
@@ -44,7 +48,9 @@ const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "desktop.revealPath": "请确认是否在资源管理器中展示",
   "desktop.openKnownLocation": "请确认是否打开此电脑",
   "file.createDirectory": "请确认是否创建目录",
-  "file.move": "请确认是否移动或重命名"
+  "file.move": "请确认是否移动或重命名",
+  "software.resolveInstaller": "请确认要解析的软件",
+  "software.downloadInstaller": "请确认是否下载该官方安装包"
 };
 
 /** 执行中进度 */

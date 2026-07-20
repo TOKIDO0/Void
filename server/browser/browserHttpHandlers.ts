@@ -19,6 +19,7 @@ import type {
   BrowserClickData,
   BrowserCloseSessionData,
   BrowserExtractData,
+  BrowserLongPressData,
   BrowserOpenData,
   BrowserReadResultData,
   BrowserScreenshotData,
@@ -313,6 +314,43 @@ export async function handleBrowserHttpRequest(
         name,
         button,
         clickCount: readNumber(body, "clickCount")
+      });
+    });
+    return true;
+  }
+
+  // S3：长按（B 站三连等）；定位规则与 click 相同
+  if (pathname === "/void-browser/long-press") {
+    await withBrowserHandler<BrowserLongPressData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const taskId = readString(body, "taskId");
+      const selector = readString(body, "selector");
+      const role = readString(body, "role");
+      const name = readString(body, "name");
+      if (!taskId) {
+        throw Object.assign(new Error("缺少 taskId"), {
+          browserCode: "INVALID_REQUEST"
+        });
+      }
+      if (!selector && !(role && name)) {
+        throw Object.assign(
+          new Error("缺少定位目标：请提供 selector，或同时提供 role 与 name"),
+          { browserCode: "INVALID_REQUEST" }
+        );
+      }
+      const buttonRaw = readString(body, "button");
+      const button =
+        buttonRaw === "right" || buttonRaw === "middle" || buttonRaw === "left"
+          ? buttonRaw
+          : undefined;
+      return browserSessionManager.longPress({
+        taskId,
+        pageId: readString(body, "pageId"),
+        selector,
+        role,
+        name,
+        button,
+        holdMs: readNumber(body, "holdMs")
       });
     });
     return true;

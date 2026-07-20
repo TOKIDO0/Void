@@ -8,6 +8,7 @@ type SettingsCopy = {
   voice: string;
   language: string;
   preset: string;
+  presetGroup: string;
   presetPlaceholder: string;
   provider: string;
   apiKey: string;
@@ -30,6 +31,15 @@ type SettingsCopy = {
   requestModeProduction: string;
   streamOutput: string;
   streamOutputHint: string;
+  sectionProvider: string;
+  sectionGeneration: string;
+  sectionVoice: string;
+  strengthRuleTitle: string;
+  strengthRuleText: string;
+  showSecret: string;
+  hideSecret: string;
+  syncOk: string;
+  syncDirty: string;
   doubaoAppId: string;
   doubaoAppIdHint: string;
   doubaoVoiceApiKey: string;
@@ -56,10 +66,11 @@ type SettingsCopy = {
 export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
   "zh-CN": {
     settings: "设置",
-    model: "模型",
+    model: "模型设置",
     voice: "语音",
     language: "语言",
     preset: "服务预设",
+    presetGroup: "厂商快捷预设",
     presetPlaceholder: "选择官方模型服务",
     provider: "接口格式",
     apiKey: "API Key",
@@ -81,7 +92,16 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     requestModeDevelopment: "开发代理",
     requestModeProduction: "正式代理",
     streamOutput: "流式输出",
-    streamOutputHint: "开启后不会等整段回复写完才显示，而是模型生成一点就显示一点。长回复会更快看到开头。",
+    streamOutputHint: "开启后不会等整段回复写完才显示，而是模型生成一点就显示一点。",
+    sectionProvider: "01 / 服务商配置",
+    sectionGeneration: "02 / 生成参数",
+    sectionVoice: "03 / 语音",
+    strengthRuleTitle: "关于模型强度",
+    strengthRuleText: "模型强度与下拉中的模型档位对应，不会在后台偷偷替换你当前选中的模型名称。",
+    showSecret: "显示",
+    hideSecret: "隐藏",
+    syncOk: "配置已同步",
+    syncDirty: "有未保存修改",
     doubaoAppId: "Doubao App ID",
     doubaoAppIdHint: "火山语音控制台的 APP ID，用于 Doubao 流式语音识别鉴权。",
     doubaoVoiceApiKey: "Doubao Access Token",
@@ -101,15 +121,16 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     minimaxGroupId: "MiniMax Group ID",
     minimaxGroupIdHint: "如果你的 MiniMax TTS 调用需要 Group ID，请填在这里；没有则可留空。",
     cancel: "取消",
-    save: "保存",
+    save: "保存配置",
     closeSettings: "关闭设置"
   },
   "en-US": {
     settings: "Settings",
-    model: "Model",
+    model: "Model Preferences",
     voice: "Voice",
     language: "Language",
     preset: "Preset",
+    presetGroup: "Quick Presets",
     presetPlaceholder: "Select an official provider",
     provider: "API format",
     apiKey: "API Key",
@@ -131,7 +152,16 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     requestModeDevelopment: "Development proxy",
     requestModeProduction: "Formal proxy",
     streamOutput: "Stream output",
-    streamOutputHint: "When enabled, the reply appears piece by piece while the model is still generating instead of waiting for the full answer.",
+    streamOutputHint: "When enabled, the reply appears piece by piece while the model is still generating.",
+    sectionProvider: "01 / Provider",
+    sectionGeneration: "02 / Generation",
+    sectionVoice: "03 / Voice",
+    strengthRuleTitle: "About model strength",
+    strengthRuleText: "Strength maps to the selected model tier and will not silently replace your current model name.",
+    showSecret: "Show",
+    hideSecret: "Hide",
+    syncOk: "Preferences synced",
+    syncDirty: "Unsaved changes",
     doubaoAppId: "Doubao App ID",
     doubaoAppIdHint: "The APP ID from the Volcengine voice console, used for Doubao streaming STT authentication.",
     doubaoVoiceApiKey: "Doubao access token",
@@ -151,7 +181,7 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     minimaxGroupId: "MiniMax group ID",
     minimaxGroupIdHint: "Fill this only if your MiniMax TTS account requires a Group ID.",
     cancel: "Cancel",
-    save: "Save",
+    save: "Save settings",
     closeSettings: "Close settings"
   }
 };

@@ -1,6 +1,4 @@
-import { useGSAP } from "@gsap/react";
-import gsap from "gsap";
-import { ChangeEvent, CSSProperties, FormEvent, MutableRefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import {
   MAX_OUTPUT_LEVELS,
   MODEL_PRESETS,
@@ -26,65 +24,12 @@ import {
 } from "./settingsI18n";
 import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
 
-gsap.registerPlugin(useGSAP);
-
 type ModelSettingsModalProps = {
   isOpen: boolean;
   onClose: () => void;
 };
 
-type TrailParticle = {
-  id: number;
-  element: HTMLSpanElement;
-  position: number;
-  offsetY: number;
-  driftX: number;
-  driftY: number;
-  size: number;
-  blur: number;
-  breatheSpeed: number;
-  twinklePhase: number;
-  alpha: number;
-  bornAt: number;
-};
-
 const MODEL_STRENGTH_ORDER: ModelStrength[] = ["low", "middle", "high", "max"];
-const MAX_TRAIL_PARTICLES = 96;
-const TRAIL_PARTICLE_SPACING = 0.062;
-const PARTICLE_VERTICAL_LIMIT = 11;
-const PARTICLE_FADE_IN_DURATION = 0.26;
-const ORBIT_TRAIL_THEME_STOPS = [
-  { progress: 0, glow: "rgba(177, 241, 255, 0.88)", aura: "rgba(116, 231, 255, 0.24)" },
-  { progress: 0.33, glow: "rgba(149, 238, 223, 0.9)", aura: "rgba(110, 238, 188, 0.26)" },
-  { progress: 0.66, glow: "rgba(255, 215, 138, 0.92)", aura: "rgba(255, 176, 94, 0.3)" },
-  { progress: 1, glow: "rgba(255, 154, 103, 0.94)", aura: "rgba(255, 108, 84, 0.34)" }
-] as const;
-const PLANET_COLOR_STOPS = [
-  {
-    progress: 0,
-    base: "rgba(149, 235, 255, 1)",
-    light: "rgba(223, 250, 255, 0.96)",
-    shadow: "rgba(42, 110, 140, 1)"
-  },
-  {
-    progress: 0.33,
-    base: "rgba(138, 228, 194, 1)",
-    light: "rgba(222, 248, 238, 0.95)",
-    shadow: "rgba(38, 112, 90, 1)"
-  },
-  {
-    progress: 0.66,
-    base: "rgba(241, 198, 118, 1)",
-    light: "rgba(255, 241, 211, 0.95)",
-    shadow: "rgba(142, 92, 38, 1)"
-  },
-  {
-    progress: 1,
-    base: "rgba(214, 131, 88, 1)",
-    light: "rgba(255, 229, 212, 0.95)",
-    shadow: "rgba(118, 58, 34, 1)"
-  }
-] as const;
 
 export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps) {
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
@@ -92,11 +37,12 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
   const [selectedPresetId, setSelectedPresetId] = useState(() => findPresetId(loadModelConfig()));
   const [isAdvancedModelOpen, setIsAdvancedModelOpen] = useState(false);
+  const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+
   const copy = SETTINGS_COPY[language];
   const modelOptions = useMemo(() => getModelOptionsForPreset(selectedPresetId), [selectedPresetId]);
   const availableStrengths = useMemo(() => MODEL_STRENGTH_ORDER, []);
-  const advancedContentRef = useRef<HTMLDivElement>(null);
-  const shouldAnimateAdvancedPanelRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -111,7 +57,11 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     setDraftConfig(storedConfig);
     setVoiceRuntimeConfig(storedVoiceRuntimeConfig);
     setSelectedPresetId(storedPresetId);
-    setIsAdvancedModelOpen(!storedModelOptions.some((option: { modelName: string }) => option.modelName === storedConfig.modelName));
+    setIsAdvancedModelOpen(
+      !storedModelOptions.some((option: { modelName: string }) => option.modelName === storedConfig.modelName)
+    );
+    setIsApiKeyVisible(false);
+    setIsDirty(false);
   }, [isOpen]);
 
   useEffect(() => {
@@ -129,9 +79,14 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
+  const markDirty = () => {
+    setIsDirty(true);
+  };
+
   const updateTextField = (fieldName: "apiKey" | "baseUrl" | "modelName") => {
     return (event: ChangeEvent<HTMLInputElement>) => {
       const nextValue = event.target.value;
+      markDirty();
       setDraftConfig((currentConfig) => ({
         ...currentConfig,
         [fieldName]: nextValue
@@ -142,11 +97,36 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   const updateVoiceRuntimeField = (fieldName: "doubaoSpeakerId") => {
     return (event: ChangeEvent<HTMLInputElement>) => {
       const nextValue = event.target.value;
+      markDirty();
       setVoiceRuntimeConfig((currentConfig) => ({
         ...currentConfig,
         [fieldName]: nextValue
       }));
     };
+  };
+
+  const applyPreset = (presetId: string) => {
+    const preset = findModelPresetById(presetId);
+    if (!preset) {
+      return;
+    }
+
+    const nextModelOptions = getModelOptionsForPreset(preset.id);
+    markDirty();
+    setSelectedPresetId(preset.id);
+    setIsAdvancedModelOpen(false);
+    setDraftConfig((currentConfig) => ({
+      ...currentConfig,
+      presetId: preset.id,
+      provider: preset.provider,
+      baseUrl: preset.baseUrl,
+      modelName: preset.modelName,
+      modelStrength:
+        nextModelOptions.find(
+          (option: { modelName: string; strength: ModelStrength }) => option.modelName === preset.modelName
+        )?.strength ?? currentConfig.modelStrength,
+      streamEnabled: preset.provider === "openai-compatible" && currentConfig.streamEnabled
+    }));
   };
 
   const handleProviderChange = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -156,6 +136,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     const nextModelOptions = getModelOptionsForPreset(nextPresetId);
     const nextModelName = nextPreset?.modelName ?? "";
 
+    markDirty();
     setSelectedPresetId(nextPresetId);
     setIsAdvancedModelOpen(false);
     setDraftConfig((currentConfig) => ({
@@ -164,41 +145,26 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       presetId: nextPresetId,
       baseUrl: nextPreset?.baseUrl ?? currentConfig.baseUrl,
       modelName: nextModelName || currentConfig.modelName,
-      modelStrength: nextModelOptions.find((option: { modelName: string; strength: ModelStrength }) => option.modelName === nextModelName)?.strength ?? currentConfig.modelStrength,
+      modelStrength:
+        nextModelOptions.find(
+          (option: { modelName: string; strength: ModelStrength }) => option.modelName === nextModelName
+        )?.strength ?? currentConfig.modelStrength,
       streamEnabled: nextProvider === "openai-compatible" && currentConfig.streamEnabled
     }));
   };
 
-  const handleLanguageChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextLanguage = event.target.value as SettingsLanguage;
+  const handleLanguageChange = (nextLanguage: SettingsLanguage) => {
     setLanguage(nextLanguage);
     saveSettingsLanguage(nextLanguage);
   };
 
-  const handlePresetChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const preset = findModelPresetById(event.target.value);
-    if (!preset) {
-      return;
-    }
-
-    const nextModelOptions = getModelOptionsForPreset(preset.id);
-    setSelectedPresetId(preset.id);
-    setIsAdvancedModelOpen(false);
-    setDraftConfig((currentConfig) => ({
-      ...currentConfig,
-      presetId: preset.id,
-      provider: preset.provider,
-      baseUrl: preset.baseUrl,
-      modelName: preset.modelName,
-      modelStrength: nextModelOptions.find((option: { modelName: string; strength: ModelStrength }) => option.modelName === preset.modelName)?.strength ?? currentConfig.modelStrength,
-      streamEnabled: preset.provider === "openai-compatible" && currentConfig.streamEnabled
-    }));
-  };
-
   const handleModelOptionChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const nextModelName = event.target.value;
-    const matchedOption = modelOptions.find((option: { modelName: string; strength: ModelStrength }) => option.modelName === nextModelName);
+    const matchedOption = modelOptions.find(
+      (option: { modelName: string; strength: ModelStrength }) => option.modelName === nextModelName
+    );
 
+    markDirty();
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
       modelName: nextModelName,
@@ -207,6 +173,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   };
 
   const handleStrengthChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    markDirty();
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
       modelStrength: event.target.value as ModelStrength
@@ -219,6 +186,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       return;
     }
 
+    markDirty();
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
       temperature: level.value
@@ -231,6 +199,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
       return;
     }
 
+    markDirty();
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
       maxOutputTokens: level.value
@@ -238,6 +207,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   };
 
   const handleStreamEnabledChange = (event: ChangeEvent<HTMLInputElement>) => {
+    markDirty();
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
       streamEnabled: event.target.checked
@@ -245,14 +215,11 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   };
 
   const handleRequestModeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    markDirty();
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
       requestMode: event.target.value as ModelRequestMode
     }));
-  };
-
-  const handleAdvancedModelToggle = () => {
-    setIsAdvancedModelOpen((currentIsOpen) => !currentIsOpen);
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -265,6 +232,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     saveVoiceRuntimeConfig({
       doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId
     });
+    setIsDirty(false);
     onClose();
   };
 
@@ -274,63 +242,6 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   const selectedStrength = draftConfig.modelStrength;
   const modelSelectValue = selectedModel ? draftConfig.modelName : "";
   const canStream = draftConfig.provider === "openai-compatible";
-
-  useLayoutEffect(() => {
-    if (!isOpen) {
-      shouldAnimateAdvancedPanelRef.current = false;
-      return;
-    }
-
-    const contentElement = advancedContentRef.current;
-    if (!contentElement) {
-      return;
-    }
-
-    gsap.killTweensOf(contentElement);
-    gsap.set(contentElement, { height: "auto" });
-    const expandedHeight = contentElement.offsetHeight;
-    const shouldAnimate = shouldAnimateAdvancedPanelRef.current;
-
-    if (!shouldAnimate) {
-      gsap.set(contentElement, isAdvancedModelOpen
-        ? { height: "auto", autoAlpha: 1, y: 0 }
-        : { height: 0, autoAlpha: 0, y: -10 });
-      shouldAnimateAdvancedPanelRef.current = true;
-      return;
-    }
-
-    if (isAdvancedModelOpen) {
-      gsap.fromTo(
-        contentElement,
-        { height: 0, autoAlpha: 0, y: -12 },
-        {
-          height: expandedHeight,
-          autoAlpha: 1,
-          y: 0,
-          duration: 0.48,
-          ease: "power3.out",
-          onComplete: () => {
-            gsap.set(contentElement, { height: "auto" });
-          },
-          overwrite: "auto"
-        }
-      );
-      return;
-    }
-
-    gsap.fromTo(
-      contentElement,
-      { height: expandedHeight, autoAlpha: 1, y: 0 },
-      {
-        height: 0,
-        autoAlpha: 0,
-        y: -10,
-        duration: 0.4,
-        ease: "power2.inOut",
-        overwrite: "auto"
-      }
-    );
-  }, [isAdvancedModelOpen, isOpen]);
 
   if (!isOpen) {
     return null;
@@ -345,183 +256,237 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
         onSubmit={handleSubmit}
       >
         <div className="model-settings-modal__header">
-          <div>
-            <p className="model-settings-modal__eyebrow">{copy.settings}</p>
-            <h2>{copy.model}</h2>
+          <div className="model-settings-modal__title-group">
+            <div className="model-settings-modal__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="model-settings-modal__eyebrow">{copy.settings}</p>
+              <h2>{copy.model}</h2>
+            </div>
           </div>
-          <div className="model-settings-modal__header-actions">
-            <label className="model-settings-modal__language">
-              <span>{copy.language}</span>
-              <select value={language} onChange={handleLanguageChange}>
-                <option value="zh-CN">中文</option>
-                <option value="en-US">English</option>
-              </select>
-            </label>
-            <button
-              className="model-settings-modal__close"
-              type="button"
-              aria-label={copy.closeSettings}
-              onClick={onClose}
-            />
-          </div>
+          <button
+            className="model-settings-modal__close"
+            type="button"
+            aria-label={copy.closeSettings}
+            onClick={onClose}
+          />
         </div>
 
-        <div className="model-settings-modal__content">
-          <section className="model-settings-modal__section">
-            <label className="model-settings-modal__field">
-              <span>{copy.preset}</span>
-              <select value={selectedPresetId} onChange={handlePresetChange}>
-                <option value="" disabled>
-                  {copy.presetPlaceholder}
-                </option>
-                {MODEL_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <div className="model-settings-modal__body">
+          <aside className="model-settings-modal__sidebar">
+            <div className="model-settings-modal__sidebar-label">{copy.presetGroup}</div>
+            <div className="model-settings-modal__preset-list">
+              {MODEL_PRESETS.map((preset) => {
+                const isActive = selectedPresetId === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`model-settings-modal__preset-card${isActive ? " is-active" : ""}`}
+                    onClick={() => applyPreset(preset.id)}
+                  >
+                    <span>{preset.label}</span>
+                    <span className="model-settings-modal__preset-dot" aria-hidden="true" />
+                  </button>
+                );
+              })}
+            </div>
+            <div className="model-settings-modal__sidebar-note">
+              <strong>{copy.strengthRuleTitle}</strong>
+              <p>{copy.strengthRuleText}</p>
+            </div>
+          </aside>
 
-            <label className="model-settings-modal__field">
-              <span>{copy.provider}</span>
-              <select value={draftConfig.provider} onChange={handleProviderChange}>
-                <option value="openai-compatible">OpenAI-compatible</option>
-                <option value="anthropic">Anthropic</option>
-              </select>
-            </label>
+          <div className="model-settings-modal__content">
+            <section className="model-settings-modal__section">
+              <h3 className="model-settings-modal__section-title">{copy.sectionProvider}</h3>
+              <div className="model-settings-modal__card">
+                <div className="model-settings-modal__grid">
+                  <label className="model-settings-modal__field">
+                    <span>{copy.provider}</span>
+                    <select value={draftConfig.provider} onChange={handleProviderChange}>
+                      <option value="openai-compatible">OpenAI-compatible</option>
+                      <option value="anthropic">Anthropic</option>
+                    </select>
+                  </label>
 
-            <label className="model-settings-modal__field">
-              <span>{copy.apiKey}</span>
-              <input
-                type="password"
-                value={draftConfig.apiKey}
-                autoComplete="off"
-                placeholder={copy.apiKeyHint}
-                onChange={updateTextField("apiKey")}
-              />
-            </label>
+                  <label className="model-settings-modal__field">
+                    <span>{copy.modelName}</span>
+                    <select value={modelSelectValue} onChange={handleModelOptionChange}>
+                      <option value="" disabled>
+                        {copy.modelName}
+                      </option>
+                      {modelOptions
+                        .filter((option: { modelName: string }) => option.modelName)
+                        .map((option: { modelName: string; label: string }) => (
+                          <option key={option.modelName} value={option.modelName}>
+                            {option.label}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
 
-            <label className="model-settings-modal__field">
-              <span>{copy.baseUrl}</span>
-              <input type="url" value={draftConfig.baseUrl} onChange={updateTextField("baseUrl")} />
-              <small>{copy.baseUrlHint}</small>
-            </label>
+                  <label className="model-settings-modal__field">
+                    <span>{copy.apiKey}</span>
+                    <div className="model-settings-modal__input-with-action">
+                      <input
+                        type={isApiKeyVisible ? "text" : "password"}
+                        value={draftConfig.apiKey}
+                        autoComplete="off"
+                        placeholder={copy.apiKeyHint}
+                        onChange={updateTextField("apiKey")}
+                      />
+                      <button
+                        type="button"
+                        className="model-settings-modal__input-action"
+                        onClick={() => setIsApiKeyVisible((current) => !current)}
+                      >
+                        {isApiKeyVisible ? copy.hideSecret : copy.showSecret}
+                      </button>
+                    </div>
+                  </label>
 
-            <label className="model-settings-modal__field">
-              <span>{copy.requestMode}</span>
-              <select value={draftConfig.requestMode} onChange={handleRequestModeChange}>
-                <option value="development-proxy">{copy.requestModeDevelopment}</option>
-                <option value="production-proxy">{copy.requestModeProduction}</option>
-              </select>
-              <small>{copy.requestModeHint}</small>
-            </label>
+                  <label className="model-settings-modal__field">
+                    <span>{copy.baseUrl}</span>
+                    <input type="url" value={draftConfig.baseUrl} onChange={updateTextField("baseUrl")} />
+                  </label>
+                </div>
 
-            <label className="model-settings-modal__field">
-              <span>{copy.doubaoSpeakerId}</span>
-              <input
-                type="text"
-                value={voiceRuntimeConfig.doubaoSpeakerId}
-                autoComplete="off"
-                placeholder={copy.doubaoSpeakerIdHint}
-                onChange={updateVoiceRuntimeField("doubaoSpeakerId")}
-              />
-              <small>{copy.doubaoSpeakerIdHint}</small>
-            </label>
-
-          </section>
-
-          <section className="model-settings-modal__section">
-            <label className="model-settings-modal__field">
-              <span>{copy.modelName}</span>
-              <select value={modelSelectValue} onChange={handleModelOptionChange}>
-                <option value="" disabled>
-                  {copy.modelName}
-                </option>
-                {modelOptions
-                  .filter((option: { modelName: string }) => option.modelName)
-                  .map((option: { modelName: string; label: string }) => (
-                    <option key={option.modelName} value={option.modelName}>
-                      {option.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-
-            <div className="model-settings-modal__advanced-model">
-              <button
-                className="model-settings-modal__advanced-toggle"
-                type="button"
-                aria-expanded={isAdvancedModelOpen}
-                onClick={handleAdvancedModelToggle}
-              >
-                {copy.advancedModel}
-              </button>
-              <div
-                ref={advancedContentRef}
-                className="model-settings-modal__advanced-panel"
-                aria-hidden={!isAdvancedModelOpen}
-              >
                 <label className="model-settings-modal__field">
-                  <span>{copy.customModelName}</span>
+                  <span>{copy.requestMode}</span>
+                  <select value={draftConfig.requestMode} onChange={handleRequestModeChange}>
+                    <option value="development-proxy">{copy.requestModeDevelopment}</option>
+                    <option value="production-proxy">{copy.requestModeProduction}</option>
+                  </select>
+                  <small>{copy.requestModeHint}</small>
+                </label>
+
+                <div className="model-settings-modal__advanced-model">
+                  <button
+                    className="model-settings-modal__advanced-toggle"
+                    type="button"
+                    aria-expanded={isAdvancedModelOpen}
+                    onClick={() => setIsAdvancedModelOpen((current) => !current)}
+                  >
+                    {copy.advancedModel}
+                  </button>
+                  {isAdvancedModelOpen ? (
+                    <label className="model-settings-modal__field">
+                      <span>{copy.customModelName}</span>
+                      <input
+                        type="text"
+                        value={draftConfig.modelName}
+                        placeholder={copy.customModelNameHint}
+                        onChange={updateTextField("modelName")}
+                      />
+                      <small>{copy.advancedModelHint}</small>
+                    </label>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            <section className="model-settings-modal__section">
+              <h3 className="model-settings-modal__section-title">{copy.sectionGeneration}</h3>
+              <div className="model-settings-modal__card">
+                <label className="model-settings-modal__field">
+                  <span>{copy.modelStrength}</span>
+                  <select value={selectedStrength} onChange={handleStrengthChange}>
+                    {availableStrengths.map((strength) => (
+                      <option key={strength} value={strength}>
+                        {MODEL_STRENGTH_LABELS[strength]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <LevelSlider
+                  label={copy.temperature}
+                  hint={copy.temperatureHint}
+                  levels={TEMPERATURE_LEVELS}
+                  selectedIndex={selectedTemperatureIndex}
+                  onSelect={handleTemperatureLevelChange}
+                />
+
+                <LevelSlider
+                  label={copy.maxOutput}
+                  hint={copy.maxOutputHint}
+                  levels={MAX_OUTPUT_LEVELS}
+                  selectedIndex={selectedMaxOutputIndex}
+                  onSelect={handleMaxOutputLevelChange}
+                />
+
+                <div className={`model-settings-modal__switch-row${!canStream ? " is-disabled" : ""}`}>
+                  <div>
+                    <span className="model-settings-modal__switch-title">{copy.streamOutput}</span>
+                    <small>{copy.streamOutputHint}</small>
+                  </div>
+                  <label className="model-settings-modal__switch">
+                    <input
+                      type="checkbox"
+                      checked={draftConfig.streamEnabled && canStream}
+                      disabled={!canStream}
+                      onChange={handleStreamEnabledChange}
+                    />
+                    <span className="model-settings-modal__switch-track">
+                      <span className="model-settings-modal__switch-thumb" />
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section className="model-settings-modal__section">
+              <h3 className="model-settings-modal__section-title">{copy.sectionVoice}</h3>
+              <div className="model-settings-modal__card">
+                <label className="model-settings-modal__field">
+                  <span>{copy.doubaoSpeakerId}</span>
                   <input
                     type="text"
-                    disabled={!isAdvancedModelOpen}
-                    value={draftConfig.modelName}
-                    placeholder={copy.customModelNameHint}
-                    onChange={updateTextField("modelName")}
+                    value={voiceRuntimeConfig.doubaoSpeakerId}
+                    autoComplete="off"
+                    placeholder={copy.doubaoSpeakerIdHint}
+                    onChange={updateVoiceRuntimeField("doubaoSpeakerId")}
                   />
-                  <small>{copy.advancedModelHint}</small>
+                  <small>{copy.doubaoSpeakerIdHint}</small>
                 </label>
               </div>
-            </div>
-
-            <label className="model-settings-modal__field">
-              <span>{copy.modelStrength}</span>
-              <select value={selectedStrength} onChange={handleStrengthChange}>
-                {availableStrengths.map((strength) => (
-                  <option key={strength} value={strength}>
-                    {MODEL_STRENGTH_LABELS[strength]}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <LevelSlider
-              label={copy.temperature}
-              hint={copy.temperatureHint}
-              levels={TEMPERATURE_LEVELS}
-              selectedIndex={selectedTemperatureIndex}
-              variant="response"
-              onSelect={handleTemperatureLevelChange}
-            />
-
-            <LevelSlider
-              label={copy.maxOutput}
-              hint={copy.maxOutputHint}
-              levels={MAX_OUTPUT_LEVELS}
-              selectedIndex={selectedMaxOutputIndex}
-              variant="output"
-              onSelect={handleMaxOutputLevelChange}
-            />
-          </section>
+            </section>
+          </div>
         </div>
 
         <div className="model-settings-modal__footer">
-          <label className="model-settings-modal__toggle">
-            <input
-              type="checkbox"
-              checked={draftConfig.streamEnabled && canStream}
-              disabled={!canStream}
-              onChange={handleStreamEnabledChange}
-            />
-            <span>{copy.streamOutput}</span>
-            <span className="model-settings-modal__hint-trigger" tabIndex={0} aria-label={copy.streamOutputHint}>
-              ?
-              <span className="model-settings-modal__tooltip" role="tooltip">
-                {copy.streamOutputHint}
-              </span>
-            </span>
-          </label>
+          <div className="model-settings-modal__footer-left">
+            <div className="model-settings-modal__sync">
+              <span className={`model-settings-modal__sync-dot${isDirty ? " is-dirty" : ""}`} />
+              <span>{isDirty ? copy.syncDirty : copy.syncOk}</span>
+            </div>
+            <div className="model-settings-modal__lang-switch" aria-label={copy.language}>
+              <button
+                type="button"
+                className={language === "zh-CN" ? "is-active" : ""}
+                onClick={() => handleLanguageChange("zh-CN")}
+              >
+                简
+              </button>
+              <span>/</span>
+              <button
+                type="button"
+                className={language === "en-US" ? "is-active" : ""}
+                onClick={() => handleLanguageChange("en-US")}
+              >
+                EN
+              </button>
+            </div>
+          </div>
 
           <div className="model-settings-modal__actions">
             <button type="button" onClick={onClose}>
@@ -540,178 +505,38 @@ function LevelSlider({
   hint,
   levels,
   selectedIndex,
-  variant,
   onSelect
 }: {
   label: string;
   hint: string;
   levels: readonly LevelOption[];
   selectedIndex: number;
-  variant: "response" | "output";
   onSelect: (levelIndex: number) => void;
 }) {
-  const progress = selectedIndex / Math.max(levels.length - 1, 1);
-  const controlRef = useRef<HTMLDivElement>(null);
-  const particleLayerRef = useRef<HTMLDivElement>(null);
-  const actualProgressRef = useRef(progress);
-  const planetRotationRef = useRef(progress * 480);
-  const particlesRef = useRef<TrailParticle[]>([]);
-  const particleIdRef = useRef(0);
-  const previousTargetProgressRef = useRef(progress);
-  const nextEmissionProgressRef = useRef(findNextEmissionProgress(progress));
-
-  const applyPlanetColor = (nextProgress: number) => {
-    if (!controlRef.current) {
-      return;
-    }
-
-    const palette = resolvePlanetPalette(nextProgress, variant);
-    controlRef.current.style.setProperty("--planet-base-color", palette.base);
-    controlRef.current.style.setProperty("--planet-light-color", palette.light);
-    controlRef.current.style.setProperty("--planet-shadow-color", palette.shadow);
-  };
-
-  useGSAP(() => {
-    const controlElement = controlRef.current;
-    const planetElement = controlElement?.querySelector(".model-settings-modal__planet");
-    const particleLayerElement = particleLayerRef.current;
-
-    if (!controlElement || !planetElement || !particleLayerElement) {
-      return;
-    }
-
-    const nextTarget = progress;
-    const startProgress = actualProgressRef.current;
-    const travelDistance = Math.abs(nextTarget - startProgress);
-    const direction = nextTarget >= startProgress ? 1 : -1;
-    const tweenState = { value: startProgress };
-
-    gsap.killTweensOf(tweenState);
-
-    gsap.to(tweenState, {
-      value: nextTarget,
-      duration: Math.max(0.82, 0.64 + travelDistance * 1.55),
-      ease: "power2.out",
-      overwrite: "auto",
-      onUpdate: () => {
-        const previousProgress = actualProgressRef.current;
-        const currentProgress = tweenState.value;
-        const delta = currentProgress - previousProgress;
-
-        if (delta === 0) {
-          return;
-        }
-
-        const nextRotation = planetRotationRef.current + (delta * 780);
-
-        gsap.set(controlElement, {
-          "--planet-progress": currentProgress,
-          "--slider-heat": currentProgress
-        });
-        gsap.set(planetElement, { rotation: nextRotation });
-        applyPlanetColor(currentProgress);
-
-        if (currentProgress > previousProgress) {
-          emitTrailParticles({
-            layerElement: particleLayerElement,
-            particlesRef,
-            particleIdRef,
-            nextEmissionProgressRef,
-            fromProgress: previousProgress,
-            toProgress: currentProgress,
-            variant
-          });
-        } else {
-          clearCoveredParticles(particlesRef, currentProgress);
-          nextEmissionProgressRef.current = findNextEmissionProgress(currentProgress);
-        }
-
-        actualProgressRef.current = currentProgress;
-        planetRotationRef.current = nextRotation;
-      },
-      onComplete: () => {
-        actualProgressRef.current = nextTarget;
-        previousTargetProgressRef.current = nextTarget;
-        if (direction < 0) {
-          clearCoveredParticles(particlesRef, nextTarget);
-          nextEmissionProgressRef.current = findNextEmissionProgress(nextTarget);
-        }
-      }
-    });
-
-    if (travelDistance === 0) {
-      gsap.set(controlElement, {
-        "--planet-progress": nextTarget,
-        "--slider-heat": nextTarget
-      });
-      applyPlanetColor(nextTarget);
-      if (previousTargetProgressRef.current > nextTarget) {
-        clearCoveredParticles(particlesRef, nextTarget);
-        nextEmissionProgressRef.current = findNextEmissionProgress(nextTarget);
-      }
-    }
-  }, { dependencies: [progress, variant], scope: controlRef });
-
-  useGSAP(() => {
-    resetTrailParticles(particlesRef);
-    nextEmissionProgressRef.current = findNextEmissionProgress(progress);
-    if (particleLayerRef.current) {
-      seedTrailParticles({
-        layerElement: particleLayerRef.current,
-        particlesRef,
-        particleIdRef,
-        progress,
-        variant
-      });
-    }
-    actualProgressRef.current = progress;
-    previousTargetProgressRef.current = progress;
-    gsap.set(controlRef.current, {
-      "--planet-progress": progress,
-      "--slider-heat": progress
-    });
-    applyPlanetColor(progress);
-  }, { dependencies: [variant], scope: controlRef });
-
-  useGSAP(() => {
-    const ticker = () => {
-      updateTrailParticles(particlesRef);
-    };
-
-    gsap.ticker.add(ticker);
-    return () => {
-      gsap.ticker.remove(ticker);
-      resetTrailParticles(particlesRef);
-    };
-  }, { scope: controlRef });
+  const progress = levels.length <= 1 ? 0 : (selectedIndex / (levels.length - 1)) * 100;
+  const selectedLabel = levels[selectedIndex]?.label ?? "";
 
   return (
     <div className="model-settings-modal__field model-settings-modal__level-field">
-      <span>{label}</span>
-      <div
-        ref={controlRef}
-        className={`model-settings-modal__energy-control model-settings-modal__energy-control--${variant}`}
-        style={{
-          "--slider-progress": `${actualProgressRef.current * 100}%`,
-          "--planet-progress": actualProgressRef.current,
-          "--slider-heat": actualProgressRef.current
-        } as CSSProperties}
-      >
-        <div ref={particleLayerRef} className="model-settings-modal__energy-particles" aria-hidden="true" />
-        <div className="model-settings-modal__planet" aria-hidden="true" />
+      <div className="model-settings-modal__level-header">
+        <span>{label}</span>
+        <strong>{selectedLabel}</strong>
+      </div>
+      <div className="model-settings-modal__slider-shell">
         <input
           className="model-settings-modal__range"
           type="range"
-          min="0"
+          min={0}
           max={levels.length - 1}
-          step="1"
+          step={1}
           value={selectedIndex}
+          style={{ ["--range-progress" as string]: `${progress}%` }}
           onChange={(event) => onSelect(Number(event.target.value))}
         />
       </div>
       <div
         className="model-settings-modal__level-labels"
-        style={{ "--level-count": levels.length } as CSSProperties}
+        style={{ ["--level-count" as string]: levels.length }}
       >
         {levels.map((level, index) => (
           <button
@@ -750,272 +575,4 @@ function findClosestLevelIndex(levels: readonly LevelOption[], value: number) {
   });
 
   return selectedIndex;
-}
-
-function seedTrailParticles({
-  layerElement,
-  particlesRef,
-  particleIdRef,
-  progress,
-  variant
-}: {
-  layerElement: HTMLDivElement;
-  particlesRef: MutableRefObject<TrailParticle[]>;
-  particleIdRef: MutableRefObject<number>;
-  progress: number;
-  variant: "response" | "output";
-}) {
-  if (progress <= 0) {
-    return;
-  }
-
-  const seedCount = Math.min(MAX_TRAIL_PARTICLES, Math.floor(progress / TRAIL_PARTICLE_SPACING));
-  for (let index = 0; index < seedCount; index += 1) {
-    const baseProgress = (index + 1) * TRAIL_PARTICLE_SPACING;
-    const jitteredProgress = clampNumber(
-      baseProgress + ((Math.random() - 0.5) * TRAIL_PARTICLE_SPACING * 0.55),
-      0.008,
-      progress
-    );
-    spawnTrailParticle(layerElement, particlesRef, particleIdRef, jitteredProgress, variant);
-  }
-}
-
-function emitTrailParticles({
-  layerElement,
-  particlesRef,
-  particleIdRef,
-  nextEmissionProgressRef,
-  fromProgress,
-  toProgress,
-  variant
-}: {
-  layerElement: HTMLDivElement;
-  particlesRef: MutableRefObject<TrailParticle[]>;
-  particleIdRef: MutableRefObject<number>;
-  nextEmissionProgressRef: MutableRefObject<number>;
-  fromProgress: number;
-  toProgress: number;
-  variant: "response" | "output";
-}) {
-  if (toProgress <= fromProgress) {
-    return;
-  }
-
-  if (nextEmissionProgressRef.current < fromProgress) {
-    nextEmissionProgressRef.current = findNextEmissionProgress(fromProgress);
-  }
-
-  while (nextEmissionProgressRef.current <= toProgress) {
-    const particleProgress = clampNumber(
-      nextEmissionProgressRef.current + ((Math.random() - 0.5) * TRAIL_PARTICLE_SPACING * 0.28),
-      fromProgress,
-      toProgress
-    );
-    spawnTrailParticle(layerElement, particlesRef, particleIdRef, particleProgress, variant);
-    nextEmissionProgressRef.current += TRAIL_PARTICLE_SPACING;
-  }
-
-  while (particlesRef.current.length > MAX_TRAIL_PARTICLES) {
-    const removableIndex = particlesRef.current.findIndex((particle) => particle.position < toProgress - 0.22);
-    const indexToRemove = removableIndex >= 0 ? removableIndex : 0;
-    const removableParticle = particlesRef.current.splice(indexToRemove, 1)[0];
-    removableParticle?.element.remove();
-  }
-}
-
-function spawnTrailParticle(
-  layerElement: HTMLDivElement,
-  particlesRef: MutableRefObject<TrailParticle[]>,
-  particleIdRef: MutableRefObject<number>,
-  progress: number,
-  variant: "response" | "output"
-) {
-  const element = document.createElement("span");
-  element.className = "model-settings-modal__energy-particle";
-
-  const theme = resolveTrailTheme(progress, variant);
-  const size = 1.2 + (Math.random() * 1.8);
-  const offsetY = clampNumber((Math.random() - 0.5) * 2 * PARTICLE_VERTICAL_LIMIT, -PARTICLE_VERTICAL_LIMIT, PARTICLE_VERTICAL_LIMIT);
-  const driftX = (Math.random() - 0.5) * 0.16;
-  const driftY = (Math.random() - 0.5) * 0.42;
-  const blur = 0.2 + (Math.random() * 0.8);
-  const alpha = 0.42 + (Math.random() * 0.42);
-  const breatheSpeed = 0.22 + (Math.random() * 0.28);
-  const twinklePhase = Math.random() * Math.PI * 2;
-  const bornAt = performance.now() * 0.001;
-
-  element.style.setProperty("--particle-position", `${progress}`);
-  element.style.setProperty("--particle-offset-y", `${offsetY.toFixed(2)}px`);
-  element.style.setProperty("--particle-size", `${size.toFixed(2)}px`);
-  element.style.setProperty("--particle-blur", `${blur.toFixed(2)}px`);
-  element.style.setProperty("--particle-core-color", theme.glow);
-  element.style.setProperty("--particle-aura-color", theme.aura);
-  element.style.opacity = "0";
-
-  layerElement.appendChild(element);
-
-  particlesRef.current.push({
-    id: particleIdRef.current,
-    element,
-    position: progress,
-    offsetY,
-    driftX,
-    driftY,
-    size,
-    blur,
-    breatheSpeed,
-    twinklePhase,
-    alpha,
-    bornAt
-  });
-  particleIdRef.current += 1;
-}
-
-function updateTrailParticles(particlesRef: MutableRefObject<TrailParticle[]>) {
-  const time = performance.now() * 0.001;
-
-  particlesRef.current.forEach((particle) => {
-    const floatX = particle.driftX;
-    const floatY = Math.cos((time * particle.breatheSpeed) + particle.twinklePhase) * particle.driftY;
-    const shimmer = 0.92 + (Math.sin((time * (particle.breatheSpeed * 1.18)) + particle.twinklePhase) * 0.08);
-    const age = Math.max(time - particle.bornAt, 0);
-    const revealProgress = clampNumber(age / PARTICLE_FADE_IN_DURATION, 0, 1);
-    const revealEase = 1 - ((1 - revealProgress) * (1 - revealProgress));
-    const opacity = clampNumber(particle.alpha * shimmer * revealEase, 0, 0.94);
-    const scale = 0.72 + (revealEase * 0.28);
-
-    particle.element.style.transform = `translate(calc(-50% + ${floatX.toFixed(2)}px), calc(-50% + ${(particle.offsetY + floatY).toFixed(2)}px)) scale(${scale.toFixed(3)})`;
-    particle.element.style.opacity = opacity.toFixed(3);
-  });
-}
-
-function clearCoveredParticles(
-  particlesRef: MutableRefObject<TrailParticle[]>,
-  progress: number
-) {
-  const remainingParticles: TrailParticle[] = [];
-
-  particlesRef.current.forEach((particle) => {
-    if (particle.position > progress) {
-      particle.element.remove();
-      return;
-    }
-
-    remainingParticles.push(particle);
-  });
-
-  particlesRef.current = remainingParticles;
-}
-
-function resetTrailParticles(particlesRef: MutableRefObject<TrailParticle[]>) {
-  particlesRef.current.forEach((particle) => particle.element.remove());
-  particlesRef.current = [];
-}
-
-function resolveTrailTheme(progress: number, variant: "response" | "output") {
-  const tintedStops = ORBIT_TRAIL_THEME_STOPS.map((themeStop) => {
-    if (variant === "response") {
-      return themeStop;
-    }
-
-    return {
-      progress: themeStop.progress,
-      glow: shiftColor(themeStop.glow, 0.92),
-      aura: shiftColor(themeStop.aura, 1.08)
-    };
-  });
-
-  const nextStopIndex = tintedStops.findIndex((themeStop) => progress <= themeStop.progress);
-  if (nextStopIndex <= 0) {
-    return tintedStops[0];
-  }
-
-  const upperStop = tintedStops[nextStopIndex] ?? tintedStops[tintedStops.length - 1];
-  const lowerStop = tintedStops[nextStopIndex - 1] ?? tintedStops[0];
-  const segmentProgress = (progress - lowerStop.progress) / Math.max(upperStop.progress - lowerStop.progress, 0.0001);
-
-  return {
-    glow: mixRgba(lowerStop.glow, upperStop.glow, segmentProgress),
-    aura: mixRgba(lowerStop.aura, upperStop.aura, segmentProgress)
-  };
-}
-
-function resolvePlanetPalette(progress: number, variant: "response" | "output") {
-  const tintedStops = PLANET_COLOR_STOPS.map((colorStop) => {
-    if (variant === "response") {
-      return colorStop;
-    }
-
-    return {
-      progress: colorStop.progress,
-      base: shiftColor(colorStop.base, 0.96),
-      light: shiftColor(colorStop.light, 1.02),
-      shadow: shiftColor(colorStop.shadow, 0.9)
-    };
-  });
-
-  const nextStopIndex = tintedStops.findIndex((colorStop) => progress <= colorStop.progress);
-  if (nextStopIndex <= 0) {
-    return tintedStops[0];
-  }
-
-  const upperStop = tintedStops[nextStopIndex] ?? tintedStops[tintedStops.length - 1];
-  const lowerStop = tintedStops[nextStopIndex - 1] ?? tintedStops[0];
-  const segmentProgress = (progress - lowerStop.progress) / Math.max(upperStop.progress - lowerStop.progress, 0.0001);
-
-  return {
-    base: mixRgba(lowerStop.base, upperStop.base, segmentProgress),
-    light: mixRgba(lowerStop.light, upperStop.light, segmentProgress),
-    shadow: mixRgba(lowerStop.shadow, upperStop.shadow, segmentProgress)
-  };
-}
-
-function shiftColor(color: string, brightness: number) {
-  const matched = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
-  if (!matched) {
-    return color;
-  }
-
-  const [, red, green, blue, alpha] = matched;
-  return `rgba(${clampColor(Number(red) * brightness)}, ${clampColor(Number(green) * brightness)}, ${clampColor(Number(blue) * brightness)}, ${alpha})`;
-}
-
-function clampColor(value: number) {
-  return Math.max(0, Math.min(255, Math.round(value)));
-}
-
-function mixRgba(startColor: string, endColor: string, progress: number) {
-  const start = parseRgba(startColor);
-  const end = parseRgba(endColor);
-
-  if (!start || !end) {
-    return progress >= 0.5 ? endColor : startColor;
-  }
-
-  const mix = (from: number, to: number) => from + ((to - from) * progress);
-  return `rgba(${clampColor(mix(start.red, end.red))}, ${clampColor(mix(start.green, end.green))}, ${clampColor(mix(start.blue, end.blue))}, ${mix(start.alpha, end.alpha).toFixed(3)})`;
-}
-
-function parseRgba(color: string) {
-  const matched = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
-  if (!matched) {
-    return null;
-  }
-
-  const [, red, green, blue, alpha] = matched;
-  return {
-    red: Number(red),
-    green: Number(green),
-    blue: Number(blue),
-    alpha: Number(alpha)
-  };
-}
-
-function clampNumber(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function findNextEmissionProgress(progress: number) {
-  return Math.floor(progress / TRAIL_PARTICLE_SPACING) * TRAIL_PARTICLE_SPACING + TRAIL_PARTICLE_SPACING;
 }

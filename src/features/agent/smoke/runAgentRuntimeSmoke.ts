@@ -58,10 +58,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   bootstrapAgentRuntime();
 
   const productionTools = listToolMetadata();
-  if (productionTools.length !== 25 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 25 个工具，实际 ${productionTools.length}`);
+  // 26 既有 + software.listSupported/resolveInstaller/downloadInstaller = 29
+  if (productionTools.length !== 29 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 29 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("25 个生产工具通过 outputSchema 契约审计");
+    notes.push("29 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个）");
   }
 
   let sawProgressMessage = false;

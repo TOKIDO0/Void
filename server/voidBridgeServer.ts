@@ -10,6 +10,7 @@
  *   HTTP /void-model-proxy → 模型接口转发（SSE 流式）
  *   HTTP /void-browser/*   → Playwright 只读浏览器工具
  *   HTTP /void-file/*      → 阶段 D 下载/落盘/校验
+ *   HTTP /void-software/*  → 官方软件安装包解析与安全下载
  *   HTTP /void-desktop/*   → 剪贴板 read/write + 资源管理器 revealPath
  */
 import { createServer } from "node:http";
@@ -19,6 +20,7 @@ import { handleBrowserHttpRequest } from "./browser/browserHttpHandlers";
 import { handleDesktopHttpRequest } from "./desktop/desktopHttpHandlers";
 import { handleFileHttpRequest } from "./file/fileHttpHandlers";
 import { ensureRuntimeDirectories } from "./file/fileRuntimePaths";
+import { handleSoftwareHttpRequest } from "./software/softwareHttpHandlers";
 import { handleModelProxy } from "./voidProxyMiddleware";
 
 // 默认端口：固定回环端口，前端在 Tauri 环境下直连此端口。
@@ -101,6 +103,12 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
   // 阶段 D：下载到临时目录 / 确认后落盘 / 校验
   if (pathname.startsWith("/void-file")) {
     void handleFileHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // 官方软件安装包：解析 + 安全下载（通用目录，非双软件专线）
+  if (pathname.startsWith("/void-software")) {
+    void handleSoftwareHttpRequest(request, response, pathname);
     return;
   }
 

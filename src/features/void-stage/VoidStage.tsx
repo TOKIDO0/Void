@@ -25,11 +25,12 @@ import { VOID_VISUAL_STATE_BY_KEY, type VoidVisualState } from "../void-state/vo
 import { loadVoicePreferences, saveVoicePreferences, type VoicePreferences } from "../voice/voicePreferences";
 import { loadVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
 import { VoiceSessionController } from "../voice/voiceSessionController";
-import { useVoiceInputMonitor } from "../voice/useVoiceInputMonitor";
 import { DEFAULT_VOICE_STATE, type VoiceActivityLevel, type VoiceStateSnapshot } from "../voice/voiceState";
 import { DoubaoStreamingSttProvider } from "../voice/stt/doubaoStreamingSttProvider";
 import { VoiceTtsOrchestrator } from "../voice/tts/voiceTtsOrchestrator";
 import { VoicePlaybackController } from "../voice/tts/voicePlaybackController";
+import type { VoiceSynthesisResult } from "../voice/tts/voiceTtsContract";
+import { stripLinksForSpeech } from "../voice/tts/speechTextSanitizer";
 import { ProviderRequestError } from "../../lib/model-providers/providerErrors";
 import { recognizeUserEmotion } from "../emotion/userEmotionRecognizer";
 import { evolveAgentEmotion } from "../emotion/agentEmotionEngine";
@@ -172,6 +173,15 @@ export function VoidStage() {
   const expandedResponseProgressRef = useRef({ value: 0 });
   const voicePlaybackControllerRef = useRef(new VoicePlaybackController());
   const voiceSessionControllerRef = useRef<VoiceSessionController | null>(null);
+  const voiceInputSessionIdRef = useRef(0);
+  const voiceInputCallbacksRef = useRef<{
+    onInterimTranscript: (text: string) => void;
+    onFinalTranscript: (text: string) => void;
+    onError: (error: Error) => void;
+    onInputStateChange: (inputState: VoiceStateSnapshot["inputState"]) => void;
+    onActivityLevelChange: (activityLevel: VoiceActivityLevel) => void;
+    onRuntimeStatusChange: (status: VoiceStateSnapshot["runtimeStatus"]) => void;
+  } | null>(null);
   const voiceOutputAbortControllerRef = useRef<AbortController | null>(null);
   const voiceOutputStreamFinishedRef = useRef(true);
   // 本地音量 VAD 的最新活跃度快照（ref 供 STT 回调同步读取，避免闭包旧值）：
@@ -283,7 +293,8 @@ export function VoidStage() {
     setVoiceState((currentState) => ({
       ...currentState,
       inputState: "mic_off",
-      activityLevel: "silent"
+      activityLevel: "silent",
+      runtimeStatus: "error"
     }));
     if (!textExchangeActiveRef.current) {
       setVisualState("idle");
@@ -690,11 +701,15 @@ export function VoidStage() {
       },
       ({ index, result }) => {
         if (signal.aborted) {
-          URL.revokeObjectURL(result.audioUrl);
+          if ("audioUrl" in result) {
+            URL.revokeObjectURL(result.audioUrl);
+          } else {
+            void result.pcmStream.cancel();
+          }
           return;
         }
 
-        voicePlaybackControllerRef.current.enqueue(result.audioUrl);
+        enqueueSynthesisResult(voicePlaybackControllerRef.current, result);
         if (expressionAction && index === 0) {
           markTtsExpressionEmitted(expressionAction);
           if (turnTtsExpressionActionRef.current === expressionAction) {
@@ -746,11 +761,15 @@ export function VoidStage() {
       },
       async ({ result }) => {
         if (signal.aborted) {
-          URL.revokeObjectURL(result.audioUrl);
+          if ("audioUrl" in result) {
+            URL.revokeObjectURL(result.audioUrl);
+          } else {
+            void result.pcmStream.cancel();
+          }
           return;
         }
 
-        voicePlaybackControllerRef.current.enqueue(result.audioUrl);
+        enqueueSynthesisResult(voicePlaybackControllerRef.current, result);
       },
       signal
     );
@@ -784,11 +803,15 @@ export function VoidStage() {
       },
       ({ index, result }) => {
         if (signal.aborted) {
-          URL.revokeObjectURL(result.audioUrl);
+          if ("audioUrl" in result) {
+            URL.revokeObjectURL(result.audioUrl);
+          } else {
+            void result.pcmStream.cancel();
+          }
           return;
         }
 
-        voicePlaybackControllerRef.current.enqueue(result.audioUrl);
+        enqueueSynthesisResult(voicePlaybackControllerRef.current, result);
         if (expressionAction && didQueueExpression && index === 0) {
           markTtsExpressionEmitted(expressionAction);
           if (turnTtsExpressionActionRef.current === expressionAction) {
@@ -864,36 +887,6 @@ export function VoidStage() {
     scheduleResponseLayerHide(ERROR_RESPONSE_HIDE_MS);
     setVisualState("idle");
   }, [commitConversationHistory, scheduleResponseLayerHide, showResponseLayer]);
-
-  useVoiceInputMonitor({
-    isEnabled: voicePreferences.voiceInputEnabled,
-    onInputStateChange: (nextInputState) => {
-      setVoiceState((currentState) => ({
-        ...currentState,
-        inputState: nextInputState
-      }));
-    },
-    onActivityLevelChange: (nextActivityLevel) => {
-      // 同步写入 ref 供 STT 打断判定读取，再更新用于渲染的 state。
-      voiceActivityLevelRef.current = nextActivityLevel;
-      setVoiceState((currentState) => ({
-        ...currentState,
-        activityLevel: nextActivityLevel
-      }));
-    },
-    onVisualStateChange: (nextVisualState) => {
-      if (textExchangeActiveRef.current || isExpandedResponseOpen || voiceState.outputState === "speaking") {
-        return;
-      }
-
-      // 说完话的「发送」由豆包服务端 VAD 的 definite final 驱动（onFinalTranscript → handleTextMessage），
-      // 此处 VAD 的 thinking 仅作等待识别定稿的视觉过渡，不再伪触发发送。
-      // 注意：不在此处调用 hideResponseLayer——预览层的显隐由 STT 回调（onInterimTranscript/
-      // onFinalTranscript）与文本回合统一管理。音量 VAD 越权隐藏会在长句自然换气时把正在显示的
-      // STT 预览硬藏一下又重现，造成"闪烁"（doc 18 问题 A）。
-      setVisualState(nextVisualState);
-    }
-  });
 
   const openExpandedResponse = useCallback(() => {
     if (!conversationHistoryRef.current.length) {
@@ -1114,120 +1107,148 @@ export function VoidStage() {
     }
   }, [beginExchange, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled]);
 
-  const handleVoiceInputToggle = useCallback(() => {
-    const nextVoiceInputEnabled = !voicePreferences.voiceInputEnabled;
-    const runtimeConfig = loadVoiceRuntimeConfig();
-    updateVoicePreferences({
-      ...voicePreferences,
-      voiceInputEnabled: nextVoiceInputEnabled
-    });
+  const handleVoiceInterimTranscript = useCallback((text: string) => {
+    const trimmedText = text.trim();
+    const isSpeaking = !voicePlaybackControllerRef.current.isIdle();
+    const isAgentBusy = textExchangeActiveRef.current || isSpeaking;
+    const interimNormalized = trimmedText ? normalizeVoiceFinal(trimmedText) : "";
+    const sentNormalized = sentVoiceUtteranceNormalizedRef.current;
 
-    if (nextVoiceInputEnabled) {
-      const sttProvider = new DoubaoStreamingSttProvider();
+    if (isAgentBusy) {
+      if (!trimmedText || !interimNormalized) return;
+      const inPostCommitGuard = Date.now() - lastVoiceCommitAtRef.current < BARGE_IN_POST_COMMIT_GUARD_MS;
+      const isEchoOfLastCommit = Boolean(
+        sentNormalized
+        && (
+          interimNormalized === sentNormalized
+          || sentNormalized.startsWith(interimNormalized)
+          || interimNormalized.startsWith(sentNormalized)
+        )
+      );
+      if (inPostCommitGuard || isEchoOfLastCommit) return;
 
-      voiceSessionControllerRef.current = new VoiceSessionController({
-        sttProvider,
-        onInterimTranscript: (text) => {
-          const trimmedText = text.trim();
-          const isSpeaking = !voicePlaybackControllerRef.current.isIdle(); // AI 正在外放 TTS，回声风险最高
-          const isAgentBusy = textExchangeActiveRef.current || isSpeaking;
-          const interimNormalized = trimmedText ? normalizeVoiceFinal(trimmedText) : "";
-          const sentNormalized = sentVoiceUtteranceNormalizedRef.current;
-
-          if (isAgentBusy) {
-            // 方案 A（AI 优先）：AI 思考/播报期间，先压制识别文字。
-            // 真实打断必须同时满足：
-            //   1) 本地音量 VAD 确认真实人声；
-            //   2) STT 文本达到最小字数；
-            //   3) 不在「刚提交完本句」的护窗内（挡住尾音/残余 partial）；
-            //   4) 文本不是上一条已发送定稿的回声/残余（相同或互为前缀）。
-            if (!trimmedText || !interimNormalized) {
-              return;
-            }
-
-            const now = Date.now();
-            const inPostCommitGuard = now - lastVoiceCommitAtRef.current < BARGE_IN_POST_COMMIT_GUARD_MS;
-            const isEchoOfLastCommit = Boolean(
-              sentNormalized
-              && (
-                interimNormalized === sentNormalized
-                || sentNormalized.startsWith(interimNormalized)
-                || interimNormalized.startsWith(sentNormalized)
-              )
-            );
-            if (inPostCommitGuard || isEchoOfLastCommit) {
-              return;
-            }
-
-            const isRealHumanVoice = voiceActivityLevelRef.current === "active";
-            const minChars = isSpeaking ? BARGE_IN_MIN_CHARS_SPEAKING : BARGE_IN_MIN_CHARS_THINKING;
-            if (isRealHumanVoice && interimNormalized.length >= minChars) {
-              // 确认打断：停 AI、作废该回合，并把用户识别文字接管到预览层。
-              interruptForBargeIn();
-              setVoiceTranscriptPreview(text);
-              showResponseLayer({
-                text,
-                tone: "quiet",
-                source: "voice-transcript",
-                pulseKey: "voice-interim"
-              });
-            }
-            // 未确认打断：压制，不写预览层、不打断，保护 AI 当前输出不被闪断。
-            return;
-          }
-
-          // 内容闩锁开放判据（仅在 AI 空闲、非回声抑制路径评估，避免播报期回声幻觉误开闩锁）：
-          // 实时预览出现「明显是新一句」——归一化后已不再是「上一条已发送定稿」的前缀（含不相等），
-          // 说明用户开始说不同内容，遂开放闩锁让下一条 final 正常放行。同一句的补标点/续说预览
-          // 仍是其前缀，不会误开；与豆包时序、下标、标点全解耦。
-          if (sentNormalized && interimNormalized && !sentNormalized.startsWith(interimNormalized)) {
-            sentVoiceUtteranceNormalizedRef.current = "";
-          }
-
-          // AI 空闲：正常显示识别预览。
-          setVoiceTranscriptPreview(text);
-          if (trimmedText) {
-            showResponseLayer({
-              text,
-              tone: "quiet",
-              source: "voice-transcript",
-              pulseKey: "voice-interim"
-            });
-          }
-        },
-        onFinalTranscript: (text) => {
-          setVoiceTranscriptPreview("");
-          // 内容闩锁（正确性基石，与豆包分句/标点/时序解耦）：本条定稿归一化后若与「上一条已发送
-          // 定稿」相同，即判为同一句的重复发射（无标点稿→带标点定稿、上游抖动重发），直接丢弃。
-          // 不设时间窗——无论两条 final 间隔多久、豆包是否把补标点当新句重新分句，都不会双发。
-          const normalized = normalizeVoiceFinal(text);
-          if (normalized && normalized === sentVoiceUtteranceNormalizedRef.current) {
-            return;
-          }
-          sentVoiceUtteranceNormalizedRef.current = normalized;
-          lastVoiceCommitAtRef.current = Date.now();
-          void handleTextMessage(text, []);
-        },
-        onError: handleVoiceSessionError
-      });
-
-      void voiceSessionControllerRef.current.start();
+      const isRealHumanVoice = voiceActivityLevelRef.current === "active";
+      const minChars = isSpeaking ? BARGE_IN_MIN_CHARS_SPEAKING : BARGE_IN_MIN_CHARS_THINKING;
+      if (isRealHumanVoice && interimNormalized.length >= minChars) {
+        interruptForBargeIn();
+        setVoiceTranscriptPreview(text);
+        showResponseLayer({
+          text,
+          tone: "quiet",
+          source: "voice-transcript",
+          pulseKey: "voice-interim"
+        });
+      }
       return;
     }
 
-    void voiceSessionControllerRef.current?.stop();
-    voiceSessionControllerRef.current = null;
-    setVoiceTranscriptPreview("");
-    setVoiceState((currentState) => ({
-      ...currentState,
-      inputState: "mic_off",
-      activityLevel: "silent"
-    }));
-
-    if (!textExchangeActiveRef.current && voiceState.outputState !== "speaking") {
-      setVisualState("idle");
+    if (sentNormalized && interimNormalized && !sentNormalized.startsWith(interimNormalized)) {
+      sentVoiceUtteranceNormalizedRef.current = "";
     }
-  }, [handleTextMessage, handleVoiceSessionError, interruptForBargeIn, showResponseLayer, updateVoicePreferences, voicePreferences, voiceState.outputState]);
+    setVoiceTranscriptPreview(text);
+    if (trimmedText) {
+      showResponseLayer({
+        text,
+        tone: "quiet",
+        source: "voice-transcript",
+        pulseKey: "voice-interim"
+      });
+    }
+  }, [interruptForBargeIn, showResponseLayer]);
+
+  const handleVoiceFinalTranscript = useCallback((text: string) => {
+    setVoiceTranscriptPreview("");
+    const normalized = normalizeVoiceFinal(text);
+    if (normalized && normalized === sentVoiceUtteranceNormalizedRef.current) return;
+    sentVoiceUtteranceNormalizedRef.current = normalized;
+    lastVoiceCommitAtRef.current = Date.now();
+    void handleTextMessage(text, []);
+  }, [handleTextMessage]);
+
+  voiceInputCallbacksRef.current = {
+    onInterimTranscript: handleVoiceInterimTranscript,
+    onFinalTranscript: handleVoiceFinalTranscript,
+    onError: handleVoiceSessionError,
+    onInputStateChange: (inputState) => {
+      setVoiceState((current) => ({ ...current, inputState }));
+      if (textExchangeActiveRef.current || !voicePlaybackControllerRef.current.isIdle()) return;
+      if (inputState === "listening") setVisualState("listening");
+      if (inputState === "transcribing") setVisualState("thinking");
+      if (inputState === "standby") setVisualState("idle");
+    },
+    onActivityLevelChange: (activityLevel) => {
+      voiceActivityLevelRef.current = activityLevel;
+      setVoiceState((current) => ({ ...current, activityLevel }));
+    },
+    onRuntimeStatusChange: (runtimeStatus) => {
+      setVoiceState((current) => ({ ...current, runtimeStatus }));
+    }
+  };
+
+  // 偏好只表达用户期望；真实 STT 生命周期由本 effect 唯一拥有。
+  // 冷启动默认开启时会立即创建会话，旧 session 的迟到回调由单调 id 丢弃。
+  useEffect(() => {
+    const sessionId = voiceInputSessionIdRef.current + 1;
+    voiceInputSessionIdRef.current = sessionId;
+
+    if (!voicePreferences.voiceInputEnabled) {
+      const previousController = voiceSessionControllerRef.current;
+      voiceSessionControllerRef.current = null;
+      void previousController?.stop();
+      setVoiceTranscriptPreview("");
+      voiceActivityLevelRef.current = "silent";
+      setVoiceState((current) => ({
+        ...current,
+        inputState: "mic_off",
+        activityLevel: "silent",
+        runtimeStatus: "off"
+      }));
+      if (!textExchangeActiveRef.current && voicePlaybackControllerRef.current.isIdle()) setVisualState("idle");
+      return;
+    }
+
+    const currentCallbacks = () => voiceInputCallbacksRef.current;
+    const controller = new VoiceSessionController({
+      sttProvider: new DoubaoStreamingSttProvider(),
+      onInterimTranscript: (text) => {
+        if (voiceInputSessionIdRef.current === sessionId) currentCallbacks()?.onInterimTranscript(text);
+      },
+      onFinalTranscript: (text) => {
+        if (voiceInputSessionIdRef.current === sessionId) currentCallbacks()?.onFinalTranscript(text);
+      },
+      onError: (error) => {
+        if (voiceInputSessionIdRef.current === sessionId) currentCallbacks()?.onError(error);
+      },
+      onInputStateChange: (state) => {
+        if (voiceInputSessionIdRef.current === sessionId) currentCallbacks()?.onInputStateChange(state);
+      },
+      onActivityLevelChange: (level) => {
+        if (voiceInputSessionIdRef.current === sessionId) currentCallbacks()?.onActivityLevelChange(level);
+      },
+      onRuntimeStatusChange: (status) => {
+        if (voiceInputSessionIdRef.current === sessionId) currentCallbacks()?.onRuntimeStatusChange(status);
+      }
+    });
+    voiceSessionControllerRef.current = controller;
+    void controller.start();
+
+    return () => {
+      if (voiceInputSessionIdRef.current === sessionId) {
+        voiceInputSessionIdRef.current += 1;
+      }
+      if (voiceSessionControllerRef.current === controller) {
+        voiceSessionControllerRef.current = null;
+      }
+      void controller.stop();
+    };
+  }, [voicePreferences.voiceInputEnabled]);
+
+  const handleVoiceInputToggle = useCallback(() => {
+    updateVoicePreferences({
+      ...voicePreferences,
+      voiceInputEnabled: !voicePreferences.voiceInputEnabled
+    });
+  }, [updateVoicePreferences, voicePreferences]);
 
   const handleOpenModelConfig = useCallback(() => {
     setIsModelSettingsOpen(true);
@@ -1400,6 +1421,18 @@ function resolveTtsErrorMessage(error: unknown) {
   return "语音合成失败。";
 }
 
+/** 把合成结果分发给播放控制器：PCM 走 AudioWorklet，URL 走 HTMLAudio 队列。 */
+function enqueueSynthesisResult(
+  playbackController: VoicePlaybackController,
+  result: VoiceSynthesisResult
+) {
+  if ("pcmStream" in result) {
+    playbackController.enqueuePcmStream(result.pcmStream, result.sampleRate, result.sessionId);
+    return;
+  }
+  playbackController.enqueue(result.audioUrl);
+}
+
 // 渐进式分块（progressive chunking）：首块尽量短以最小化首字发声延迟（TTFA），
 // 后续块逐渐变长——此时首句已在播放，有余量从容合成，换取更少请求与更自然的韵律。
 // 数组按「本轮已产出的合成块序号」取阈值，越靠后越长，末位为封顶值。
@@ -1417,7 +1450,7 @@ function resolveChunkMinChars(chunkIndex: number) {
 // 朗读文本净化：AI 回复中形如「（轻声）」「(笑)」的括号情绪/动作标注，显示时保留（用户可见其情绪），
 // 但 TTS 合成前必须剥离，否则会被逐字读出。仅用于送入合成的文本，绝不改动显示层。
 function sanitizeTextForSpeech(text: string) {
-  return stripStageDirections(text)
+  return stripLinksForSpeech(stripStageDirections(text))
     // 成对括号及其内容：中文（）、英文 ()、【】、[]
     .replace(/（[^（）]*）/g, "")
     .replace(/\([^()]*\)/g, "")
