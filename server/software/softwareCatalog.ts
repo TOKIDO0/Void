@@ -38,7 +38,7 @@ export const SOFTWARE_CATALOG: readonly SoftwareCatalogEntry[] = [
       "stun.douyucdn.cn",
       "sta-op.douyucdn.cn"
     ],
-    expectedPublisherNames: ["Douyu", "斗鱼", "武汉斗鱼", "DouYu"],
+    expectedPublisherNames: ["Douyu", "斗鱼", "武汉斗鱼", "DouYu", "douyu"],
     adapterId: "douyu",
     maxDownloadBytes: 800 * 1024 * 1024,
     readiness: "adapter_ready"
@@ -70,7 +70,15 @@ export const SOFTWARE_CATALOG: readonly SoftwareCatalogEntry[] = [
       "i2.hdslb.com",
       "s1.hdslb.com"
     ],
-    expectedPublisherNames: ["bilibili", "Bilibili", "上海幻电", "哔哩哔哩"],
+    expectedPublisherNames: [
+      "bilibili",
+      "Bilibili",
+      "上海幻电",
+      "哔哩哔哩",
+      "幻电",
+      // 上海幻电信息技术有限公司统一社会信用代码（Subject SERIALNUMBER）
+      "91310000MA1G8B8AXD"
+    ],
     adapterId: "bilibili",
     maxDownloadBytes: 800 * 1024 * 1024,
     readiness: "adapter_ready"

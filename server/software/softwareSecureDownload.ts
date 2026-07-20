@@ -48,8 +48,8 @@ const DEFAULT_USER_AGENT =
 
 /** 整次下载（含校验）硬超时，防止挂死 */
 const DOWNLOAD_TOTAL_TIMEOUT_MS = 10 * 60 * 1000;
-/** 单次 HTTP 请求超时 */
-const HTTP_REQUEST_TIMEOUT_MS = 60_000;
+/** 单次 HTTP 建连/小页默认超时；大文件下载由 options.timeoutMs 或整次总超时覆盖 */
+const HTTP_REQUEST_TIMEOUT_MS = 90_000;
 
 export type SoftwareDownloadResult = {
   softwareId: string;
@@ -233,9 +233,14 @@ export async function fetchWithDomainGuard(
     method?: "GET" | "HEAD";
     maxRedirects?: number;
     signal?: AbortSignal;
+    /** 官方页 Referer；部分 CDN（如 B 站）无 Referer 会 403 */
+    referer?: string;
+    /** 单次请求超时（含读 body）；默认 90s，大文件下载应传更长 */
+    timeoutMs?: number;
   }
 ): Promise<{ response: Response; finalUrl: string; redirectChain: string[] }> {
   const maxRedirects = options?.maxRedirects ?? 8;
+  const requestTimeoutMs = options?.timeoutMs ?? HTTP_REQUEST_TIMEOUT_MS;
   let current = (await assertPublicHttpUrl(startUrl, allowedDomains)).toString();
   const redirectChain: string[] = [current];
 
@@ -249,14 +254,22 @@ export async function fetchWithDomainGuard(
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     options?.signal?.addEventListener("abort", onAbort, { once: true });
-    const timer = setTimeout(() => controller.abort(), HTTP_REQUEST_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+    const headers: Record<string, string> = {
+      "User-Agent": DEFAULT_USER_AGENT,
+      Accept: "*/*"
+    };
+    if (options?.referer) {
+      headers.Referer = options.referer;
+    }
 
     let response: Response;
     try {
       response = await fetch(current, {
         method: options?.method ?? "GET",
         redirect: "manual",
-        headers: { "User-Agent": DEFAULT_USER_AGENT },
+        headers,
         signal: controller.signal
       });
     } catch (error) {
@@ -428,14 +441,18 @@ async function verifyAuthenticode(filePath: string): Promise<{
     `_auth_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.ps1`
   );
 
-  // 脚本只读 $args[0]，路径不进脚本源码
+  // 脚本只读 $args[0]，路径不进脚本源码；强制 UTF-8 输出避免中文 Subject 乱码
   const scriptBody = [
     "$ErrorActionPreference = 'Stop'",
+    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+    "$OutputEncoding = [System.Text.Encoding]::UTF8",
     "if ($args.Count -lt 1) { throw 'missing path' }",
     "$p = [string]$args[0]",
     "$s = Get-AuthenticodeSignature -LiteralPath $p",
     "$pub = if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { '' }",
-    "Write-Output (($s.Status.ToString()) + '|' + $pub)"
+    // 额外输出 Thumbprint 便于更强身份固定（当前只记 Subject）
+    "$thumb = if ($s.SignerCertificate) { $s.SignerCertificate.Thumbprint } else { '' }",
+    "Write-Output (($s.Status.ToString()) + '|' + $pub + '|' + $thumb)"
   ].join("\r\n");
 
   try {
@@ -451,15 +468,22 @@ async function verifyAuthenticode(filePath: string): Promise<{
         scriptPath,
         safePath
       ],
-      { windowsHide: true, timeout: 30_000, maxBuffer: 1024 * 1024 }
+      {
+        windowsHide: true,
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+        // Node 侧按 UTF-8 解码 PowerShell 输出
+        encoding: "utf8"
+      }
     );
     const line = String(stdout).trim().split(/\r?\n/).filter(Boolean).pop() ?? "";
-    const [statusRaw, publisher = ""] = line.split("|");
-    const status = (statusRaw || "").trim();
+    const parts = line.split("|");
+    const status = (parts[0] || "").trim();
+    const publisher = (parts[1] || "").trim();
     if (status === "Valid") {
       return {
         status: "valid",
-        publisher: publisher.trim() || undefined
+        publisher: publisher || undefined
       };
     }
     throw createFileError(
@@ -490,7 +514,7 @@ async function verifyAuthenticode(filePath: string): Promise<{
   }
 }
 
-/** 从 Subject 抽出 CN= / O= 字段做规范化精确比较（不再 substring 整串） */
+/** 从 Subject 抽出 CN= / O= / SERIALNUMBER= 字段做规范化比较 */
 function extractSubjectFields(subject: string): string[] {
   const fields: string[] = [];
   for (const part of subject.split(",")) {
@@ -499,7 +523,7 @@ function extractSubjectFields(subject: string): string[] {
     if (eq <= 0) continue;
     const key = trimmed.slice(0, eq).trim().toUpperCase();
     const value = trimmed.slice(eq + 1).trim();
-    if ((key === "CN" || key === "O") && value) {
+    if ((key === "CN" || key === "O" || key === "SERIALNUMBER") && value) {
       fields.push(value);
     }
   }
@@ -529,17 +553,26 @@ function publisherMatches(
     return false;
   }
   const fields = extractSubjectFields(publisher).map(normalizePublisherToken);
+  const full = normalizePublisherToken(publisher);
   const expectedNorm = expected.map(normalizePublisherToken).filter(Boolean);
-  // 精确匹配 CN/O；允许「字段等于期望」或「字段为期望的完整词边界包含」避免 substring 误放行
-  return expectedNorm.some((item) =>
-    fields.some((field) => {
+  return expectedNorm.some((item) => {
+    // 工商注册号 / 指纹类：精确匹配字段
+    if (/^[0-9a-z]{8,}$/i.test(item)) {
+      return fields.some((field) => field === item);
+    }
+    if (full === item) return true;
+    return fields.some((field) => {
       if (field === item) return true;
       // 仅当期望本身足够长，且以独立片段出现（前后非字母数字）
-      if (item.length < 3) return false;
+      if (item.length < 2) return false;
+      // 中文公司名片段允许 includes（已限定在 CN/O 字段内，不是整串 substring 放行任意证书）
+      if (/[一-鿿]/.test(item)) {
+        return field.includes(item);
+      }
       const escaped = item.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(field);
-    })
-  );
+    });
+  });
 }
 
 function taskTempDirectory(taskId: string): string {
@@ -633,7 +666,11 @@ export async function downloadOfficialInstaller(input: {
     let fetchResult: { response: Response; finalUrl: string; redirectChain: string[] };
     try {
       fetchResult = await fetchWithDomainGuard(input.downloadUrl, allowed, {
-        signal: totalController.signal
+        signal: totalController.signal,
+        // 用官方页作 Referer，避免 CDN 防盗链 403（B 站 dl.hdslb.com 实测依赖）
+        referer: input.sourcePageUrl || undefined,
+        // 大安装包读 body 可能远超默认 90s；与整次总超时对齐
+        timeoutMs: DOWNLOAD_TOTAL_TIMEOUT_MS
       });
     } catch (error) {
       if (typeof error === "object" && error && "fileCode" in error) {
