@@ -8,13 +8,14 @@
 //
 // 反例（必须 skip）：
 // - 「你知道我的偏好吗？」——只是在问，没有陈述任何偏好
-// - 「你知道我的职业是什么吗？」——问句；旧正则误把「我的职业是」当成自述
+// - 「你知道我的职业是什么吗？」——问句；不得因「我的职业是」子串误放行
 //
 // 正例（worth）：
 // - 「我的工作是一名程序员」
 // - 「我喜欢晚睡」
 // - 「请记住以后叫我小陈」
 // - 「提醒我周五前提交方案」
+// - 长文夹一句「你知道我喜欢什么吗？」但仍含大量自述事实 → 整段放行，由提炼器丢掉问句
 
 /** 无明确指令时，自述事实仍要求的最小信息量（字数）。 */
 const MIN_STATEMENT_LENGTH = 4;
@@ -27,7 +28,11 @@ export type SalienceResult = {
 
 /**
  * 判定一条用户输入是否值得写入长期记忆。
- * 顺序：空 → 问句/非陈述 → 纯社交 → 明确记住/提醒指令 → 第一人称陈述事实 → skip。
+ * 顺序：空 → 明确记住/提醒 → 第一人称陈述事实 → 纯社交 → 纯问句/非陈述 → skip。
+ *
+ * 重要：长句里夹一句「你知道吗？」不能否掉整段事实。
+ * 所以「可建档陈述 / 明确记住」必须优先于「含问号就整句 skip」。
+ * 纯问句（无陈述）仍会在后面被拦下。
  */
 export function assessSalience(content: string): SalienceResult {
   const text = content.trim();
@@ -35,9 +40,19 @@ export function assessSalience(content: string): SalienceResult {
     return { worth: false, reason: "空内容" };
   }
 
-  // 问句 / 求确认 / 点名话题：没有任何新事实，禁止落库
-  if (isNonDeclarativeUtterance(text)) {
-    return { worth: false, reason: "问句或非陈述，不含可建档事实" };
+  // 用户明确要求「记住 / 提醒」——指令本身即授权写入（可与夹杂问句并存）
+  if (matchesExplicitRememberOrReminder(text)) {
+    return { worth: true, reason: "命中明确记住/提醒指令" };
+  }
+
+  // 只在「去掉问句子句后的残留」上匹配自述，避免「你知道我喜欢什么吗」误放行
+  // 长文夹问句：残留仍含「我讨厌香菜 / 叫我阿陈」等 → 放行，提炼器丢掉问句
+  const declarativeResidue = stripQuestionLikeClauses(text);
+  if (
+    matchesDeclarativeSelfFact(declarativeResidue) &&
+    declarativeResidue.replace(/\s+/g, "").length >= MIN_STATEMENT_LENGTH
+  ) {
+    return { worth: true, reason: "命中第一人称事实陈述" };
   }
 
   // 纯社交 / 附和 / 对 AI 评价：无长期档案价值
@@ -45,14 +60,9 @@ export function assessSalience(content: string): SalienceResult {
     return { worth: false, reason: "纯社交/闲聊/评价，无长期价值" };
   }
 
-  // 用户明确要求「记住 / 提醒」——指令本身即授权写入
-  if (matchesExplicitRememberOrReminder(text)) {
-    return { worth: true, reason: "命中明确记住/提醒指令" };
-  }
-
-  // 第一人称可复用事实陈述（身份、偏好、目标、健康、称呼等）
-  if (matchesDeclarativeSelfFact(text) && text.length >= MIN_STATEMENT_LENGTH) {
-    return { worth: true, reason: "命中第一人称事实陈述" };
+  // 纯问句 / 求确认 / 点名话题：没有任何新事实，禁止落库
+  if (isNonDeclarativeUtterance(text)) {
+    return { worth: false, reason: "问句或非陈述，不含可建档事实" };
   }
 
   // 默认不记：包括仅含分区关键词、无断言的句子
@@ -66,36 +76,49 @@ export function assessSalience(content: string): SalienceResult {
 /**
  * 判断是否为「没有在陈述事实」的话语。
  * 覆盖：疑问句、求确认、让 AI 回忆、只点名话题不给答案。
+ *
+ * 注意：此处只应拦截「整段主要是问句」的情况。
+ * 长段落中夹一句「你知道我喜欢什么吗？」不能把整段判死——
+ * 那种混合句应在 assessSalience 里靠陈述/记住规则先放行。
  */
 function isNonDeclarativeUtterance(text: string): boolean {
   const normalized = text.replace(/\s+/g, "");
 
-  // 明确问号
-  if (/[？?]\s*$/.test(text) || /[？?]/.test(normalized)) {
-    return true;
+  // 按句切分：去掉问句子句后若几乎没剩，才算「整段非陈述」
+  const declarativeResidue = stripQuestionLikeClauses(text);
+  const residueNormalized = declarativeResidue.replace(/\s+/g, "");
+
+  // 短问句 / 以问号为主的整句
+  if (/[？?]/.test(normalized) || /[吗呢么]\s*[。.!！…]*\s*$/.test(text)) {
+    // 去掉问句后几乎没剩实质内容 → 纯问
+    if (residueNormalized.length < MIN_STATEMENT_LENGTH) {
+      return true;
+    }
+    // 仍有较长残留但上面的陈述匹配已失败 → 按非陈述处理
+    // （混合长句若含「我讨厌…」等会在 assessSalience 更早放行，到不了这里）
   }
 
-  // 句末语气助词：吗/呢/么/吧（吧在「记住吧」里可能是祈使，单独处理）
-  if (/[吗呢么]\s*[。.!！…]*\s*$/.test(text)) {
-    return true;
-  }
-
-  // 向 AI 求知 / 求确认 / 求回忆（整句以这类话头起）
+  // 向 AI 求知 / 求确认 / 求回忆（整段以这类话头起，且去掉问句后仍短）
   if (
+    residueNormalized.length < 24 &&
     /^(那)?(你|您)?(知不知道|还记得|记不记得|清不清楚|晓不晓得|能不能告诉|可不可以告诉|可以告诉|告诉我|请问|想问|问一下|问你)/.test(
-      normalized
+      residueNormalized || normalized
     )
   ) {
     return true;
   }
-  if (/^(你|您)(知道|还知道|清楚|了解|记得|还记得)/.test(normalized)) {
+  if (
+    residueNormalized.length < 24 &&
+    /^(你|您)(知道|还知道|清楚|了解|记得|还记得)/.test(residueNormalized || normalized)
+  ) {
     return true;
   }
 
-  // 「……是什么/是谁/怎么样」类信息询问（即使没有问号）
+  // 「……是什么/是谁/怎么样」类：只在「去掉问句后仍主要是询问」时拦截
   if (
+    residueNormalized.length < 24 &&
     /(是什么|是谁|是哪|有哪些|有什么|怎么样|怎么了|如何|为何|为什么|哪一个|哪些|哪里|哪儿|多少|几点|何时)/.test(
-      normalized
+      residueNormalized || normalized
     )
   ) {
     return true;
@@ -110,7 +133,48 @@ function isNonDeclarativeUtterance(text: string): boolean {
     return true;
   }
 
+  // 整段去掉问句后仍为空/极短
+  if (/[？?]/.test(normalized) && residueNormalized.length < MIN_STATEMENT_LENGTH) {
+    return true;
+  }
+
   return false;
+}
+
+/**
+ * 去掉问句味道的子句，留下可能含事实的残留。
+ * 用于区分「纯问」与「长文夹问」。
+ */
+function stripQuestionLikeClauses(text: string): string {
+  const parts = text.split(/(?<=[。！？?；;\n])/);
+  const kept: string[] = [];
+  for (const part of parts) {
+    const piece = part.trim();
+    if (!piece) {
+      continue;
+    }
+    // 子句自身是问句：含问号，或以 吗/呢/么 收尾
+    if (/[？?]/.test(piece)) {
+      continue;
+    }
+    if (/[吗呢么]\s*[。.!！…]*\s*$/.test(piece)) {
+      continue;
+    }
+    // 「你知道/还记得…」类求问子句（即使无问号）
+    const compact = piece.replace(/\s+/g, "");
+    if (/^(对了)?(你|您)(知不知道|知道|还知道|记得|还记得|清不清楚|了解)/.test(compact)) {
+      continue;
+    }
+    kept.push(piece);
+  }
+  // 无标点长句兜底：去掉「…吗」片段
+  if (kept.length === 0 && text.trim()) {
+    return text
+      .replace(/[^。！？?\n]*[？?][^。！？?\n]*/g, " ")
+      .replace(/[^。！？?\n]*[吗呢么]\s*/g, " ")
+      .trim();
+  }
+  return kept.join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -190,8 +254,14 @@ const DECLARATIVE_SELF_FACT_PATTERNS: readonly RegExp[] = [
   /我(有|得了|患有?|检查出|查出).{0,12}(病|症|炎|癌|糖尿|高血压|抑郁|焦虑症|失眠)/,
   /我对[一-鿿A-Za-z0-9]{1,20}过敏/,
   /我(在|正在)?(吃|服用)[一-鿿A-Za-z0-9]{1,20}药/,
-  // 人际关系陈述（「我朋友/我妈…」+ 断言）
-  /我(的)?(朋友|同事|同学|伴侣|对象|男友|女友|母亲|妈妈|父亲|爸爸|老婆|老公).{2,40}(是|在|喜欢|讨厌|住|工作|生病|住院)/,
+  // 人际关系陈述（「我朋友/我妈…」+ 断言；含血压高等简写健康）
+  /我(的)?(朋友|同事|同学|伴侣|对象|男友|女友|母亲|妈妈|妈|父亲|爸爸|爸|老婆|老公).{1,40}(是|在|喜欢|讨厌|住|工作|生病|住院|血压|血糖|过敏)/,
+  // 作息改口常见说法（「以前我晚睡，现在尽量十一点前睡」）
+  /我.{0,8}(晚睡|早睡|熬夜|早起)/,
+  /现在.{0,8}(尽量)?\d{1,2}\s*点.{0,6}(前)?睡/,
+  // 宠物 / 饲养态度（金鱼可以、猫不想养）
+  /(金鱼|猫|狗|犬).{0,8}(可以|想养|不想养|不养|不喜欢养)/,
+  /我(现在)?(不想|不打算|不准备)?养[一-鿿]{1,10}/,
   // 明确时间待办自述（非问句）
   /我([今明后]天|这周|下周|周[一二三四五六日天]|星期[一二三四五六日天]).{0,12}(要|得|必须|需要).{2,40}/
 ];
