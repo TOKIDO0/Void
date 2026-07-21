@@ -24,3 +24,14 @@ vite.config.d.ts
 # 桥接 sidecar 构建产物（每次由 npm run sidecar:build 生成，不入库）
 .sidecar-build/
 src-tauri/binaries/
+
+# 本地工具缓存与私有配置（不入库）
+.codex/
+.npm-cache/
+
+# 厂商 API 调研抓取的本地草稿（HTML/Markdown 笔记，不入库）
+anthro-*.html
+anthro-*.md
+ark-*.html
+ds-*.html
+glm4v.html
