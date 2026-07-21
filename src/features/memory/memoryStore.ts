@@ -12,6 +12,7 @@ import {
   syncMemorySearchIndexAfterRemove,
   syncMemorySearchIndexAfterUpsert
 } from "./memorySearchIndex";
+import { resolveMemoryConflict } from "./memoryConflictResolver";
 
 /** 存储键：v1 版本号预留迁移空间，结构不兼容升级时改版本号并写迁移。 */
 const MEMORY_STORAGE_KEY = "void.memory.v1";
@@ -93,10 +94,12 @@ export type DedupeOptions = {
 };
 
 /**
- * 去重写入：按「主体 + 分区 + 归一化内容」查重，命中则更新既有条目而非新增，
- * 避免同类记忆随对话堆积（对齐 25 号 §2.3 优化点 3 / 4）。
+ * 去重写入：按「主体 + 分区 + 归一化内容」查重，命中则更新既有条目而非新增；
+ * 未命中原文时再走事实槽冲突裁决（同槽对立偏好更新旧条，不追加第三条矛盾句）。
  * - 命中重复：刷新 updatedAt、取较高 confidence、采用最新内容表述，createdAt 不变。
- * - 未命中：作为新条目追加。
+ * - 同槽冲突：更新旧条 content 为最新表述，不追加。
+ * - 都未命中：作为新条目追加。
+ * emotionTrend / agentRelationship / task 不走对立覆盖，仍靠原文 dedupe 与时间窗。
  */
 export function upsertMemoryDeduped(entry: MemoryEntry, options: DedupeOptions = {}): MemoryEntry {
   const clean = sanitizeEntry(entry);
@@ -132,6 +135,27 @@ export function upsertMemoryDeduped(entry: MemoryEntry, options: DedupeOptions =
     persist(entries);
     syncMemorySearchIndexAfterUpsert(merged);
     return merged;
+  }
+
+  // 原文未命中时：同事实槽对立/刷新 → 更新旧条，避免「喜欢猫」与「不喜欢猫」长期并列
+  const conflict = resolveMemoryConflict(clean, entries);
+  if (conflict.action === "update") {
+    const targetIndex = entries.findIndex((item) => item.id === conflict.targetId);
+    if (targetIndex >= 0) {
+      const existing = entries[targetIndex];
+      const merged: MemoryEntry = {
+        ...existing,
+        content: conflict.content,
+        confidence: conflict.confidence,
+        sensitivity: clean.sensitivity,
+        source: clean.source,
+        updatedAt: clean.updatedAt
+      };
+      entries[targetIndex] = merged;
+      persist(entries);
+      syncMemorySearchIndexAfterUpsert(merged);
+      return merged;
+    }
   }
 
   entries.push(clean);

@@ -29,6 +29,14 @@ src-tauri/binaries/
 .codex/
 .npm-cache/
 
+# 调研抓取 / 临时验证产物（firecrawl、开源记忆调研、手测缓存）
+.firecrawl/
+.tmp_*/
+.tmp-*
+.tmp_*
+*.firecrawl
+extracted_summaries.txt
+
 # 厂商 API 调研抓取的本地草稿（HTML/Markdown 笔记，不入库）
 anthro-*.html
 anthro-*.md

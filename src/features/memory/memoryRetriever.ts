@@ -11,6 +11,7 @@ import {
   selectAgentRelationshipEntries
 } from "./agentRelationshipMemory";
 import { searchMemoriesInCandidates } from "./memorySearchIndex";
+import { applyMemoryDecayScore } from "./memoryConflictResolver";
 
 /** 召回意图：从用户当前问题推断，决定拉哪些分区。 */
 export type RetrievalIntent =
@@ -103,8 +104,9 @@ export function retrieveMemories(query: string, options: RetrieveOptions = {}): 
 
 /**
  * 在已过分区门禁的候选集内排序：
- * 1) 全文索引命中顺序优先（Orama）
- * 2) 无命中/索引失败 → 回退置信度 + 更新时间
+ * 1) 全文索引命中：Orama 分 × 时间衰减，再截断
+ * 2) 无命中/索引失败 → 回退「衰减后置信度 + 更新时间」
+ * 衰减只影响排序，不物理删除。
  */
 function rankCandidatesByQuery(
   query: string,
@@ -115,15 +117,17 @@ function rankCandidatesByQuery(
     return [];
   }
 
+  const now = Date.now();
   const byId = new Map(candidates.map((entry) => [entry.id, entry]));
+  // 多取一些命中，再按衰减分重排，避免只取 topN 时旧条霸榜
   const hits = searchMemoriesInCandidates(
     query,
     candidates.map((entry) => entry.id),
-    maxEntries
+    Math.max(maxEntries * 3, 12)
   );
 
   if (hits.length > 0) {
-    const ranked: MemoryEntry[] = [];
+    const scored: { entry: MemoryEntry; score: number }[] = [];
     const seen = new Set<string>();
     for (const hit of hits) {
       const entry = byId.get(hit.id);
@@ -131,11 +135,19 @@ function rankCandidatesByQuery(
         continue;
       }
       seen.add(entry.id);
-      ranked.push(entry);
+      // Orama score 为正相关度；再乘分区半衰期衰减
+      const base = typeof hit.score === "number" && hit.score > 0 ? hit.score : entry.confidence;
+      scored.push({
+        entry,
+        score: applyMemoryDecayScore(entry, now, base)
+      });
     }
-    // 全文命中不足时，用旧排序补足，避免相关度分把高置信底座挤没
+    scored.sort((a, b) => b.score - a.score || b.entry.updatedAt - a.entry.updatedAt);
+
+    const ranked = scored.map((item) => item.entry);
+    // 全文命中不足时，用衰减后置信度补足，避免相关度分把高置信底座挤没
     if (ranked.length < maxEntries) {
-      const fallback = [...candidates].sort(compareByRelevance);
+      const fallback = [...candidates].sort((a, b) => compareByDecayRelevance(a, b, now));
       for (const entry of fallback) {
         if (seen.has(entry.id)) {
           continue;
@@ -150,7 +162,7 @@ function rankCandidatesByQuery(
     return ranked.slice(0, maxEntries);
   }
 
-  return [...candidates].sort(compareByRelevance).slice(0, maxEntries);
+  return [...candidates].sort((a, b) => compareByDecayRelevance(a, b, now)).slice(0, maxEntries);
 }
 
 /** 保序合并并按 id 去重：base 在前，extra 追加。 */
@@ -177,10 +189,15 @@ export function detectIntent(query: string): RetrievalIntent {
   return "general";
 }
 
-/** 相关性排序：置信度优先，其次更新时间更近者优先。 */
-function compareByRelevance(a: MemoryEntry, b: MemoryEntry): number {
-  if (b.confidence !== a.confidence) {
-    return b.confidence - a.confidence;
+/**
+ * 回退排序：衰减后置信度优先，其次更新时间更近者优先。
+ * 旧偏好会慢慢让位，但不会被自动删除。
+ */
+function compareByDecayRelevance(a: MemoryEntry, b: MemoryEntry, now: number): number {
+  const scoreA = applyMemoryDecayScore(a, now);
+  const scoreB = applyMemoryDecayScore(b, now);
+  if (scoreB !== scoreA) {
+    return scoreB - scoreA;
   }
   return b.updatedAt - a.updatedAt;
 }
