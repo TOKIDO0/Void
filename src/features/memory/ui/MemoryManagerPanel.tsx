@@ -386,9 +386,18 @@ function MemoryCard({
   copy: ReturnType<typeof getMemoryManagerCopy>;
   onDelete: () => void;
 }) {
-  const subjectLabel = entry.subjectName
-    ? `${copy.subjectLabels[entry.subjectType]}·${entry.subjectName}`
-    : copy.subjectLabels[entry.subjectType];
+  // 徽章优先展示「分区 · 主体」，避免 self 出现「用户本人·用户本人」重复。
+  const typeLabel = copy.typeLabels[entry.memoryType];
+  const subjectTypeLabel = copy.subjectLabels[entry.subjectType];
+  const subjectDetail =
+    entry.subjectType === "self"
+      ? language === "zh-CN"
+        ? "本人"
+        : "Self"
+      : entry.subjectName && entry.subjectName !== subjectTypeLabel
+        ? entry.subjectName
+        : subjectTypeLabel;
+  const primaryBadge = `${typeLabel} · ${subjectDetail}`;
 
   const confidenceDots = Math.max(0, Math.min(5, Math.round(entry.confidence * 5)));
 
@@ -396,7 +405,7 @@ function MemoryCard({
     <article className="memory-manager__card">
       <div className="memory-manager__card-top">
         <div className="memory-manager__badges">
-          <span className="memory-manager__badge">{subjectLabel}</span>
+          <span className="memory-manager__badge">{primaryBadge}</span>
           <span className={`memory-manager__badge memory-manager__badge--${entry.sensitivity}`}>
             {copy.sensitivityLabels[entry.sensitivity]}
           </span>
