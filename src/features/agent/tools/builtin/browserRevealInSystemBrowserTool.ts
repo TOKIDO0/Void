@@ -24,7 +24,7 @@ export const browserRevealInSystemBrowserTool: ToolDefinition<
 > = {
   name: "browser.revealInSystemBrowser",
   description:
-    "用用户系统默认浏览器（Chrome/Edge 等常用浏览器）打开指定 URL，让用户在自己的浏览器里看到页面。在 browser.open 或选中视频链接后，若用户要「打开给我看」，必须调用本工具。不要假装已打开。",
+    "用用户系统默认浏览器（Chrome/Edge 等常用浏览器）打开指定 URL，让用户在自己的浏览器里看到页面。用户说「打开网页 / 帮我打开某站 / 在浏览器里看 / 打开给我看」时优先用本工具，而不是只开 Playwright 自动化窗。不要假装已打开。",
   version: "1.0.0",
   riskLevel: "L1",
   inputSchema: {

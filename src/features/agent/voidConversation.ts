@@ -1,5 +1,6 @@
 import type { ModelConfig } from "../settings/modelConfig";
-import type { ProviderMessage } from "../../lib/model-providers/providerContract";
+import type { ContentPart, ProviderMessage } from "../../lib/model-providers/providerContract";
+import { resolveModelMediaCapability } from "../settings/providerCapabilities";
 import { getModelProvider } from "../../lib/model-providers/providerRegistry";
 import { VOID_SYSTEM_PROMPT } from "./voidSystemPrompt";
 import { retrieveMemories } from "../memory/memoryRetriever";
@@ -11,6 +12,10 @@ import {
   type TurnCapability
 } from "./turnRouting/turnCapabilityRouter";
 import { planBrowserSearchIntent } from "./turnRouting/searchIntentPlanner";
+import {
+  buildResearchSourcePromptSuffix,
+  isResearchIntent
+} from "./turnRouting/researchIntent";
 import { stripStageDirections } from "./responseTextDisplay";
 import { isVoidBridgeReachable } from "./bridge/bridgeHealthClient";
 import {
@@ -25,7 +30,10 @@ export type VoidConversationAttachment = {
   id: string;
   name: string;
   mimeType: string;
+  /** 文本附件：文件内容；图片附件：base64 数据（不含 data: 前缀）。 */
   content: string;
+  /** 缺省视为 text（兼容旧数据）。 */
+  kind?: "text" | "image";
 };
 
 export type VoidConversationMessage = {
@@ -84,10 +92,11 @@ const TOOL_USE_COMMON_SUFFIX = [
 const BROWSER_TOOL_USE_SUFFIX = [
   "本轮只允许使用浏览器、下载与下载后整理工具；若本轮工具列表含 clipboard.read，还可读取剪贴板；若含 desktop.revealPath，可在落盘成功后打开资源管理器展示位置。",
   "当用户要求搜索、打开网页/平台/视频/主页、看视频、下载文件，或点赞/三连/收藏/评论时，必须调用工具，禁止假装已经操作。",
-  "打开站点或 App 网页版（如快手/抖音/B站）：用 browser.open 打开对应 https 页面；若用户要在自己日常浏览器里看，成功后必须再调 browser.revealInSystemBrowser。",
-  "用户说「在 Edge/Chrome 打开」：当前只能用系统默认浏览器 reveal，不能单独指定品牌；先尽力 open/reveal，再如实说明是否为默认浏览器，禁止甩 Win+R/msedge 手工命令当主方案，也禁止空口说已在 Edge 打开。",
+  "【系统默认浏览器优先】用户说「打开/帮我打开 {网站或URL}」「打开网页」「在浏览器里看/打开」「用默认浏览器打开」「打开给我看」时：拿到真实 http(s) URL 后必须调 browser.revealInSystemBrowser，用系统默认浏览器打开；不要只用 browser.open 假装已给用户看。browser.open 仅用于需要在页面内自动化操作（搜索/点击/抽取/登录态交互）的场景。",
+  "打开站点或 App 网页版（如快手/抖音/B站）：若只需用户自己看 → browser.revealInSystemBrowser；若还要在页内点赞/评论/抽取 → 先 browser.open，需要时再 reveal。",
+  "用户说「在 Edge/Chrome 打开」：当前只能用系统默认浏览器 reveal，不能单独指定品牌；先尽力 reveal，再如实说明是否为默认浏览器，禁止甩 Win+R/msedge 手工命令当主方案，也禁止空口说已在 Edge 打开。",
   "模糊搜索（如「好玩的博主」「有趣的视频」）：不要把用户口语原句原封不动当唯一 query。先理解平台与风格，改写成具体检索词（可先列 2～3 个候选名/关键词），B 站场景用 engine=bilibili；拿不准平台时先一句话确认或按上下文默认 B 站。",
-  "打开「某博主最新视频」：browser.search(engine=bilibili, query=具体UP名或视频关键词) → 从结果里选视频页 URL → browser.open 或 revealInSystemBrowser；没有真实 URL 时禁止说已打开。",
+  "打开「某博主最新视频」：browser.search(engine=bilibili, query=具体UP名或视频关键词) → 从结果里选视频页 URL → 用户要看则 revealInSystemBrowser，要自动化则 browser.open；没有真实 URL 时禁止说已打开。",
   "点赞/收藏/三连/评论：必须先有当前视频页（open 成功）。点赞/收藏用 browser.click；B 站三连用 browser.longPress（默认 holdMs=3000）按住点赞按钮，其它平台没有三连就说明并改做点赞/收藏。评论：extract/click 打开评论区 → browser.type 填入用户原话 → 发送前若需确认则走确认。未登录、点不到或 longPress 失败时必须如实说还没完成，禁止假称已点赞/已三连/已评论。",
   "剪贴板 URL 下载主路径（用户说从剪贴板/粘贴板下载链接、保存剪贴板网址等）：先 clipboard.read。读到文本后按主机分流，禁止跳过读取直接瞎猜 URL：① 空、非 http(s) URL、或明显不是链接 → 不要调用任何 download*，用中文说明剪贴板内容不是可下载链接；② B 站视频页（www/m.bilibili.com/video/BVxxx 或 avxxx，或 b23.tv 短链）→ file.downloadMediaPage(pageUrl) → 用户确认后 file.placeDownload → file.verify；禁止对 B 站视频页用 file.downloadToTemp；③ 可直接 GET 的文件直链（常见 .exe/.msi/.zip/.dmg 等）→ file.downloadToTemp → place → verify；④ YouTube 或其它未支持主机/普通 HTML 页 → 不要调用 download*，如实说明当前仅支持 B 站视频页与文件直链，并点名不支持的主机。未确认 place 前不得声称已保存到最终目录。",
   "下载主路径（任意文件直链通用，不是某一软件专线）：先拿到可直接 GET 的 http(s) 文件直链（URL 常以 .exe/.msi/.zip/.dmg 等结尾，或 Content-Disposition 指向文件），再 file.downloadToTemp → 用户确认后 file.placeDownload → file.verify；默认最终目录 D:\\AI\\void-runtime\\downloads。",
@@ -101,7 +110,7 @@ const BROWSER_TOOL_USE_SUFFIX = [
   "B 站视频下载主路径：browser.search(engine=bilibili) → 向用户确认目标视频 → file.downloadMediaPage(pageUrl=该视频页) → 用户确认后 file.placeDownload → file.verify。需要整理时再接 createDirectory+move。不要对 B 站视频页调用 file.downloadToTemp（那是直链专用）。若报 YTDLP_NOT_FOUND / FFMPEG_NOT_FOUND，如实告诉用户需要本机安装 yt-dlp 与 ffmpeg。",
   "browser.open 只打开 Playwright 自动化窗口（用户可能在任务栏另见一个浏览器图标，不是日常浏览器）；缺省每次 open 新建标签页并返回 pageId。",
   "多页时用 browser.tabs 列 pageId/url/title，用 browser.switchTab 切活动标签；后续未传 pageId 的动作走活动页。",
-  "用户要「打开给我看 / 在我浏览器里看」时：拿到真实视频 URL 后必须再调 browser.revealInSystemBrowser，用系统默认浏览器打开；汇报时写明完整 URL，并说明请到常用浏览器查看。",
+  "用户要「打开给我看 / 在我浏览器里看」时：拿到真实 URL 后必须再调 browser.revealInSystemBrowser，用系统默认浏览器打开；汇报时写明完整 URL，并说明请到常用浏览器查看。",
   "页面内操作顺序：看不清结构或 selector 不稳 → browser.extract → 再用返回的 suggestedSelector，或 extract 的 role+name 做 browser.click / browser.type；无稳定位时用 text/href 收窄，禁止空猜。",
   "browser.click / browser.longPress / browser.type 定位二选一：selector，或 role+name（无障碍 getByRole）；必须唯一匹配。browser.waitFor 用于导航后等待；禁止假装已点击/已长按/已输入。",
   "不要空口说「打开了」——只有工具返回成功证据后才能那样说，并带上标题与 URL。"
@@ -151,12 +160,38 @@ export async function sendVoidMessage(
   runtimeOptions: VoidMessageRuntimeOptions = {}
 ) {
   const provider = getModelProvider(modelConfig.provider);
-  const normalizedUserInput = buildUserInputWithAttachments(userInput, attachments);
+  const textAttachments = attachments.filter((attachment) => attachment.kind !== "image");
+  const imageAttachments = attachments.filter((attachment) => attachment.kind === "image");
+  const mediaCapability = resolveModelMediaCapability(modelConfig.presetId, modelConfig.modelName);
+  // 文本附件仍内联进用户输入（路由 / 记忆召回 / system prompt 都基于字符串上下文）。
+  // 图片附件不进入该字符串：支持视觉的模型走 ContentPart 多模态块；不支持则附文字说明降级。
+  const normalizedUserInput = buildUserInputWithAttachments(
+    buildImageFallbackInput(userInput, imageAttachments, mediaCapability.supportsImage),
+    textAttachments
+  );
+  // 最终发给模型的 user 消息：有图片且模型支持视觉时用多模态块，否则沿用纯文本。
+  const userMessageContent: string | ContentPart[] = mediaCapability.supportsImage && imageAttachments.length
+    ? [
+      { type: "text", text: normalizedUserInput },
+      ...imageAttachments.map((attachment): ContentPart => ({
+        type: "image",
+        mediaType: attachment.mimeType || "image/png",
+        dataBase64: attachment.content
+      }))
+    ]
+    : normalizedUserInput;
   // 记忆召回：按本轮用户输入的话题只取相关分区的少量长期记忆，投影成一段可注入文本。
   // P6：仅当用户明确谈与 VOID 的关系时，retrieveMemories 才会额外并入最多 2 条 agentRelationship。
   // 空召回时 projectMemories 返回空串，buildSystemPrompt 据此跳过注入，零副作用。
   const memoryContext = projectMemories(retrieveMemories(userInput));
   const turnRoute = resolveTurnCapability(userInput, conversationHistory);
+  // 阶段 F：检索意图本轮强制思考（不改持久化开关）；后续 provider 与 system prompt 都吃 effectiveModelConfig。
+  // 路由侧已把检索意图升到 browser，这里只负责 thinking + 来源硬规则注入。
+  const forceThinkingThisTurn = isResearchIntent(userInput);
+  const effectiveModelConfig: ModelConfig = {
+    ...modelConfig,
+    thinkingModeEnabled: modelConfig.thinkingModeEnabled || forceThinkingThisTurn
+  };
   const taskGate = runtimeOptions.behaviorDecision?.taskGate;
   const blockedByAffect = taskGate ? isBehaviorToolGateBlocked(taskGate) : false;
   const routeHasTools = turnRoute.allowedToolNames.length > 0;
@@ -181,18 +216,19 @@ export async function sendVoidMessage(
     {
       role: "system",
       content: buildSystemPrompt(
-        modelConfig,
+        effectiveModelConfig,
         emotionContext,
         affectContext,
         memoryContext,
         enableTools,
         turnRoute.capability,
         normalizedUserInput,
-        taskGate
+        taskGate,
+        forceThinkingThisTurn
       )
     },
     ...buildRequestConversationHistory(conversationHistory),
-    { role: "user", content: normalizedUserInput }
+    { role: "user", content: userMessageContent }
   ];
 
   // soft/hard refuse 的工具回合仍让模型生成自然边界表达，但不暴露任何工具，
@@ -201,7 +237,7 @@ export async function sendVoidMessage(
     try {
       const response = await provider.sendMessage(
         { messages, signal: runtimeOptions.signal },
-        { ...modelConfig, streamEnabled: false }
+        { ...effectiveModelConfig, streamEnabled: false }
       );
       const content = enforceRelationshipRefusalReply(
         response.content,
@@ -220,7 +256,7 @@ export async function sendVoidMessage(
       const loopResult = await runAgentToolLoop({
         messages,
         modelConfig: {
-          ...modelConfig,
+          ...effectiveModelConfig,
           // 工具循环内部统一非流式；避免半截 tool_calls
           streamEnabled: false
         },
@@ -242,12 +278,12 @@ export async function sendVoidMessage(
 
   try {
     // 非工具路径也做假成功护栏：防止模型空口说「已打开/已下载/已点赞」
-    if (modelConfig.streamEnabled && provider.streamMessage) {
+    if (effectiveModelConfig.streamEnabled && provider.streamMessage) {
       const streamed = await provider.streamMessage({
         messages,
         onToken,
         signal: runtimeOptions.signal
-      }, modelConfig);
+      }, effectiveModelConfig);
       // 流式过程中 onToken 已推送原文；这里只校正返回值。
       // 路由放宽后，打开/下载类意图会进工具路径，此分支主要兜底纯闲聊误声称。
       const guarded = applyReplySpeechGuard(streamed.content ?? "", {
@@ -264,7 +300,7 @@ export async function sendVoidMessage(
 
     const response = await provider.sendMessage(
       { messages, signal: runtimeOptions.signal },
-      modelConfig
+      effectiveModelConfig
     );
     const guarded = applyReplySpeechGuard(response.content ?? "", {
       usedTools: false,
@@ -292,7 +328,8 @@ function buildSystemPrompt(
   enableTools = false,
   capability: TurnCapability = "conversation",
   latestUserInput = "",
-  taskGate?: BehaviorDecision["taskGate"]
+  taskGate?: BehaviorDecision["taskGate"],
+  researchIntentThisTurn = false
 ) {
   const sections = [VOID_SYSTEM_PROMPT];
 
@@ -312,6 +349,11 @@ function buildSystemPrompt(
 
   if (modelConfig.thinkingModeEnabled) {
     sections.push(THINKING_MODE_SYSTEM_SUFFIX);
+  }
+
+  // 阶段 F：检索意图注入来源硬规则（即使工具被门禁关掉也要约束口头事实）。
+  if (researchIntentThisTurn) {
+    sections.push(buildResearchSourcePromptSuffix());
   }
 
   // 情绪系统的本轮情绪上下文（可选）。缺省则完全退回原有行为，零副作用。
@@ -542,7 +584,13 @@ function isVoidConversationMessage(value: unknown): value is VoidConversationMes
 
 function normalizeStoredConversationMessage(message: VoidConversationMessage): VoidConversationMessage {
   const content = message.content.trim();
-  const attachments = normalizeAttachments(message.attachments);
+  // 图片附件不落 localStorage 原始 base64（会击穿存储配额）：仅保留文件名与占位内容，
+  // 历史回放时由 buildUserInputWithAttachments 生成「曾附带图片」提示。
+  const attachments = normalizeAttachments(message.attachments)?.map((attachment) =>
+    attachment.kind === "image"
+      ? { ...attachment, content: "[image]" }
+      : attachment
+  );
 
   return {
     role: message.role,
@@ -633,11 +681,42 @@ function clipForBoundaryHint(text: string, maxLength = 240): string {
   return `${trimmed.slice(0, maxLength)}…`;
 }
 
+/**
+ * 图片附件的文本降级：模型不支持视觉时，在用户输入后附加图片说明并明确告知无法识别，
+ * 引导用户换视觉模型，禁止模型假装「看到了」图片内容。
+ */
+function buildImageFallbackInput(
+  userInput: string,
+  imageAttachments: VoidConversationAttachment[],
+  supportsImage: boolean
+) {
+  if (!imageAttachments.length || supportsImage) {
+    return userInput;
+  }
+
+  const imageNames = imageAttachments.map((attachment) => attachment.name).join("、");
+  return [
+    userInput.trim(),
+    `（用户附加了图片：${imageNames}。当前模型不支持图像识别，请如实告知用户无法查看图片内容，建议在设置中切换到视觉模型，如智谱 GLM-4.6V 或豆包 doubao-seed 系列；禁止编造图片内容。）`
+  ].filter(Boolean).join("\n\n");
+}
+
 function buildUserInputWithAttachments(userInput: string, attachments?: VoidConversationAttachment[]) {
   const trimmedInput = userInput.trim();
-  const normalizedAttachments = normalizeAttachments(attachments) ?? [];
+  // 图片附件不做文本内联（base64 会撑爆上下文）：当轮由多模态块承载；历史回放只留文件名提示。
+  const inlineAttachments = (normalizeAttachments(attachments) ?? []).filter(
+    (attachment) => attachment.kind !== "image"
+  );
+  const imageNames = (attachments ?? [])
+    .filter((attachment) => attachment.kind === "image")
+    .map((attachment) => attachment.name)
+    .join("、");
+  const inputWithImageNote = imageNames
+    ? `${trimmedInput}${trimmedInput ? "\n" : ""}（本条消息曾附带图片：${imageNames}）`
+    : trimmedInput;
+  const normalizedAttachments = inlineAttachments;
   if (!normalizedAttachments.length) {
-    return trimmedInput;
+    return inputWithImageNote;
   }
 
   const attachmentBlock = normalizedAttachments.map((attachment) => {
@@ -653,11 +732,11 @@ function buildUserInputWithAttachments(userInput: string, attachments?: VoidConv
     ].join("\n");
   }).join("\n\n---\n\n");
 
-  if (!trimmedInput) {
+  if (!inputWithImageNote) {
     return `以下是本轮附加文件内容，请结合文件内容回答：\n\n${attachmentBlock}`;
   }
 
-  return `${trimmedInput}\n\n以下是本轮附加文件内容，请结合文件内容回答：\n\n${attachmentBlock}`;
+  return `${inputWithImageNote}\n\n以下是本轮附加文件内容，请结合文件内容回答：\n\n${attachmentBlock}`;
 }
 
 function normalizeAttachments(attachments: VoidConversationAttachment[] | undefined) {
@@ -671,6 +750,7 @@ function normalizeAttachments(attachments: VoidConversationAttachment[] | undefi
       id: attachment.id,
       name: attachment.name.trim(),
       mimeType: attachment.mimeType.trim(),
-      content: attachment.content.trim()
+      content: attachment.content.trim(),
+      kind: attachment.kind
     }));
 }

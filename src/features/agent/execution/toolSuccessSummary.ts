@@ -83,7 +83,10 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
   if (toolName === "software.downloadInstaller" && typeof record.finalPath === "string") {
     const fileName = typeof record.fileName === "string" ? record.fileName : "";
     const bytes = record.bytes ?? "?";
-    return `${toolName} 完成：${fileName || record.finalPath}（${String(bytes)} bytes）→ ${record.finalPath}`;
+    const signature =
+      typeof record.signatureStatus === "string" ? record.signatureStatus : "";
+    const signaturePart = signature ? `，签名 ${signature}` : "";
+    return `${toolName} 完成：${fileName || record.finalPath}（${String(bytes)} bytes${signaturePart}）→ ${record.finalPath}`;
   }
 
   if (toolName === "file.verify") {

@@ -159,6 +159,8 @@ export function inspectToolResultForOpenEvidence(
     toolName === "file.placeDownload"
     || toolName === "file.verify"
     || toolName === "file.downloadMediaPage"
+    // 官方安装包：downloadInstaller 成功即已校验落盘，算下载完成证据
+    || toolName === "software.downloadInstaller"
   ) {
     return {
       didReveal: false,
@@ -167,7 +169,11 @@ export function inspectToolResultForOpenEvidence(
       didCompleteDownload: true,
       didPageClick: false,
       didLongPress: false,
-      url
+      // 安装包优先用 finalPath 当可核对线索（无页面 URL 时）
+      url:
+        toolName === "software.downloadInstaller" && typeof data.finalPath === "string"
+          ? data.finalPath
+          : url
     };
   }
 

@@ -816,8 +816,7 @@ body {
   line-height: 1.45;
 }
 
-.model-settings-modal__field input,
-.model-settings-modal__field select {
+.model-settings-modal__field input {
   width: 100%;
   min-width: 0;
   height: 40px;
@@ -832,25 +831,139 @@ body {
   transition: border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.model-settings-modal__field input:focus,
-.model-settings-modal__field select:focus {
+.model-settings-modal__field input:focus {
   border-color: rgba(255, 255, 255, 0.55);
   background: rgba(255, 255, 255, 0.05);
 }
 
-.model-settings-modal__field select {
-  appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, rgba(161, 161, 170, 0.9) 50%),
-    linear-gradient(135deg, rgba(161, 161, 170, 0.9) 50%, transparent 50%);
-  background-position:
-    calc(100% - 16px) calc(50% - 2px),
-    calc(100% - 11px) calc(50% - 2px);
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  padding-right: 28px;
+/* 自定义深色下拉：触发器与弹窗输入框同风格，菜单与卡片同色系 */
+.dark-select {
+  position: relative;
+  width: 100%;
+  min-width: 0;
 }
 
+.dark-select__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 0 12px;
+  outline: 0;
+  background: rgba(9, 9, 11, 0.55);
+  color: rgba(244, 244, 245, 0.94);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dark-select__trigger:hover,
+.dark-select.is-open .dark-select__trigger {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dark-select__trigger:focus-visible {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dark-select.is-disabled .dark-select__trigger {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.dark-select__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dark-select__value.is-placeholder {
+  color: rgba(113, 113, 122, 0.95);
+}
+
+.dark-select__chevron {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-right: 1.5px solid rgba(161, 161, 170, 0.95);
+  border-bottom: 1.5px solid rgba(161, 161, 170, 0.95);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.dark-select.is-open .dark-select__chevron {
+  transform: rotate(225deg) translateY(-1px);
+  border-color: #fff;
+}
+
+.dark-select__menu {
+  position: fixed;
+  z-index: 120;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(18, 18, 21, 0.98);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  backdrop-filter: blur(16px);
+}
+
+.dark-select__menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dark-select__menu::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.dark-select__option {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: transparent;
+  color: rgba(228, 228, 231, 0.96);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.dark-select__option:hover:not(:disabled),
+.dark-select__option:focus-visible:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  outline: 0;
+}
+
+.dark-select__option.is-selected {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.dark-select__option:disabled {
+  color: rgba(113, 113, 122, 0.9);
+  cursor: not-allowed;
+}
+
+/* 输入框内嵌短操作（如显示/隐藏密钥）：按钮绝对定位叠在右侧 */
 .model-settings-modal__input-with-action {
   position: relative;
 }
@@ -872,9 +985,49 @@ body {
   font: inherit;
   font-size: 11px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .model-settings-modal__input-action:hover {
+  color: #fff;
+}
+
+.model-settings-modal__input-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 下拉旁长操作（如「拉取模型列表」）：并排布局，避免遮挡 */
+.model-settings-modal__input-with-action--select {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.model-settings-modal__input-with-action--select .dark-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.model-settings-modal__input-with-action--select .model-settings-modal__input-action {
+  position: static;
+  top: auto;
+  right: auto;
+  transform: none;
+  flex: 0 0 auto;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  background: rgba(9, 9, 11, 0.55);
+  color: rgba(161, 161, 170, 0.95);
+  font-size: 12px;
+  transition: border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1), color 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.model-settings-modal__input-with-action--select .model-settings-modal__input-action:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.05);
   color: #fff;
 }
 

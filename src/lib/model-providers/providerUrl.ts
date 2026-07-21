@@ -28,9 +28,20 @@ export function buildProviderEndpointUrl(baseUrl: string, terminalPath: string) 
   return `${endpointBaseUrl}/${terminalPath.replace(/^\/+/, "")}`;
 }
 
-export function buildFetchTarget(endpointUrl: string, requestMode: ModelRequestMode) {
-  // Tauri 环境：模型转发由 sidecar 在回环端口提供，路径与开发代理一致（/void-model-proxy），
-  // 指向 sidecar 绝对地址；保留 development-proxy 模式以便直连兜底仍然可用。
+/**
+ * 解析模型请求的转发目标。
+ *
+ * 关键设计：请求走哪条链路是【运行环境属性】，不是用户偏好，因此只依据运行时事实判定，
+ * 绝不读取任何持久化配置（历史缺陷：requestMode 被持久化成 production-proxy 后，
+ * 在本地环境打到不存在的 /api/model，导致模型请求全灭、工具链瘫痪）。
+ *
+ * 判定顺序：
+ *   1) Tauri WebView → sidecar 回环地址上的 /void-model-proxy（打包/开发同路径）。
+ *   2) 非浏览器（Node 联调脚本）→ 无同源代理，直连目标 API。
+ *   3) 浏览器 + Vite dev → 同源 /void-model-proxy（vite 中间件转发）。
+ *   4) 浏览器 + 非 dev（未来 Web 部署）→ 同源 /api/model（服务端代理）。
+ */
+export function buildFetchTarget(endpointUrl: string) {
   if (isTauriRuntime()) {
     return {
       url: resolveBridgeHttpUrl(DEVELOPMENT_PROXY_PATH),
@@ -48,19 +59,8 @@ export function buildFetchTarget(endpointUrl: string, requestMode: ModelRequestM
     return {
       url: endpointUrl,
       directUrl: endpointUrl,
-      mode: requestMode,
+      mode: "development-proxy",
       headers
-    } satisfies ProviderFetchTarget;
-  }
-
-  if (requestMode === "production-proxy") {
-    return {
-      url: PRODUCTION_PROXY_PATH,
-      directUrl: endpointUrl,
-      mode: "production-proxy",
-      headers: {
-        "X-VOID-Target-URL": endpointUrl
-      }
     } satisfies ProviderFetchTarget;
   }
 

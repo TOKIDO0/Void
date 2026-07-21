@@ -159,6 +159,28 @@ export function buildToolConfirmationDescription(
       .join("\n");
   }
 
+  // 官方软件安装包：URL 由服务端 resolution 决定，模型不能改直链
+  if (toolName === "software.downloadInstaller") {
+    const resolutionId =
+      typeof record.resolutionId === "string" ? record.resolutionId : "";
+    const destinationDirectory =
+      typeof record.destinationDirectory === "string"
+        ? record.destinationDirectory
+        : "D:\\AI\\void-runtime\\downloads（默认）";
+    const overwritePolicy =
+      typeof record.overwritePolicy === "string" ? record.overwritePolicy : "rename";
+    return [
+      `将下载并校验官方软件安装包（风险 ${riskLevel}）。`,
+      resolutionId ? `解析凭证 resolutionId：${resolutionId}` : undefined,
+      `目标目录：${destinationDirectory}`,
+      `覆盖策略：${overwritePolicy}（refuse=已存在则失败 / rename=自动改名）`,
+      "来源地址由上一步 resolve 在服务端锁定，模型无法改成第三方链接。",
+      "确认后才会 HTTPS 下载并做魔数/SHA-256/Authenticode 校验；拒绝则不会下载。不会自动运行安装。"
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
   if (stepTitle) {
     return `即将执行步骤「${stepTitle}」（工具 ${toolName}，风险 ${riskLevel}）。请确认是否继续。`;
   }

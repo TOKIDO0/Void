@@ -1,10 +1,23 @@
-import { loadModelConfig } from "../settings/modelConfig";
 import type { VoiceRequestMode } from "./voiceProviderConfig";
 
 export type VoiceRuntimeConfig = {
   requestMode: VoiceRequestMode;
   doubaoSpeakerId: string;
 };
+
+/**
+ * 语音请求链路模式：与模型链路同理，属运行环境属性而非用户偏好。
+ * 仅按运行时事实（Vite dev 与否）判定，不读任何持久化配置。
+ * 真正的目标地址解析在 buildVoiceFetchTarget（Tauri/dev/prod 分流），此值只用于错误话术区分。
+ */
+function resolveVoiceRequestMode(): VoiceRequestMode {
+  const isViteDev = Boolean(
+    typeof import.meta !== "undefined"
+    && import.meta.env
+    && import.meta.env.DEV
+  );
+  return isViteDev ? "development-proxy" : "production-proxy";
+}
 
 const DOUBAO_SPEAKER_ID_STORAGE_KEY = "void.voice.doubaoSpeakerId";
 
@@ -27,7 +40,7 @@ export function loadVoiceRuntimeConfig(): VoiceRuntimeConfig {
   clearLegacyClientVoiceSecrets();
   const storedSpeakerId = window.localStorage.getItem(DOUBAO_SPEAKER_ID_STORAGE_KEY)?.trim() ?? "";
   return {
-    requestMode: loadModelConfig().requestMode,
+    requestMode: resolveVoiceRequestMode(),
     // 设置里可覆盖；空值回落到默认音色，保证托管 TTS 可直接发声。
     doubaoSpeakerId: storedSpeakerId || DEFAULT_DOUBAO_SPEAKER_ID
   };

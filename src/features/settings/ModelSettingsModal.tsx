@@ -9,13 +9,16 @@ import {
   findPresetByProvider,
   findPresetIdForModelConfig,
   loadModelConfig,
+  loadModelConfigForPreset,
   saveModelConfig,
   type LevelOption,
   type ModelConfig,
+  type ModelOption,
   type ModelProviderType,
-  type ModelRequestMode,
   type ModelStrength
 } from "./modelConfig";
+import { DarkSelect } from "./DarkSelect";
+import { fetchModelCatalog } from "./modelCatalogFetcher";
 import {
   SETTINGS_COPY,
   loadSettingsLanguage,
@@ -23,6 +26,9 @@ import {
   type SettingsLanguage
 } from "./settingsI18n";
 import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
+
+/** 单厂商模型列表拉取状态。 */
+type CatalogStatus = "idle" | "loading" | "error" | "ready";
 
 type ModelSettingsModalProps = {
   isOpen: boolean;
@@ -39,9 +45,20 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
   const [isAdvancedModelOpen, setIsAdvancedModelOpen] = useState(false);
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  // 自动拉取的模型列表（按 presetId 缓存），与内置列表合并展示。
+  const [fetchedModelsByPreset, setFetchedModelsByPreset] = useState<Record<string, ModelOption[]>>({});
+  const [catalogStatus, setCatalogStatus] = useState<CatalogStatus>("idle");
+  const [catalogMessage, setCatalogMessage] = useState("");
 
   const copy = SETTINGS_COPY[language];
-  const modelOptions = useMemo(() => getModelOptionsForPreset(selectedPresetId), [selectedPresetId]);
+  // 优先展示自动拉取的模型；拉取失败或未拉取时回退内置列表，保证下拉框不空白。
+  const modelOptions = useMemo(() => {
+    const fetched = fetchedModelsByPreset[selectedPresetId];
+    if (fetched && fetched.length) {
+      return fetched;
+    }
+    return getModelOptionsForPreset(selectedPresetId);
+  }, [fetchedModelsByPreset, selectedPresetId]);
   const availableStrengths = useMemo(() => MODEL_STRENGTH_ORDER, []);
 
   useEffect(() => {
@@ -105,52 +122,44 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     };
   };
 
-  const applyPreset = (presetId: string) => {
+  // 切换厂商时恢复该厂商上次保存的仓位（baseUrl / API Key / 模型），
+  // 其它厂商的配置原样保留，切来切去互不覆盖。
+  const switchToPreset = (presetId: string) => {
     const preset = findModelPresetById(presetId);
     if (!preset) {
       return;
     }
 
-    const nextModelOptions = getModelOptionsForPreset(preset.id);
+    const restoredConfig = loadModelConfigForPreset(preset.id);
+    const restoredModelOptions = resolveModelOptions(preset.id, fetchedModelsByPreset);
     markDirty();
     setSelectedPresetId(preset.id);
-    setIsAdvancedModelOpen(false);
+    setIsAdvancedModelOpen(
+      !restoredModelOptions.some((option) => option.modelName === restoredConfig.modelName)
+    );
+    // 保留全局生成参数（temperature / maxOutput / thinking），仅切换厂商相关字段。
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
-      presetId: preset.id,
-      provider: preset.provider,
-      baseUrl: preset.baseUrl,
-      modelName: preset.modelName,
-      modelStrength:
-        nextModelOptions.find(
-          (option: { modelName: string; strength: ModelStrength }) => option.modelName === preset.modelName
-        )?.strength ?? currentConfig.modelStrength,
-      streamEnabled: preset.provider === "openai-compatible" && currentConfig.streamEnabled
+      provider: restoredConfig.provider,
+      presetId: restoredConfig.presetId,
+      apiKey: restoredConfig.apiKey,
+      baseUrl: restoredConfig.baseUrl,
+      modelName: restoredConfig.modelName,
+      modelStrength: restoredConfig.modelStrength,
+      streamEnabled: restoredConfig.provider === "openai-compatible" && currentConfig.streamEnabled
     }));
   };
 
-  const handleProviderChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextProvider = event.target.value as ModelProviderType;
-    const nextPreset = findDefaultPresetForProvider(nextProvider);
-    const nextPresetId = nextPreset?.id ?? "";
-    const nextModelOptions = getModelOptionsForPreset(nextPresetId);
-    const nextModelName = nextPreset?.modelName ?? "";
+  const applyPreset = (presetId: string) => {
+    switchToPreset(presetId);
+  };
 
-    markDirty();
-    setSelectedPresetId(nextPresetId);
-    setIsAdvancedModelOpen(false);
-    setDraftConfig((currentConfig) => ({
-      ...currentConfig,
-      provider: nextProvider,
-      presetId: nextPresetId,
-      baseUrl: nextPreset?.baseUrl ?? currentConfig.baseUrl,
-      modelName: nextModelName || currentConfig.modelName,
-      modelStrength:
-        nextModelOptions.find(
-          (option: { modelName: string; strength: ModelStrength }) => option.modelName === nextModelName
-        )?.strength ?? currentConfig.modelStrength,
-      streamEnabled: nextProvider === "openai-compatible" && currentConfig.streamEnabled
-    }));
+  const handleProviderChange = (nextProviderValue: string) => {
+    const nextProvider = nextProviderValue as ModelProviderType;
+    const nextPreset = findDefaultPresetForProvider(nextProvider);
+    if (nextPreset) {
+      switchToPreset(nextPreset.id);
+    }
   };
 
   const handleLanguageChange = (nextLanguage: SettingsLanguage) => {
@@ -158,8 +167,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     saveSettingsLanguage(nextLanguage);
   };
 
-  const handleModelOptionChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextModelName = event.target.value;
+  const handleModelOptionChange = (nextModelName: string) => {
     const matchedOption = modelOptions.find(
       (option: { modelName: string; strength: ModelStrength }) => option.modelName === nextModelName
     );
@@ -172,12 +180,45 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     }));
   };
 
-  const handleStrengthChange = (event: ChangeEvent<HTMLSelectElement>) => {
+  const handleStrengthChange = (nextStrength: string) => {
     markDirty();
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
-      modelStrength: event.target.value as ModelStrength
+      modelStrength: nextStrength as ModelStrength
     }));
+  };
+
+  // 向厂商拉取该 Key 可用的模型列表，成功则缓存到对应 preset 并展示在下拉框。
+  const refreshModelCatalog = async () => {
+    const presetId = selectedPresetId;
+    const { provider, baseUrl, apiKey } = draftConfig;
+    if (!baseUrl.trim() || !apiKey.trim()) {
+      return;
+    }
+
+    setCatalogStatus("loading");
+    setCatalogMessage("");
+    const result = await fetchModelCatalog(provider, baseUrl, apiKey);
+    if (result.ok) {
+      const options: ModelOption[] = result.models.map((model) => ({
+        label: model.label,
+        modelName: model.modelName,
+        strength: model.strength
+      }));
+      setFetchedModelsByPreset((current) => ({ ...current, [presetId]: options }));
+      setCatalogStatus("ready");
+      setCatalogMessage(copy.modelCatalogLoaded.replace("{count}", String(options.length)));
+    } else {
+      setCatalogStatus("error");
+      setCatalogMessage(`${result.message} ${copy.modelCatalogFallback}`);
+    }
+  };
+
+  // Base URL / API Key 失焦后，若两者齐备则自动拉取一次（避免逐字符打接口）。
+  const handleProviderFieldBlur = () => {
+    if (draftConfig.baseUrl.trim() && draftConfig.apiKey.trim()) {
+      void refreshModelCatalog();
+    }
   };
 
   const handleTemperatureLevelChange = (levelIndex: number) => {
@@ -211,14 +252,6 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     setDraftConfig((currentConfig) => ({
       ...currentConfig,
       streamEnabled: event.target.checked
-    }));
-  };
-
-  const handleRequestModeChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    markDirty();
-    setDraftConfig((currentConfig) => ({
-      ...currentConfig,
-      requestMode: event.target.value as ModelRequestMode
     }));
   };
 
@@ -312,26 +345,46 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
                 <div className="model-settings-modal__grid">
                   <label className="model-settings-modal__field">
                     <span>{copy.provider}</span>
-                    <select value={draftConfig.provider} onChange={handleProviderChange}>
-                      <option value="openai-compatible">OpenAI-compatible</option>
-                      <option value="anthropic">Anthropic</option>
-                    </select>
+                    <DarkSelect
+                      aria-label={copy.provider}
+                      value={draftConfig.provider}
+                      onChange={handleProviderChange}
+                      options={[
+                        { value: "openai-compatible", label: "OpenAI-compatible" },
+                        { value: "anthropic", label: "Anthropic" }
+                      ]}
+                    />
                   </label>
 
                   <label className="model-settings-modal__field">
                     <span>{copy.modelName}</span>
-                    <select value={modelSelectValue} onChange={handleModelOptionChange}>
-                      <option value="" disabled>
-                        {copy.modelName}
-                      </option>
-                      {modelOptions
-                        .filter((option: { modelName: string }) => option.modelName)
-                        .map((option: { modelName: string; label: string }) => (
-                          <option key={option.modelName} value={option.modelName}>
-                            {option.label}
-                          </option>
-                        ))}
-                    </select>
+                    <div className="model-settings-modal__input-with-action model-settings-modal__input-with-action--select">
+                      <DarkSelect
+                        aria-label={copy.modelName}
+                        value={modelSelectValue}
+                        placeholder={copy.modelName}
+                        onChange={handleModelOptionChange}
+                        options={modelOptions
+                          .filter((option: { modelName: string }) => option.modelName)
+                          .map((option: { modelName: string; label: string }) => ({
+                            value: option.modelName,
+                            label: option.label
+                          }))}
+                      />
+                      <button
+                        type="button"
+                        className="model-settings-modal__input-action"
+                        onClick={() => void refreshModelCatalog()}
+                        disabled={catalogStatus === "loading" || !draftConfig.baseUrl.trim() || !draftConfig.apiKey.trim()}
+                      >
+                        {copy.refreshModelCatalog}
+                      </button>
+                    </div>
+                    {catalogStatus !== "idle" ? (
+                      <small>
+                        {catalogStatus === "loading" ? copy.modelCatalogLoading : catalogMessage}
+                      </small>
+                    ) : null}
                   </label>
 
                   <label className="model-settings-modal__field">
@@ -343,6 +396,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
                         autoComplete="off"
                         placeholder={copy.apiKeyHint}
                         onChange={updateTextField("apiKey")}
+                        onBlur={handleProviderFieldBlur}
                       />
                       <button
                         type="button"
@@ -356,18 +410,14 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
 
                   <label className="model-settings-modal__field">
                     <span>{copy.baseUrl}</span>
-                    <input type="url" value={draftConfig.baseUrl} onChange={updateTextField("baseUrl")} />
+                    <input
+                      type="url"
+                      value={draftConfig.baseUrl}
+                      onChange={updateTextField("baseUrl")}
+                      onBlur={handleProviderFieldBlur}
+                    />
                   </label>
                 </div>
-
-                <label className="model-settings-modal__field">
-                  <span>{copy.requestMode}</span>
-                  <select value={draftConfig.requestMode} onChange={handleRequestModeChange}>
-                    <option value="development-proxy">{copy.requestModeDevelopment}</option>
-                    <option value="production-proxy">{copy.requestModeProduction}</option>
-                  </select>
-                  <small>{copy.requestModeHint}</small>
-                </label>
 
                 <div className="model-settings-modal__advanced-model">
                   <button
@@ -399,13 +449,15 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
               <div className="model-settings-modal__card">
                 <label className="model-settings-modal__field">
                   <span>{copy.modelStrength}</span>
-                  <select value={selectedStrength} onChange={handleStrengthChange}>
-                    {availableStrengths.map((strength) => (
-                      <option key={strength} value={strength}>
-                        {MODEL_STRENGTH_LABELS[strength]}
-                      </option>
-                    ))}
-                  </select>
+                  <DarkSelect
+                    aria-label={copy.modelStrength}
+                    value={selectedStrength}
+                    onChange={handleStrengthChange}
+                    options={availableStrengths.map((strength) => ({
+                      value: strength,
+                      label: MODEL_STRENGTH_LABELS[strength]
+                    }))}
+                  />
                 </label>
 
                 <LevelSlider
@@ -556,6 +608,15 @@ function LevelSlider({
 
 function findPresetId(config: ModelConfig) {
   return findPresetIdForModelConfig(config);
+}
+
+/** 取某 preset 的展示模型列表：优先自动拉取缓存，否则内置列表。 */
+function resolveModelOptions(presetId: string, fetchedByPreset: Record<string, ModelOption[]>): ModelOption[] {
+  const fetched = fetchedByPreset[presetId];
+  if (fetched && fetched.length) {
+    return fetched;
+  }
+  return getModelOptionsForPreset(presetId);
 }
 
 function findDefaultPresetForProvider(provider: ModelProviderType) {

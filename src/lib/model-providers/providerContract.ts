@@ -3,6 +3,15 @@ import type { ModelConfig } from "../../features/settings/modelConfig";
 export type ProviderRole = "system" | "user" | "assistant" | "tool";
 
 /**
+ * 多模态内容分块。user 消息含图片/文档时用 ContentPart[]，纯文本仍用 string。
+ * base64 不含 data: 前缀，序列化时各 provider 自行拼装。
+ */
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; mediaType: string; dataBase64: string }
+  | { type: "document"; mediaType: string; dataBase64: string; name?: string };
+
+/**
  * OpenAI-compatible 函数工具定义（模型可见部分）。
  */
 export type ProviderToolDefinition = {
@@ -33,7 +42,8 @@ export type ProviderToolCall = {
  */
 export type ProviderMessage = {
   role: ProviderRole;
-  content: string | null;
+  /** 纯文本用 string；含图片/文档的 user 消息用 ContentPart[]；无内容为 null。 */
+  content: string | ContentPart[] | null;
   tool_calls?: ProviderToolCall[];
   tool_call_id?: string;
   name?: string;

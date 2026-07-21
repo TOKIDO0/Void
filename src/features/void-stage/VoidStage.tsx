@@ -13,6 +13,7 @@ import {
   type VoidConversationMessage
 } from "../agent/voidConversation";
 import { stripStageDirections } from "../agent/responseTextDisplay";
+import { parseLocalUiCommand, type LocalUiCommand } from "../agent/localCommands/localUiCommandParser";
 import type { ConfirmationDecision, ConfirmationRequest } from "../agent/permissions";
 import { parseVoiceConfirmationIntent } from "../agent/permissions";
 import { AgentConfirmBar } from "../agent/ui/AgentConfirmBar";
@@ -950,10 +951,79 @@ export function VoidStage() {
     }
   }, [stopVoicePlayback, updateVoicePreferences, voicePreferences]);
 
+  // 本地 UI 指令执行器：命中纯控制指令时直接操作 UI 并给一句简短反馈，不进模型对话。
+  // 返回 true 表示已消费该输入（短路对话）；thinking 非独立句时切换后仍继续对话。
+  const tryExecuteLocalUiCommand = useCallback((command: LocalUiCommand): boolean => {
+    const acknowledge = (text: string) => {
+      showResponseLayer({
+        text,
+        tone: "quiet",
+        source: "text",
+        pulseKey: "local-ui-command"
+      });
+      scheduleResponseLayerHide();
+    };
+
+    if (command.kind === "modal") {
+      if (command.target === "settings") {
+        setIsModelSettingsOpen(command.open);
+      } else if (command.target === "memory") {
+        setIsMemoryPanelOpen(command.open);
+      } else if (command.open) {
+        openExpandedResponse();
+        if (!conversationHistoryRef.current.length) {
+          acknowledge("还没有历史记录，先聊几句再看吧。");
+          return true;
+        }
+      } else {
+        closeExpandedResponse();
+      }
+      return true;
+    }
+
+    if (command.kind === "voiceInput") {
+      updateVoicePreferences({
+        ...voicePreferences,
+        voiceInputEnabled: command.enable
+      });
+      // 关麦后 STT 停止，语音无法再下指令——必须明确告知只剩打字。
+      acknowledge(command.enable ? "麦克风已打开，我在听。" : "麦克风已关闭，之后请用文字跟我交流。");
+      return true;
+    }
+
+    if (command.kind === "voiceOutput") {
+      updateVoicePreferences({
+        ...voicePreferences,
+        voiceOutputEnabled: command.enable
+      });
+      if (!command.enable) {
+        stopVoicePlayback();
+      }
+      acknowledge(command.enable ? "语音播报已打开。" : "语音播报已关闭。");
+      return true;
+    }
+
+    // thinking：独立句是纯控制指令；带要求的句子只切换模式，继续走对话。
+    handleThinkingModeChange(command.enable);
+    if (command.standalone) {
+      acknowledge(command.enable ? "深度思考模式已开启。" : "深度思考模式已关闭。");
+      return true;
+    }
+    return false;
+  }, [closeExpandedResponse, handleThinkingModeChange, openExpandedResponse, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, updateVoicePreferences, voicePreferences]);
+
   const handleTextMessage = useCallback(async (message: string, attachments: VoidConversationAttachment[]) => {
     // 确认门挂起时，短指令「好/取消」优先结算，不新开对话。
     if (attachments.length === 0 && trySettlePendingConfirmationByUtterance(message)) {
       return;
+    }
+
+    // 本地 UI 指令（打开设置/历史/记忆、开关麦克风/语音/思考模式）先于对话链路识别。
+    if (attachments.length === 0) {
+      const localCommand = parseLocalUiCommand(message);
+      if (localCommand && tryExecuteLocalUiCommand(localCommand)) {
+        return;
+      }
     }
 
     const previousHistory = conversationHistoryRef.current;
@@ -1028,7 +1098,7 @@ export function VoidStage() {
       }
       failTextResponse(error, "error", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [beginExchange, captureAgentRelationshipMemory, captureEmotionTrendMemory, captureMemoryFromUserMessage, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled, trySettlePendingConfirmationByUtterance]);
+  }, [beginExchange, captureAgentRelationshipMemory, captureEmotionTrendMemory, captureMemoryFromUserMessage, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled, tryExecuteLocalUiCommand, trySettlePendingConfirmationByUtterance]);
 
   const handleRegenerateLatestUserMessage = useCallback(async (messageIndex: number, content: string) => {
     const currentHistory = conversationHistoryRef.current;

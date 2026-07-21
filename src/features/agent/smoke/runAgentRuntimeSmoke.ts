@@ -503,8 +503,7 @@ async function runModelFailureProbe(): Promise<SmokeResult> {
         thinkingModeEnabled: false,
         temperature: 0,
         maxOutputTokens: 32,
-        streamEnabled: false,
-        requestMode: "development-proxy"
+        streamEnabled: false
       }
     });
     return { ok: false, failures: ["模型异常不应返回成功"], notes: [] };
@@ -546,8 +545,7 @@ async function runSameToolStreakCloseProbe(): Promise<SmokeResult> {
       thinkingModeEnabled: false,
       temperature: 0,
       maxOutputTokens: 256,
-      streamEnabled: false,
-      requestMode: "development-proxy"
+      streamEnabled: false
     };
 
     const loopResult = await runAgentToolLoop({

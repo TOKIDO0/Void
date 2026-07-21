@@ -1,5 +1,6 @@
 import type {
   ModelProvider,
+  ProviderMessage,
   ProviderRequest,
   ProviderResponse,
   ProviderToolCall,
@@ -67,7 +68,7 @@ export const openAiCompatibleProvider: ModelProvider = {
     }
 
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
-    const fetchTarget = buildFetchTarget(endpointUrl, config.requestMode);
+    const fetchTarget = buildFetchTarget(endpointUrl);
     logOpenAiCompatibleRequest("send", endpointUrl, config);
     const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
@@ -103,7 +104,7 @@ export const openAiCompatibleProvider: ModelProvider = {
     }
 
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
-    const fetchTarget = buildFetchTarget(endpointUrl, config.requestMode);
+    const fetchTarget = buildFetchTarget(endpointUrl);
     logOpenAiCompatibleRequest("stream", endpointUrl, config);
     const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
@@ -171,7 +172,7 @@ function buildOpenAiCompatibleBody(
 ) {
   const body: Record<string, unknown> = {
     model: config.modelName,
-    messages: request.messages,
+    messages: request.messages.map(serializeOpenAiCompatibleMessage),
     temperature: normalizeOpenAiCompatibleTemperature(config.temperature),
     max_tokens: config.maxOutputTokens,
     ...buildOpenAiCompatibleReasoningOptions(config),
@@ -184,6 +185,32 @@ function buildOpenAiCompatibleBody(
   }
 
   return body;
+}
+
+/**
+ * 多模态消息序列化为 OpenAI 兼容格式：
+ *   text → { type:"text", text }；image → { type:"image_url", image_url:{ url: dataURL } }。
+ * document 块在该协议无原生支持，能力判定层应已在上游降级为 text，此处兜底转为文件名占位说明。
+ */
+function serializeOpenAiCompatibleMessage(message: ProviderMessage) {
+  if (!Array.isArray(message.content)) {
+    return message;
+  }
+
+  const content = message.content.map((part) => {
+    if (part.type === "text") {
+      return { type: "text", text: part.text };
+    }
+    if (part.type === "image") {
+      return {
+        type: "image_url",
+        image_url: { url: `data:${part.mediaType};base64,${part.dataBase64}` }
+      };
+    }
+    return { type: "text", text: `[附件文档：${part.name ?? "未命名"}，当前模型不支持直接读取该格式]` };
+  });
+
+  return { ...message, content };
 }
 
 function normalizeToolCalls(
@@ -319,7 +346,6 @@ function logOpenAiCompatibleRequest(mode: "send" | "stream", endpointUrl: string
     endpointUrl,
     modelName: config.modelName,
     provider: config.provider,
-    requestMode: config.requestMode,
     apiKeyLength: normalizedApiKey.length,
     apiKeyLooksLikeArkSecret: normalizedApiKey.startsWith("V"),
     apiKeyLooksLikeArkId: normalizedApiKey.startsWith("ee"),

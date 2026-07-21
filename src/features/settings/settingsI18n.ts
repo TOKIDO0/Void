@@ -20,15 +20,15 @@ type SettingsCopy = {
   customModelNameHint: string;
   advancedModel: string;
   advancedModelHint: string;
+  refreshModelCatalog: string;
+  modelCatalogLoading: string;
+  modelCatalogLoaded: string;
+  modelCatalogFallback: string;
   modelStrength: string;
   temperature: string;
   temperatureHint: string;
   maxOutput: string;
   maxOutputHint: string;
-  requestMode: string;
-  requestModeHint: string;
-  requestModeDevelopment: string;
-  requestModeProduction: string;
   streamOutput: string;
   streamOutputHint: string;
   sectionProvider: string;
@@ -61,6 +61,16 @@ type SettingsCopy = {
   cancel: string;
   save: string;
   closeSettings: string;
+  menuThinkingOn: string;
+  menuThinkingOff: string;
+  menuVoiceInputOn: string;
+  menuVoiceInputOff: string;
+  menuVoiceOutputOn: string;
+  menuVoiceOutputOff: string;
+  menuUploadFile: string;
+  menuHistory: string;
+  menuMemory: string;
+  menuSettings: string;
 };
 
 export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
@@ -82,15 +92,15 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     customModelNameHint: "例如 glm-5.2、doubao-1-5-lite-32k，或豆包 Ark Endpoint ID",
     advancedModel: "高级模型入口",
     advancedModelHint: "仅在使用中转站、私有 Endpoint 或下拉列表里没有目标模型时填写。",
+    refreshModelCatalog: "拉取模型列表",
+    modelCatalogLoading: "正在拉取该 Key 可用的模型…",
+    modelCatalogLoaded: "已按最新排列 {count} 个模型",
+    modelCatalogFallback: "已回退到内置模型列表。",
     modelStrength: "模型强度",
     temperature: "回应风格",
     temperatureHint: "控制回复的稳定程度和发散程度",
     maxOutput: "输出规模",
     maxOutputHint: "控制单次回复可生成的内容量",
-    requestMode: "请求链路",
-    requestModeHint: "开发环境使用本地代理；生产环境必须使用正式代理，避免浏览器暴露第三方密钥。",
-    requestModeDevelopment: "开发代理",
-    requestModeProduction: "正式代理",
     streamOutput: "流式输出",
     streamOutputHint: "开启后不会等整段回复写完才显示，而是模型生成一点就显示一点。",
     sectionProvider: "01 / 服务商配置",
@@ -122,7 +132,17 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     minimaxGroupIdHint: "如果你的 MiniMax TTS 调用需要 Group ID，请填在这里；没有则可留空。",
     cancel: "取消",
     save: "保存配置",
-    closeSettings: "关闭设置"
+    closeSettings: "关闭设置",
+    menuThinkingOn: "深度思考已开启",
+    menuThinkingOff: "深度思考已关闭",
+    menuVoiceInputOn: "语音输入已开启",
+    menuVoiceInputOff: "语音输入已关闭",
+    menuVoiceOutputOn: "语音播报已开启",
+    menuVoiceOutputOff: "语音播报已关闭",
+    menuUploadFile: "上传文件",
+    menuHistory: "历史记录",
+    menuMemory: "记忆面板",
+    menuSettings: "设置"
   },
   "en-US": {
     settings: "Settings",
@@ -142,15 +162,15 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     customModelNameHint: "For example glm-5.2, doubao-1-5-lite-32k, or a Doubao Ark endpoint ID",
     advancedModel: "Advanced model",
     advancedModelHint: "Use this only for relays, private endpoints, or models missing from the list.",
+    refreshModelCatalog: "Fetch model list",
+    modelCatalogLoading: "Fetching models available to this key…",
+    modelCatalogLoaded: "Listed {count} models, newest first",
+    modelCatalogFallback: "Fell back to the built-in model list.",
     modelStrength: "Model strength",
     temperature: "Response style",
     temperatureHint: "Controls how stable or exploratory the response feels",
     maxOutput: "Output scale",
     maxOutputHint: "Controls how much content a single response can generate",
-    requestMode: "Request route",
-    requestModeHint: "Development uses a local proxy. Production must use a formal server-side proxy so browser clients do not expose third-party API keys.",
-    requestModeDevelopment: "Development proxy",
-    requestModeProduction: "Formal proxy",
     streamOutput: "Stream output",
     streamOutputHint: "When enabled, the reply appears piece by piece while the model is still generating.",
     sectionProvider: "01 / Provider",
@@ -182,7 +202,17 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     minimaxGroupIdHint: "Fill this only if your MiniMax TTS account requires a Group ID.",
     cancel: "Cancel",
     save: "Save settings",
-    closeSettings: "Close settings"
+    closeSettings: "Close settings",
+    menuThinkingOn: "Thinking on",
+    menuThinkingOff: "Thinking off",
+    menuVoiceInputOn: "Voice input on",
+    menuVoiceInputOff: "Voice input off",
+    menuVoiceOutputOn: "Voice output on",
+    menuVoiceOutputOff: "Voice output off",
+    menuUploadFile: "Upload file",
+    menuHistory: "History",
+    menuMemory: "Memory",
+    menuSettings: "Settings"
   }
 };
 
@@ -191,8 +221,12 @@ export function loadSettingsLanguage(): SettingsLanguage {
   return isSettingsLanguage(storedLanguage) ? storedLanguage : "zh-CN";
 }
 
+/** 语言变更事件：设置面板切换语言后，选项栏等同页组件据此实时刷新文案。 */
+export const SETTINGS_LANGUAGE_CHANGE_EVENT = "void:settings-language-changed";
+
 export function saveSettingsLanguage(language: SettingsLanguage) {
   window.localStorage.setItem(SETTINGS_LANGUAGE_STORAGE_KEY, language);
+  window.dispatchEvent(new CustomEvent(SETTINGS_LANGUAGE_CHANGE_EVENT, { detail: language }));
 }
 
 function isSettingsLanguage(value: unknown): value is SettingsLanguage {

@@ -76,12 +76,14 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
 
   const requestBody = await readRequestBody(request);
   const forwardedHeaders = buildForwardedHeaders(request.headers);
+  const method = request.method ?? "GET";
 
   try {
     const proxyResponse = await fetch(parsedTargetUrl, {
-      method: request.method,
+      method,
       headers: forwardedHeaders,
-      body: requestBody
+      // GET/HEAD 不允许携带 body（undici 会直接抛错）；模型列表拉取即 GET。
+      body: method === "GET" || method === "HEAD" ? undefined : requestBody
     });
 
     response.statusCode = proxyResponse.status;

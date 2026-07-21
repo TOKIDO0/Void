@@ -1,5 +1,6 @@
 import { isSoftwareInstallerIntent } from "../software/softwareDownloadIntent";
 import type { VoidConversationMessage } from "../voidConversation";
+import { isResearchIntent } from "./researchIntent";
 
 export type TurnCapability =
   | "conversation"
@@ -191,6 +192,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
     return createRoute("file", FILE_TOOL_NAMES);
   }
   if (BROWSER_PATTERN.test(userInput)) {
+    return createRoute("browser", BROWSER_TOOL_NAMES);
+  }
+  // 阶段 F：信息检索/搜集类意图需要 search/extract 拿真实来源，不能当纯闲聊。
+  if (isResearchIntent(userInput)) {
     return createRoute("browser", BROWSER_TOOL_NAMES);
   }
   return createRoute("conversation", []);

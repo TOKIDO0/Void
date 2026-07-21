@@ -50,9 +50,10 @@ export const anthropicProvider: ModelProvider = {
       throw new Error(validation.message);
     }
 
-    const systemPrompt = request.messages.find((message) => message.role === "system")?.content;
+    const systemMessage = request.messages.find((message) => message.role === "system");
+    const systemPrompt = typeof systemMessage?.content === "string" ? systemMessage.content : null;
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "messages");
-    const fetchTarget = buildFetchTarget(endpointUrl, config.requestMode);
+    const fetchTarget = buildFetchTarget(endpointUrl);
     const requestBody = buildAnthropicRequestBody(request, config, systemPrompt);
     const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
@@ -104,13 +105,41 @@ export const anthropicProvider: ModelProvider = {
 };
 
 function buildAnthropicMessages(messages: ProviderMessage[]) {
-  // Anthropic 路径暂不支持 tool 角色；只保留 user/assistant 文本
+  // Anthropic 路径暂不支持 tool 角色；保留 user/assistant，多模态块按官方格式序列化
   return messages
     .filter((message) => message.role === "user" || message.role === "assistant")
     .map((message) => ({
       role: message.role === "assistant" ? "assistant" : "user",
-      content: message.content ?? ""
+      content: serializeAnthropicContent(message.content)
     }));
+}
+
+/**
+ * 多模态内容序列化为 Anthropic 官方块格式：
+ *   image → { type:"image", source:{ type:"base64", media_type, data } }
+ *   document(PDF) → { type:"document", source:{ type:"base64", media_type:"application/pdf", data } }
+ */
+function serializeAnthropicContent(content: ProviderMessage["content"]) {
+  if (!Array.isArray(content)) {
+    return content ?? "";
+  }
+
+  return content.map((part) => {
+    if (part.type === "text") {
+      return { type: "text", text: part.text };
+    }
+    if (part.type === "image") {
+      return {
+        type: "image",
+        source: { type: "base64", media_type: part.mediaType, data: part.dataBase64 }
+      };
+    }
+    return {
+      type: "document",
+      source: { type: "base64", media_type: part.mediaType, data: part.dataBase64 },
+      ...(part.name ? { title: part.name } : {})
+    };
+  });
 }
 
 function buildAnthropicRequestBody(request: ProviderRequest, config: ModelConfig, systemPrompt?: string | null) {

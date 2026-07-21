@@ -17,7 +17,6 @@ export type ModelConfig = {
   temperature: number;
   maxOutputTokens: number;
   streamEnabled: boolean;
-  requestMode: ModelRequestMode;
 };
 
 export type ModelPreset = {
@@ -39,10 +38,40 @@ export type LevelOption = {
   value: number;
 };
 
-type StoredModelConfig = Omit<ModelConfig, "apiKey">;
+/** 与厂商无关的全局生成参数。 */
+type GenerationConfig = {
+  thinkingModeEnabled: boolean;
+  temperature: number;
+  maxOutputTokens: number;
+  streamEnabled: boolean;
+};
+
+/** 单个厂商（preset）独立保存的模型选择，切换厂商时互不覆盖。 */
+type ProviderSlot = {
+  baseUrl: string;
+  modelName: string;
+  modelStrength: ModelStrength;
+};
+
+/** V2 分仓存储：全局选择 + 每厂商一份配置 + 全局生成参数。 */
+type StoredModelConfigV2 = {
+  version: 2;
+  activePresetId: string;
+  slots: Record<string, ProviderSlot>;
+  generation: GenerationConfig;
+};
+
+/** V1 旧扁平存储（迁移用）。 */
+type StoredModelConfigV1 = Partial<Omit<ModelConfig, "apiKey">>;
 
 const MODEL_CONFIG_STORAGE_KEY = "void.modelConfig";
-const MODEL_API_KEY_STORAGE_KEY = "void.modelApiKey";
+/** 旧版单一 API Key（迁移后清理）。 */
+const LEGACY_MODEL_API_KEY_STORAGE_KEY = "void.modelApiKey";
+
+/** 每厂商独立的 API Key secret 键名。 */
+function providerApiKeyStorageKey(presetId: string) {
+  return `void.modelApiKey.${presetId}`;
+}
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   provider: "openai-compatible",
@@ -54,8 +83,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   thinkingModeEnabled: false,
   temperature: 0.7,
   maxOutputTokens: 2000,
-  streamEnabled: false,
-  requestMode: "development-proxy"
+  streamEnabled: false
 };
 
 export const MODEL_PRESETS: ModelPreset[] = [
@@ -160,67 +188,178 @@ export const MAX_OUTPUT_LEVELS: readonly LevelOption[] = [
 ];
 
 export function loadModelConfig(): ModelConfig {
-  const rawConfig = window.localStorage.getItem(MODEL_CONFIG_STORAGE_KEY);
-  const persistedApiKey = getSecret(MODEL_API_KEY_STORAGE_KEY);
-
-  if (!rawConfig) {
-    return {
-      ...DEFAULT_MODEL_CONFIG,
-      apiKey: persistedApiKey,
-      requestMode: resolveDefaultRequestMode()
-    };
-  }
-
-  try {
-    const parsedConfig = JSON.parse(rawConfig) as Partial<StoredModelConfig>;
-    const provider = isModelProviderType(parsedConfig.provider)
-      ? parsedConfig.provider
-      : DEFAULT_MODEL_CONFIG.provider;
-    const presetId = normalizePresetId(parsedConfig.presetId, provider);
-    const modelName = typeof parsedConfig.modelName === "string" && parsedConfig.modelName.trim()
-      ? parsedConfig.modelName.trim()
-      : getDefaultPresetForProvider(provider)?.modelName ?? DEFAULT_MODEL_CONFIG.modelName;
-
-    return {
-      provider,
-      presetId,
-      apiKey: persistedApiKey,
-      baseUrl: normalizeBaseUrl(parsedConfig.baseUrl, provider),
-      modelName,
-      modelStrength: normalizeModelStrength(parsedConfig.modelStrength),
-      thinkingModeEnabled: Boolean(parsedConfig.thinkingModeEnabled),
-      temperature: normalizeTemperature(parsedConfig.temperature),
-      maxOutputTokens: normalizeMaxOutputTokens(parsedConfig.maxOutputTokens),
-      streamEnabled: provider === "openai-compatible" && Boolean(parsedConfig.streamEnabled),
-      requestMode: normalizeRequestMode(parsedConfig.requestMode)
-    };
-  } catch {
-    return {
-      ...DEFAULT_MODEL_CONFIG,
-      apiKey: persistedApiKey,
-      requestMode: resolveDefaultRequestMode()
-    };
-  }
+  const store = readStore();
+  return composeModelConfig(store, store.activePresetId);
 }
 
 export function saveModelConfig(modelConfig: ModelConfig) {
   const provider = modelConfig.provider;
-  const normalizedPresetId = normalizePresetId(modelConfig.presetId, provider);
-  const storedConfig: StoredModelConfig = {
-    provider,
-    presetId: normalizedPresetId,
+  const presetId = normalizePresetId(modelConfig.presetId, provider);
+  const store = readStore();
+
+  // 只写入当前 preset 自己的仓位，其它厂商的 baseUrl/模型/Key 原样保留。
+  store.activePresetId = presetId;
+  store.slots[presetId] = {
     baseUrl: normalizeBaseUrl(modelConfig.baseUrl, provider),
-    modelName: modelConfig.modelName.trim(),
-    modelStrength: normalizeModelStrength(modelConfig.modelStrength),
+    modelName: modelConfig.modelName.trim() || fallbackModelName(provider),
+    modelStrength: normalizeModelStrength(modelConfig.modelStrength)
+  };
+  store.generation = {
     thinkingModeEnabled: Boolean(modelConfig.thinkingModeEnabled),
     temperature: normalizeTemperature(modelConfig.temperature),
     maxOutputTokens: normalizeMaxOutputTokens(modelConfig.maxOutputTokens),
-    streamEnabled: provider === "openai-compatible" && modelConfig.streamEnabled,
-    requestMode: normalizeRequestMode(modelConfig.requestMode)
+    streamEnabled: provider === "openai-compatible" && modelConfig.streamEnabled
   };
 
-  window.localStorage.setItem(MODEL_CONFIG_STORAGE_KEY, JSON.stringify(storedConfig));
-  setSecret(MODEL_API_KEY_STORAGE_KEY, modelConfig.apiKey);
+  writeStore(store);
+  setSecret(providerApiKeyStorageKey(presetId), modelConfig.apiKey);
+}
+
+/** 由分仓存储 + 指定 presetId 组装出上层使用的扁平 ModelConfig。 */
+function composeModelConfig(store: StoredModelConfigV2, presetId: string): ModelConfig {
+  const normalizedPresetId = normalizePresetId(presetId, providerOfPreset(presetId));
+  const provider = providerOfPreset(normalizedPresetId);
+  const slot = store.slots[normalizedPresetId] ?? defaultSlotForPreset(normalizedPresetId);
+  const apiKey = getSecret(providerApiKeyStorageKey(normalizedPresetId));
+
+  return {
+    provider,
+    presetId: normalizedPresetId,
+    apiKey,
+    baseUrl: normalizeBaseUrl(slot.baseUrl, provider),
+    modelName: slot.modelName.trim() || fallbackModelName(provider),
+    modelStrength: normalizeModelStrength(slot.modelStrength),
+    thinkingModeEnabled: store.generation.thinkingModeEnabled,
+    temperature: store.generation.temperature,
+    maxOutputTokens: store.generation.maxOutputTokens,
+    streamEnabled: provider === "openai-compatible" && store.generation.streamEnabled
+  };
+}
+
+/** 读取分仓存储；无存储或旧版则迁移/初始化，且顺带清理已废弃字段。 */
+function readStore(): StoredModelConfigV2 {
+  const rawConfig = window.localStorage.getItem(MODEL_CONFIG_STORAGE_KEY);
+  if (!rawConfig) {
+    return createDefaultStore();
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawConfig);
+  } catch {
+    return createDefaultStore();
+  }
+
+  if (isStoredModelConfigV2(parsed)) {
+    return normalizeStore(parsed);
+  }
+
+  // V1 → V2 迁移：旧扁平配置塞进对应 preset 仓位，旧单一 Key 迁到该 preset 的 Key 键。
+  return migrateFromV1(parsed as StoredModelConfigV1);
+}
+
+function writeStore(store: StoredModelConfigV2) {
+  window.localStorage.setItem(MODEL_CONFIG_STORAGE_KEY, JSON.stringify(store));
+}
+
+function createDefaultStore(): StoredModelConfigV2 {
+  return {
+    version: 2,
+    activePresetId: DEFAULT_MODEL_CONFIG.presetId,
+    slots: {},
+    generation: {
+      thinkingModeEnabled: DEFAULT_MODEL_CONFIG.thinkingModeEnabled,
+      temperature: DEFAULT_MODEL_CONFIG.temperature,
+      maxOutputTokens: DEFAULT_MODEL_CONFIG.maxOutputTokens,
+      streamEnabled: DEFAULT_MODEL_CONFIG.streamEnabled
+    }
+  };
+}
+
+function migrateFromV1(v1: StoredModelConfigV1): StoredModelConfigV2 {
+  const provider = isModelProviderType(v1.provider) ? v1.provider : DEFAULT_MODEL_CONFIG.provider;
+  const presetId = normalizePresetId(v1.presetId, provider);
+  const store = createDefaultStore();
+
+  store.activePresetId = presetId;
+  store.slots[presetId] = {
+    baseUrl: normalizeBaseUrl(v1.baseUrl, provider),
+    modelName: typeof v1.modelName === "string" && v1.modelName.trim()
+      ? v1.modelName.trim()
+      : fallbackModelName(provider),
+    modelStrength: normalizeModelStrength(v1.modelStrength)
+  };
+  store.generation = {
+    thinkingModeEnabled: Boolean(v1.thinkingModeEnabled),
+    temperature: normalizeTemperature(v1.temperature),
+    maxOutputTokens: normalizeMaxOutputTokens(v1.maxOutputTokens),
+    streamEnabled: provider === "openai-compatible" && Boolean(v1.streamEnabled)
+  };
+
+  // 旧单一 API Key 迁移到当前 preset 的 Key 位，然后清除旧键（含已废弃的 requestMode 字段随整份重写丢弃）。
+  const legacyApiKey = getSecret(LEGACY_MODEL_API_KEY_STORAGE_KEY);
+  if (legacyApiKey) {
+    setSecret(providerApiKeyStorageKey(presetId), legacyApiKey);
+    setSecret(LEGACY_MODEL_API_KEY_STORAGE_KEY, "");
+  }
+
+  writeStore(store);
+  return store;
+}
+
+function normalizeStore(store: StoredModelConfigV2): StoredModelConfigV2 {
+  const activePresetId = normalizePresetId(store.activePresetId, providerOfPreset(store.activePresetId));
+  const slots: Record<string, ProviderSlot> = {};
+  for (const [presetId, slot] of Object.entries(store.slots ?? {})) {
+    if (!MODEL_PRESETS.some((preset) => preset.id === presetId)) {
+      continue;
+    }
+    const provider = providerOfPreset(presetId);
+    slots[presetId] = {
+      baseUrl: normalizeBaseUrl(slot?.baseUrl, provider),
+      modelName: typeof slot?.modelName === "string" && slot.modelName.trim()
+        ? slot.modelName.trim()
+        : fallbackModelName(provider),
+      modelStrength: normalizeModelStrength(slot?.modelStrength)
+    };
+  }
+
+  return {
+    version: 2,
+    activePresetId,
+    slots,
+    generation: {
+      thinkingModeEnabled: Boolean(store.generation?.thinkingModeEnabled),
+      temperature: normalizeTemperature(store.generation?.temperature),
+      maxOutputTokens: normalizeMaxOutputTokens(store.generation?.maxOutputTokens),
+      streamEnabled: Boolean(store.generation?.streamEnabled)
+    }
+  };
+}
+
+function isStoredModelConfigV2(value: unknown): value is StoredModelConfigV2 {
+  return Boolean(
+    value
+    && typeof value === "object"
+    && (value as { version?: unknown }).version === 2
+  );
+}
+
+function providerOfPreset(presetId: string): ModelProviderType {
+  return MODEL_PRESETS.find((preset) => preset.id === presetId)?.provider ?? DEFAULT_MODEL_CONFIG.provider;
+}
+
+function defaultSlotForPreset(presetId: string): ProviderSlot {
+  const preset = findModelPresetById(presetId) ?? getDefaultPresetForProvider(DEFAULT_MODEL_CONFIG.provider);
+  return {
+    baseUrl: preset?.baseUrl ?? DEFAULT_MODEL_CONFIG.baseUrl,
+    modelName: preset?.modelName ?? DEFAULT_MODEL_CONFIG.modelName,
+    modelStrength: findModelStrengthForPreset(presetId, preset?.modelName ?? "") ?? DEFAULT_MODEL_CONFIG.modelStrength
+  };
+}
+
+function fallbackModelName(provider: ModelProviderType) {
+  return getDefaultPresetForProvider(provider)?.modelName ?? DEFAULT_MODEL_CONFIG.modelName;
 }
 
 export function updateThinkingModeEnabled(thinkingModeEnabled: boolean) {
@@ -229,6 +368,15 @@ export function updateThinkingModeEnabled(thinkingModeEnabled: boolean) {
     ...currentConfig,
     thinkingModeEnabled
   });
+}
+
+/**
+ * 读取指定厂商（preset）已保存的仓位配置，用于设置面板切换厂商时恢复该厂商上次的选择，
+ * 不影响当前 activePresetId（切换尚未提交保存前不改全局状态）。
+ */
+export function loadModelConfigForPreset(presetId: string): ModelConfig {
+  const store = readStore();
+  return composeModelConfig(store, presetId);
 }
 
 export function getModelOptionsForConfig(config: Pick<ModelConfig, "presetId" | "provider">) {
@@ -310,16 +458,4 @@ function normalizePresetId(value: unknown, provider: ModelProviderType) {
 
 function isModelProviderType(value: unknown): value is ModelProviderType {
   return value === "openai-compatible" || value === "anthropic";
-}
-
-function normalizeRequestMode(value: unknown): ModelRequestMode {
-  if (value === "development-proxy" || value === "production-proxy") {
-    return value;
-  }
-
-  return resolveDefaultRequestMode();
-}
-
-function resolveDefaultRequestMode(): ModelRequestMode {
-  return import.meta.env.DEV ? "development-proxy" : "production-proxy";
 }

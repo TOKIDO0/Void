@@ -15,6 +15,17 @@ import gsap from "gsap";
 import { NormalBlending, ShaderMaterial } from "three";
 import { luminousCapsuleFragmentShader, luminousCapsuleVertexShader } from "./luminousCapsuleShader";
 import type { VoidConversationAttachment } from "../agent/voidConversation";
+import {
+  buildExtractedAttachmentContent,
+  extractDocxText,
+  extractPdfText
+} from "../agent/attachments/attachmentExtractors";
+import {
+  SETTINGS_COPY,
+  SETTINGS_LANGUAGE_CHANGE_EVENT,
+  loadSettingsLanguage,
+  type SettingsLanguage
+} from "../settings/settingsI18n";
 
 gsap.registerPlugin(useGSAP);
 
@@ -49,8 +60,20 @@ const MAX_ENTRY_HEIGHT = 132;
 const TEXT_LINE_HEIGHT = 20;
 const MAX_VISIBLE_TEXT_LINES = 5;
 const MAX_ATTACHMENT_COUNT = 4;
-const MAX_ATTACHMENT_SIZE_BYTES = 64 * 1024;
-const MAX_ATTACHMENT_TOTAL_CHARACTERS = 32000;
+const MAX_ATTACHMENT_SIZE_BYTES = 256 * 1024;
+const MAX_ATTACHMENT_TOTAL_CHARACTERS = 96000;
+const MAX_IMAGE_ATTACHMENT_COUNT = 4;
+const MAX_IMAGE_ATTACHMENT_SIZE_BYTES = 8 * 1024 * 1024;
+const SUPPORTED_IMAGE_FILE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp"
+};
+const MAX_DOCUMENT_ATTACHMENT_SIZE_BYTES = 20 * 1024 * 1024;
+const SUPPORTED_DOCUMENT_FILE_EXTENSIONS = new Set([".pdf", ".docx"]);
 const SUPPORTED_TEXT_FILE_EXTENSIONS = new Set([
   ".txt",
   ".md",
@@ -177,6 +200,17 @@ export function LuminousTextEntry({
   const [attachments, setAttachments] = useState<VoidConversationAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // 菜单文案随设置语言实时切换（默认中文；设置面板切英文才显示英文）。
+  const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
+  const menuCopy = SETTINGS_COPY[language];
+
+  useEffect(() => {
+    const handleLanguageChange = () => {
+      setLanguage(loadSettingsLanguage());
+    };
+    window.addEventListener(SETTINGS_LANGUAGE_CHANGE_EVENT, handleLanguageChange);
+    return () => window.removeEventListener(SETTINGS_LANGUAGE_CHANGE_EVENT, handleLanguageChange);
+  }, []);
 
   const animatePresence = useCallback((targetReveal: number, targetFocus: number) => {
     gsap.to(revealRef, {
@@ -462,7 +496,10 @@ export function LuminousTextEntry({
     }
 
     const nextAttachments: VoidConversationAttachment[] = [];
-    let totalCharacters = attachments.reduce((sum, attachment) => sum + attachment.content.length, 0);
+    let totalCharacters = attachments
+      .filter((attachment) => attachment.kind !== "image")
+      .reduce((sum, attachment) => sum + attachment.content.length, 0);
+    let imageCount = attachments.filter((attachment) => attachment.kind === "image").length;
 
     for (const file of selectedFiles) {
       if (attachments.length + nextAttachments.length >= MAX_ATTACHMENT_COUNT) {
@@ -470,19 +507,84 @@ export function LuminousTextEntry({
         break;
       }
 
-      const extension = resolveFileExtension(file.name);
-      if (!SUPPORTED_TEXT_FILE_EXTENSIONS.has(extension)) {
-        setAttachmentError("当前阶段只支持文本类文件。");
-        continue;
-      }
-
       if (file.size <= 0) {
         setAttachmentError("不能附加空文件。");
         continue;
       }
 
+      const extension = resolveFileExtension(file.name);
+
+      // 图片：读为 base64，由对话层按模型视觉能力决定多模态发送或文本降级。
+      if (SUPPORTED_IMAGE_FILE_EXTENSIONS.has(extension)) {
+        if (imageCount >= MAX_IMAGE_ATTACHMENT_COUNT) {
+          setAttachmentError(`最多只能附加 ${MAX_IMAGE_ATTACHMENT_COUNT} 张图片。`);
+          continue;
+        }
+
+        if (file.size > MAX_IMAGE_ATTACHMENT_SIZE_BYTES) {
+          setAttachmentError("单张图片过大，请压缩到 8MB 以内再上传。");
+          continue;
+        }
+
+        try {
+          const dataBase64 = await readFileAsBase64(file);
+          nextAttachments.push({
+            id: buildAttachmentId(file),
+            name: file.name,
+            mimeType: file.type || IMAGE_MIME_BY_EXTENSION[extension] || "image/png",
+            content: dataBase64,
+            kind: "image"
+          });
+          imageCount += 1;
+        } catch {
+          setAttachmentError("图片读取失败，请重新选择文件。");
+        }
+        continue;
+      }
+
+      // PDF / DOCX：本地抽取纯文本再随消息发送（纯文本模型也能理解文档内容）。
+      if (SUPPORTED_DOCUMENT_FILE_EXTENSIONS.has(extension)) {
+        if (file.size > MAX_DOCUMENT_ATTACHMENT_SIZE_BYTES) {
+          setAttachmentError("单个文档过大，请控制在 20MB 以内。");
+          continue;
+        }
+
+        try {
+          const fileData = await file.arrayBuffer();
+          const extraction =
+            extension === ".pdf" ? await extractPdfText(fileData) : await extractDocxText(fileData);
+          if (!extraction.ok) {
+            setAttachmentError(extraction.message);
+            continue;
+          }
+
+          const content = buildExtractedAttachmentContent(extraction);
+          totalCharacters += content.length;
+          if (totalCharacters > MAX_ATTACHMENT_TOTAL_CHARACTERS) {
+            setAttachmentError("本轮附加文件总内容过长，请减少文件数量或内容长度。");
+            break;
+          }
+
+          nextAttachments.push({
+            id: buildAttachmentId(file),
+            name: file.name,
+            mimeType: file.type || (extension === ".pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            content,
+            kind: "text"
+          });
+        } catch {
+          setAttachmentError("文档解析失败，请重新选择文件。");
+        }
+        continue;
+      }
+
+      if (!SUPPORTED_TEXT_FILE_EXTENSIONS.has(extension)) {
+        setAttachmentError("暂不支持该文件格式，当前支持文本类文件、PDF/DOCX 文档与 png/jpg/gif/webp 图片。");
+        continue;
+      }
+
       if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
-        setAttachmentError("单个文件过大，当前阶段请控制在 64KB 以内。");
+        setAttachmentError("单个文本文件过大，请控制在 256KB 以内。");
         continue;
       }
 
@@ -503,7 +605,8 @@ export function LuminousTextEntry({
           id: buildAttachmentId(file),
           name: file.name,
           mimeType: file.type || "text/plain",
-          content
+          content,
+          kind: "text"
         });
       } catch {
         setAttachmentError("文件读取失败，请重新选择文件。");
@@ -566,7 +669,11 @@ export function LuminousTextEntry({
         type="file"
         hidden
         multiple
-        accept={Array.from(SUPPORTED_TEXT_FILE_EXTENSIONS).join(",")}
+        accept={[
+          ...SUPPORTED_TEXT_FILE_EXTENSIONS,
+          ...SUPPORTED_DOCUMENT_FILE_EXTENSIONS,
+          ...SUPPORTED_IMAGE_FILE_EXTENSIONS
+        ].join(",")}
         onChange={handleFileInputChange}
       />
       <div ref={opticsRef} className="luminous-text-entry__optics" aria-hidden="true">
@@ -608,7 +715,7 @@ export function LuminousTextEntry({
               aria-pressed={thinkingModeEnabled}
               onClick={() => handleAgentActionClick("thinking")}
             >
-              {thinkingModeEnabled ? "Thinking on" : "Thinking off"}
+              {thinkingModeEnabled ? menuCopy.menuThinkingOn : menuCopy.menuThinkingOff}
             </button>
             <button
               type="button"
@@ -616,7 +723,7 @@ export function LuminousTextEntry({
               aria-pressed={voiceInputEnabled}
               onClick={() => handleAgentActionClick("voice-input")}
             >
-              {voiceInputEnabled ? "Voice input on" : "Voice input off"}
+              {voiceInputEnabled ? menuCopy.menuVoiceInputOn : menuCopy.menuVoiceInputOff}
             </button>
             <button
               type="button"
@@ -624,19 +731,19 @@ export function LuminousTextEntry({
               aria-pressed={voiceOutputEnabled}
               onClick={() => handleAgentActionClick("voice-output")}
             >
-              {voiceOutputEnabled ? "Voice output on" : "Voice output off"}
+              {voiceOutputEnabled ? menuCopy.menuVoiceOutputOn : menuCopy.menuVoiceOutputOff}
             </button>
             <button type="button" onClick={() => handleAgentActionClick("upload")}>
-              Upload file
+              {menuCopy.menuUploadFile}
             </button>
             <button type="button" onClick={() => handleAgentActionClick("history")}>
-              History
+              {menuCopy.menuHistory}
             </button>
             <button type="button" onClick={() => handleAgentActionClick("memory")}>
-              Memory
+              {menuCopy.menuMemory}
             </button>
             <button type="button" onClick={() => handleAgentActionClick("settings")}>
-              Settings
+              {menuCopy.menuSettings}
             </button>
           </div>
         ) : null}
@@ -690,6 +797,24 @@ function resolveFileExtension(fileName: string) {
   }
 
   return fileName.slice(lastDotIndex).toLowerCase();
+}
+
+/** 读文件为 base64（不含 data: 前缀），供图片附件多模态发送。 */
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("unexpected read result"));
+        return;
+      }
+      const separatorIndex = result.indexOf(",");
+      resolve(separatorIndex >= 0 ? result.slice(separatorIndex + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function buildAttachmentId(file: File) {
