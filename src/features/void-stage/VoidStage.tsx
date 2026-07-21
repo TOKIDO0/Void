@@ -58,12 +58,12 @@ import type { TtsExpressionAction } from "../emotion/expression/expressionTypes"
 import { classifyTaskContext } from "../emotion/taskContextClassifier";
 import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
-import { classifyMemory } from "../memory/memoryClassifier";
 import { assessSalience } from "../memory/memorySalience";
 import { assessSensitivity, resolveWriteDecision } from "../memory/memoryPolicy";
 import { upsertMemoryDeduped } from "../memory/memoryStore";
 import type { MemoryType, SubjectType, Sensitivity } from "../memory/memoryTypes";
 import { deriveAgentRelationshipMemoryCandidate } from "../memory/agentRelationshipMemory";
+import { enqueueMemoryExtraction } from "../memory/memoryExtractionQueue";
 import type { SocialEventReading } from "../emotion/agentAffectTypes";
 
 // 情绪视觉偏移的中性初值：各字段乘性系数为 1，即不偏移（等价于纯 profile）。
@@ -454,27 +454,39 @@ export function VoidStage() {
     );
   }, []);
 
-  // D2 用户输入自动写入：对本轮用户输入分类后走统一写入通道。
-  // 仅对用户本人说的话建档，不含 AI 回复（避免把模型推测当事实记忆）。
+  // D2 用户输入自动写入：本地 salience 准入后，后台 LLM 拆条提炼再落库。
+  // - 不 await：不挡主回复 / TTS / UI
+  // - 失败不写整句原文，避免「家人」等噪声把主体/分区带偏
+  // - 仅对用户本人说的话建档，不含 AI 回复
   const captureMemoryFromUserMessage = useCallback((message: string) => {
     const content = message.trim();
     if (!content) {
       return;
     }
 
-    // 准入闸：先判「值不值得长期记住」，拦掉纯社交 / 闲聊 / 情绪宣泄 / 问句，
-    // 再交给分类器决定分区。这是根治「几乎每句话都被记下来」的第一道闸。
+    // 准入闸：只认「陈述性自述 / 明确记住指令」；问句与关键词点名一律不写。
     if (!assessSalience(content).worth) {
       return;
     }
 
-    const classified = classifyMemory(content);
-    persistCandidateMemory({
-      memoryType: classified.memoryType,
-      subjectType: classified.subjectType,
-      subjectName: classified.subjectName,
-      content,
-      sensitivity: classified.sensitivity
+    // 快照当前模型配置；后台任务不读 UI 最新态，避免用户改设置中途串配置
+    const modelConfig = loadModelConfig();
+    enqueueMemoryExtraction({
+      userMessage: content,
+      modelConfig,
+      onPersist: (facts) => {
+        for (const fact of facts) {
+          persistCandidateMemory({
+            memoryType: fact.memoryType,
+            subjectType: fact.subjectType,
+            subjectName: fact.subjectName,
+            content: fact.content,
+            sensitivity: fact.sensitivity,
+            confidence: fact.confidence,
+            source: "conversation-llm-extract"
+          });
+        }
+      }
     });
   }, [persistCandidateMemory]);
 

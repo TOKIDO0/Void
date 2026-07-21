@@ -5,6 +5,13 @@
 
 import type { MemoryEntry } from "./memoryTypes";
 import { isMemoryType, isSubjectType, isSensitivity } from "./memoryTypes";
+import {
+  clearMemorySearchIndex,
+  isMemorySearchIndexReady,
+  rebuildMemorySearchIndex,
+  syncMemorySearchIndexAfterRemove,
+  syncMemorySearchIndexAfterUpsert
+} from "./memorySearchIndex";
 
 /** 存储键：v1 版本号预留迁移空间，结构不兼容升级时改版本号并写迁移。 */
 const MEMORY_STORAGE_KEY = "void.memory.v1";
@@ -64,11 +71,14 @@ export function upsertMemory(entry: MemoryEntry): MemoryEntry {
     };
     entries[existingIndex] = merged;
     persist(entries);
+    // 索引与落库同步，供召回侧全文排序使用
+    syncMemorySearchIndexAfterUpsert(merged);
     return merged;
   }
 
   entries.push(clean);
   persist(entries);
+  syncMemorySearchIndexAfterUpsert(clean);
   return clean;
 }
 
@@ -120,11 +130,13 @@ export function upsertMemoryDeduped(entry: MemoryEntry, options: DedupeOptions =
     };
     entries[duplicateIndex] = merged;
     persist(entries);
+    syncMemorySearchIndexAfterUpsert(merged);
     return merged;
   }
 
   entries.push(clean);
   persist(entries);
+  syncMemorySearchIndexAfterUpsert(clean);
   return clean;
 }
 
@@ -136,12 +148,25 @@ export function removeMemory(id: string): boolean {
     return false;
   }
   persist(next);
+  syncMemorySearchIndexAfterRemove(id);
   return true;
 }
 
 /** 清空全部记忆。 */
 export function clearMemories(): void {
   window.localStorage.removeItem(MEMORY_STORAGE_KEY);
+  clearMemorySearchIndex();
+}
+
+/**
+ * 确保全文索引与当前 localStorage 一致。
+ * 冷启动只重建一次；写入路径会增量/全量同步，无需每轮召回重灌。
+ */
+export function ensureMemorySearchIndexFromStore(): void {
+  if (isMemorySearchIndexReady()) {
+    return;
+  }
+  rebuildMemorySearchIndex(listMemories());
 }
 
 // ---------------------------------------------------------------------------

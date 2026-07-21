@@ -25,6 +25,13 @@ import {
 } from "../emotion/behaviorPolicy";
 import { appendExecutionLog } from "./observability";
 import { applyReplySpeechGuard } from "./loop/replySpeechGuard";
+import {
+  clearConversationWorkingSummary,
+  compactHistoryForRequest,
+  loadConversationWorkingSummary,
+  saveConversationWorkingSummary
+} from "./context/conversationCompactor";
+import { estimateTokens, planTokenBudget } from "./context/tokenBudget";
 
 export type VoidConversationAttachment = {
   id: string;
@@ -212,22 +219,44 @@ export async function sendVoidMessage(
     onToken?.(content);
     return { content };
   }
+
+  // M2：先按无摘要拼一版 system 估 token，再裁历史；摘要段随后并入最终 system。
+  const baseSystemPrompt = buildSystemPrompt(
+    effectiveModelConfig,
+    emotionContext,
+    affectContext,
+    memoryContext,
+    enableTools,
+    turnRoute.capability,
+    normalizedUserInput,
+    taskGate,
+    forceThinkingThisTurn
+  );
+  const tokenBudget = planTokenBudget({
+    systemText: baseSystemPrompt,
+    memoryText: memoryContext
+  });
+  const compacted = compactHistoryForRequest({
+    history: conversationHistory,
+    historyTokenBudget: tokenBudget.historyBudget,
+    summaryTokenBudget: tokenBudget.summaryReserve,
+    existingSummary: loadConversationWorkingSummary(),
+    estimateTokens
+  });
+  saveConversationWorkingSummary(compacted.nextSummary);
+  const systemPromptWithSummary = compacted.summaryText
+    ? `${baseSystemPrompt}\n\n${compacted.summaryText}`
+    : baseSystemPrompt;
+
   const messages: ProviderMessage[] = [
     {
       role: "system",
-      content: buildSystemPrompt(
-        effectiveModelConfig,
-        emotionContext,
-        affectContext,
-        memoryContext,
-        enableTools,
-        turnRoute.capability,
-        normalizedUserInput,
-        taskGate,
-        forceThinkingThisTurn
-      )
+      content: systemPromptWithSummary
     },
-    ...buildRequestConversationHistory(conversationHistory),
+    // 压缩器只依赖消息形状，这里收窄回对话消息类型供请求组装
+    ...buildRequestConversationHistory(
+      compacted.messagesForRequest as VoidConversationMessage[]
+    ),
     { role: "user", content: userMessageContent }
   ];
 
@@ -509,6 +538,8 @@ export function removeAssistantMessageAt(
 
 export function clearCurrentConversationHistory() {
   window.localStorage.removeItem(CURRENT_CONVERSATION_STORAGE_KEY);
+  // 对话清空时工作摘要一并丢弃，避免旧约束串台到新会话
+  clearConversationWorkingSummary();
 }
 
 export function loadCurrentConversationHistory(): VoidConversationMessage[] {
@@ -601,6 +632,10 @@ function normalizeStoredConversationMessage(message: VoidConversationMessage): V
   };
 }
 
+/**
+ * 将近窗历史转为 provider messages。
+ * 主路径已由 compactHistoryForRequest 按 token 预算裁过；此处保留条数/字符双保险兜底。
+ */
 function buildRequestConversationHistory(conversationHistory: VoidConversationMessage[]): ProviderMessage[] {
   const requestMessages: ProviderMessage[] = [];
   let remainingCharacters = MAX_REQUEST_HISTORY_CHARACTERS;

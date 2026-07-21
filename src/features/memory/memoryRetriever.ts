@@ -4,12 +4,13 @@
 // P6：agentRelationship 不进默认映射；仅用户明确谈与 VOID 的关系时额外最多 2 条。
 
 import type { MemoryEntry, MemoryType } from "./memoryTypes";
-import { listMemories } from "./memoryStore";
+import { ensureMemorySearchIndexFromStore, listMemories } from "./memoryStore";
 import {
   AGENT_RELATIONSHIP_RECALL_LIMIT,
   isExplicitVoidRelationshipTopic,
   selectAgentRelationshipEntries
 } from "./agentRelationshipMemory";
+import { searchMemoriesInCandidates } from "./memorySearchIndex";
 
 /** 召回意图：从用户当前问题推断，决定拉哪些分区。 */
 export type RetrievalIntent =
@@ -66,23 +67,26 @@ export type RetrieveResult = {
 
 /**
  * 按用户当前问题召回相关记忆。
- * 流程：判意图 → 取目标分区 → 过滤（分区匹配 + 未过期）→ 排序 → 截断。
+ * 流程：判意图 → 取目标分区 → 过滤（分区匹配 + 未过期）
+ *   → 分区内全文相关度排序（Orama；失败则回退置信度/时间）→ 截断。
  * 若用户明确谈与 VOID 的关系，再并入最多 2 条 agentRelationship（不占默认分区配额外膨胀）。
  */
 export function retrieveMemories(query: string, options: RetrieveOptions = {}): RetrieveResult {
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
   const now = options.now ?? Date.now();
   const allEntries = listMemories();
+  // 冷启动时把 localStorage 全量灌进全文索引（条目量小，可接受）
+  ensureMemorySearchIndexFromStore();
 
   const intent = detectIntent(query);
   const targetTypes = INTENT_TYPE_MAP[intent];
 
   // 默认召回绝不包含 agentRelationship，避免普通闲聊/人际/任务把 VOID 关系档案塞进 prompt。
-  const baseEntries = allEntries
+  const candidates = allEntries
     .filter((entry) => targetTypes.includes(entry.memoryType))
-    .filter((entry) => entry.expiresAt === undefined || entry.expiresAt > now)
-    .sort(compareByRelevance)
-    .slice(0, maxEntries);
+    .filter((entry) => entry.expiresAt === undefined || entry.expiresAt > now);
+
+  const baseEntries = rankCandidatesByQuery(query, candidates, maxEntries);
 
   const relationshipEntries = isExplicitVoidRelationshipTopic(query)
     ? selectAgentRelationshipEntries(allEntries, {
@@ -95,6 +99,58 @@ export function retrieveMemories(query: string, options: RetrieveOptions = {}): 
   const merged = mergeUniqueEntries(baseEntries, relationshipEntries);
 
   return { intent, entries: merged };
+}
+
+/**
+ * 在已过分区门禁的候选集内排序：
+ * 1) 全文索引命中顺序优先（Orama）
+ * 2) 无命中/索引失败 → 回退置信度 + 更新时间
+ */
+function rankCandidatesByQuery(
+  query: string,
+  candidates: MemoryEntry[],
+  maxEntries: number
+): MemoryEntry[] {
+  if (candidates.length === 0) {
+    return [];
+  }
+
+  const byId = new Map(candidates.map((entry) => [entry.id, entry]));
+  const hits = searchMemoriesInCandidates(
+    query,
+    candidates.map((entry) => entry.id),
+    maxEntries
+  );
+
+  if (hits.length > 0) {
+    const ranked: MemoryEntry[] = [];
+    const seen = new Set<string>();
+    for (const hit of hits) {
+      const entry = byId.get(hit.id);
+      if (!entry || seen.has(entry.id)) {
+        continue;
+      }
+      seen.add(entry.id);
+      ranked.push(entry);
+    }
+    // 全文命中不足时，用旧排序补足，避免相关度分把高置信底座挤没
+    if (ranked.length < maxEntries) {
+      const fallback = [...candidates].sort(compareByRelevance);
+      for (const entry of fallback) {
+        if (seen.has(entry.id)) {
+          continue;
+        }
+        ranked.push(entry);
+        seen.add(entry.id);
+        if (ranked.length >= maxEntries) {
+          break;
+        }
+      }
+    }
+    return ranked.slice(0, maxEntries);
+  }
+
+  return [...candidates].sort(compareByRelevance).slice(0, maxEntries);
 }
 
 /** 保序合并并按 id 去重：base 在前，extra 追加。 */
