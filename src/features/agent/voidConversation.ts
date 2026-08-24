@@ -66,6 +66,8 @@ export type VoidMessageRuntimeOptions = {
   enableTools?: boolean;
   /** P3 关系情绪门禁；缺省表示调用方没有启用主体情绪决策。 */
   behaviorDecision?: BehaviorDecision;
+  /** 阶段 Y：命中本地技能时由调用方预取的剧本提示；缺省 null 零副作用。 */
+  skillPromptHint?: string;
 };
 
 type StoredConversationPayload = {
@@ -158,9 +160,10 @@ const SECURITY_TOOL_USE_SUFFIX = [
 ];
 
 const AGENT_TOOL_USE_SUFFIX = [
-  "本轮只允许使用 Agent 自检/预演工具：agent.inspectCapabilities、agent.planTaskRoute、agent.inspectToolContract、agent.inspectExtensionPolicy、agent.inspectSafetyHooks、agent.inspectPrivacyBoundaries 或 agent.inspectTaskPlaybooks。",
-  "用户问当前有哪些能力/工具/授权概况时，用 agent.inspectCapabilities；用户问某个任务会用哪些工具、有什么风险、先别执行只看计划时，用 agent.planTaskRoute；用户问某个具体工具的契约、权限、风险、资源、审计或输出来源时，用 agent.inspectToolContract；用户问插件/MCP/skills/hooks/subagents/扩展机制是否启用、安全边界或接入策略时，用 agent.inspectExtensionPolicy；用户问哪些动态安全规则会触发确认、为什么 localhost/.env/私网/敏感文件会升为 L2 时，用 agent.inspectSafetyHooks；用户问哪些数据会离开本机、会不会发云端、记忆/语音/模型上下文隐私边界时，用 agent.inspectPrivacyBoundaries；用户问有哪些任务模板、工作流、playbook、组合任务、用法示例或怎么更高效使用你时，用 agent.inspectTaskPlaybooks。",
+  "本轮只允许使用 Agent 自检/预演工具：agent.inspectCapabilities、agent.planTaskRoute、agent.inspectToolContract、agent.inspectExtensionPolicy、agent.inspectSafetyHooks、agent.inspectPrivacyBoundaries、agent.inspectTaskPlaybooks 或 agent.inspectSkills。",
+  "用户问当前有哪些能力/工具/授权概况时，用 agent.inspectCapabilities；用户问某个任务会用哪些工具、有什么风险、先别执行只看计划时，用 agent.planTaskRoute；用户问某个具体工具的契约、权限、风险、资源、审计或输出来源时，用 agent.inspectToolContract；用户问插件/MCP/skills/hooks/subagents/扩展机制是否启用、安全边界或接入策略时，用 agent.inspectExtensionPolicy；用户问哪些动态安全规则会触发确认、为什么 localhost/.env/私网/敏感文件会升为 L2 时，用 agent.inspectSafetyHooks；用户问哪些数据会离开本机、会不会发云端、记忆/语音/模型上下文隐私边界时，用 agent.inspectPrivacyBoundaries；用户问有哪些任务模板、工作流、playbook、组合任务、用法示例或怎么更高效使用你时，用 agent.inspectTaskPlaybooks；用户问我有哪些技能/技能库/已安装的任务剧本/怎么用技能时，用 agent.inspectSkills 列出本机技能目录。",
   "必须根据工具返回的当前能力清单、预演结果或工具契约回答，不能编造未注册能力，也不能声称预演任务已经执行。",
+  "agent.inspectSkills 只读列出本地任务剧本：available=false 的技能要如实说明原因（缺工具或 manifest 无效）；不得声称剧本已被执行；若用户想按某剧本行动，说明触发说法并等用户下一句自然发起（届时走对应能力组的既有工具与确认）。",
   "agent.inspectExtensionPolicy 只是只读边界检查；若返回扩展运行时 disabled，必须明确当前没有可执行插件/MCP/skills/hooks/subagents 入口，禁止声称可以直接加载或调用第三方扩展。",
   "agent.inspectSafetyHooks 只是只读规则说明；不得说成已经扫描端口、检查文件存在性或执行了被保护工具。",
   "agent.inspectPrivacyBoundaries 只是只读隐私边界说明；不得声称已经抓包、扫描硬盘、读取 API Key 或证明所有模型请求绝对不离开本机。",
@@ -280,7 +283,8 @@ export async function sendVoidMessage(
     turnRoute.capability,
     normalizedUserInput,
     taskGate,
-    forceThinkingThisTurn
+    forceThinkingThisTurn,
+    runtimeOptions.skillPromptHint
   );
   const tokenBudget = planTokenBudget({
     systemText: baseSystemPrompt,
@@ -408,7 +412,8 @@ function buildSystemPrompt(
   capability: TurnCapability = "conversation",
   latestUserInput = "",
   taskGate?: BehaviorDecision["taskGate"],
-  researchIntentThisTurn = false
+  researchIntentThisTurn = false,
+  skillPromptHint?: string
 ) {
   const sections = [VOID_SYSTEM_PROMPT];
 
@@ -433,6 +438,12 @@ function buildSystemPrompt(
   // 阶段 F：检索意图注入来源硬规则（即使工具被门禁关掉也要约束口头事实）。
   if (researchIntentThisTurn) {
     sections.push(buildResearchSourcePromptSuffix());
+  }
+
+  // 阶段 Y（41 号文档）：本地技能剧本注入。缺省 null 零副作用；
+  // hint 文本自带「不得越过工具门禁」防线（见 skillsBridgeClient.resolveSkillPromptHint）。
+  if (skillPromptHint && skillPromptHint.trim()) {
+    sections.push(skillPromptHint.trim());
   }
 
   // 情绪系统的本轮情绪上下文（可选）。缺省则完全退回原有行为，零副作用。

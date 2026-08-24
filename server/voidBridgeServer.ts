@@ -29,6 +29,7 @@ import { handleDesktopHttpRequest } from "./desktop/desktopHttpHandlers";
 import { handleFileHttpRequest } from "./file/fileHttpHandlers";
 import { ensureRuntimeDirectories } from "./file/fileRuntimePaths";
 import { handleMemoryHttpRequest } from "./memory/memoryEmbeddingHandlers";
+import { handleSkillsHttpRequest } from "./skills/skillsHttpHandlers";
 import { handleSoftwareHttpRequest } from "./software/softwareHttpHandlers";
 import { getProxyRuntimeStatus, handleModelProxy } from "./voidProxyMiddleware";
 
@@ -449,6 +450,12 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
   // M4：记忆本地 Embedding（句向量编码，供前端语义召回融合）
   if (pathname.startsWith("/void-memory")) {
     void handleMemoryHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // 41 号文档：本地技能注册表（只读任务剧本列表）
+  if (pathname.startsWith("/void-skills")) {
+    handleSkillsHttpRequest(request, response, pathname);
     return;
   }
 

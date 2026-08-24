@@ -1,5 +1,6 @@
 // 阶段 B 验收冒烟：不挂正式 UI，不写测试框架，直接走生产结构 API。
 // 覆盖：合法调用 / Schema 拦截 / 未注册拒绝 / 取消释放锁 / L2 确认 / 日志脱敏。
+// 注意：本文件属 src 编译图，禁止 import server/**（Node 代码）；服务端函数级验收放 scripts/*-smoke.mjs。
 
 import {
   bootstrapAgentRuntime
@@ -72,10 +73,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
 
   const productionTools = listToolMetadata();
   // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 = 43
-  if (productionTools.length !== 43 || productionTools.some((tool) => !tool.outputSchema)) {
+  if (productionTools.length !== 44 || productionTools.some((tool) => !tool.outputSchema)) {
     failures.push(`生产工具契约审计应覆盖 43 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("43 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检与任务 Playbook 自检）");
+    notes.push("44 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检与本地技能目录自检）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -347,11 +348,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     ? validateAgainstSchema(agentCapabilityTool.outputSchema, {
         status: "ok",
         inspectedAt: Date.now(),
-        toolCount: 40,
+        toolCount: 41,
         capabilityCount: 7,
         registryAudit: {
-          registeredToolCount: 43,
-          userVisibleToolCount: 40,
+          registeredToolCount: 44,
+          userVisibleToolCount: 41,
           internalHiddenToolCount: 3,
           disabledToolCount: 0,
           missingPermissionToolCount: 0,
@@ -1260,6 +1261,32 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("自然语言安全问询不应被本地 UI 指令劫持，必须继续走对话 + 工具链路");
   } else {
     notes.push("安全问询对话不被劫持：自然语句不触发安全面板，仍走 security.inspectLocalRuntime 链路");
+  }
+
+  // 阶段 Y（41 号文档）：agent.inspectSkills 契约 + 路由断言。
+  // registry 文件层正负例在 scripts/agent-skills-registry-smoke.mjs（src 图不含 Node 类型）。
+  const inspectSkillsTool = productionTools.find((tool) => tool.name === "agent.inspectSkills");
+  if (
+    !inspectSkillsTool
+    || inspectSkillsTool.riskLevel !== "L0"
+    || !inspectSkillsTool.permissions.includes("tool.agent.inspectSkills")
+    || validateAgainstSchema(inspectSkillsTool.inputSchema, {}).valid === false
+  ) {
+    failures.push("agent.inspectSkills 应为已授权的 L0 只读工具，空入参契约有效");
+  } else {
+    notes.push("agent.inspectSkills 契约正确：L0 只读 + 空入参 + 技能目录结构化输出");
+  }
+
+  const skillsRoute = resolveTurnCapability("我有哪些技能？帮我看看技能库", []);
+  if (
+    skillsRoute.capability !== "agent"
+    || !skillsRoute.allowedToolNames.includes("agent.inspectSkills")
+    || skillsRoute.allowedToolNames.includes("browser.search")
+    || skillsRoute.allowedToolNames.includes("file.writeText")
+  ) {
+    failures.push("技能库问询应路由到 agent 组并暴露 agent.inspectSkills，不暴露真实执行工具");
+  } else {
+    notes.push("技能库问询路由正确：仅 agent 自检组，含 agent.inspectSkills");
   }
 
   const localTextSearchRoute = resolveTurnCapability("在 D:\\AI\\void-runtime\\downloads 目录里查找 VOID", []);

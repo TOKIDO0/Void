@@ -78,7 +78,7 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
   {
     id: "agent",
     label: "Agent 自检与任务预演",
-    summary: "说明当前可用能力、检查单个工具契约，或在不执行的情况下预演某个请求会使用哪些工具和确认边界。",
+    summary: "说明当前可用能力、检查单个工具契约、查看本地技能库，或在不执行的情况下预演某个请求会使用哪些工具和确认边界。",
     requiresBridge: false,
     toolNames: [
       "agent.inspectCapabilities",
@@ -87,7 +87,8 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
       "agent.inspectExtensionPolicy",
       "agent.inspectSafetyHooks",
       "agent.inspectPrivacyBoundaries",
-      "agent.inspectTaskPlaybooks"
+      "agent.inspectTaskPlaybooks",
+      "agent.inspectSkills"
     ]
   },
   {

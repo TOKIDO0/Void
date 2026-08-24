@@ -59,6 +59,7 @@ import { classifyTaskContext } from "../emotion/taskContextClassifier";
 import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
 import { SecurityStatusPanel } from "../agent/security/SecurityStatusPanel";
+import { resolveSkillPromptHint } from "../agent/skills/skillsBridgeClient";
 import { assessSalience } from "../memory/memorySalience";
 import { assessSensitivity, resolveWriteDecision } from "../memory/memoryPolicy";
 import { upsertMemoryDeduped } from "../memory/memoryStore";
@@ -608,7 +609,8 @@ export function VoidStage() {
     onStreamContent: ((content: string) => void) | undefined,
     emotionSystemPromptSuffix: string,
     behaviorDecision: BehaviorDecision,
-    signal: AbortSignal
+    signal: AbortSignal,
+    skillPromptHint?: string
   ) => {
     const modelConfig = {
       ...loadModelConfig(),
@@ -649,6 +651,7 @@ export function VoidStage() {
         requestConfirmation,
         behaviorDecision,
         signal,
+        skillPromptHint,
         onProgress: (progressMessage) => {
           if (!progressMessage.trim()) {
             return;
@@ -1083,7 +1086,9 @@ export function VoidStage() {
         syncStreamingAssistantMessage,
         emotionPolicy.systemPromptSuffix,
         emotionPolicy.behaviorDecision,
-        signal
+        signal,
+        // 阶段 Y：命中本地技能剧本时注入提示；解析失败/超时为 null 零副作用
+        await resolveSkillPromptHint(message, signal)
       );
       if (activeExchangeIdRef.current !== exchangeId) {
         return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）
@@ -1165,7 +1170,9 @@ export function VoidStage() {
         syncStreamingAssistantMessage,
         emotionPolicy.systemPromptSuffix,
         emotionPolicy.behaviorDecision,
-        signal
+        signal,
+        // 阶段 Y：重新生成同样按原文匹配技能剧本
+        await resolveSkillPromptHint(content, signal)
       );
       if (activeExchangeIdRef.current !== exchangeId) {
         return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）

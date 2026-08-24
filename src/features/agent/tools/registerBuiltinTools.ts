@@ -40,6 +40,7 @@ import { agentInspectCapabilitiesTool } from "./builtin/agentInspectCapabilities
 import { agentPlanTaskRouteTool } from "./builtin/agentPlanTaskRouteTool";
 import { agentInspectToolContractTool } from "./builtin/agentInspectToolContractTool";
 import { agentInspectExtensionPolicyTool } from "./builtin/agentInspectExtensionPolicyTool";
+import { agentInspectSkillsTool } from "./builtin/agentInspectSkillsTool";
 import { agentInspectSafetyHooksTool } from "./builtin/agentInspectSafetyHooksTool";
 import { agentInspectPrivacyBoundariesTool } from "./builtin/agentInspectPrivacyBoundariesTool";
 import { agentInspectTaskPlaybooksTool } from "./builtin/agentInspectTaskPlaybooksTool";
@@ -93,7 +94,8 @@ export function registerBuiltinTools() {
     agentInspectExtensionPolicyTool,
     agentInspectSafetyHooksTool,
     agentInspectPrivacyBoundariesTool,
-    agentInspectTaskPlaybooksTool
+    agentInspectTaskPlaybooksTool,
+    agentInspectSkillsTool
   ] as const;
 
   for (const tool of tools) {
