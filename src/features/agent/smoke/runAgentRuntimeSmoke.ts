@@ -1289,6 +1289,115 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push("技能库问询路由正确：仅 agent 自检组，含 agent.inspectSkills");
   }
 
+  // 阶段 Z（37.5 M5 收口）：冲突合并与衰减行为断言，覆盖 37.5 §5 验收样例。
+  // memoryStore 依赖 window.localStorage；smoke 在 node 环境，先装内存 shim 再动态加载模块。
+  {
+    const memoryStorageShim = new Map<string, string>();
+    const existingWindow = globalThis as { window?: unknown };
+    const previousWindow = existingWindow.window;
+    existingWindow.window = {
+      localStorage: {
+        getItem: (key: string) => (memoryStorageShim.has(key) ? memoryStorageShim.get(key)! : null),
+        setItem: (key: string, value: string) => void memoryStorageShim.set(key, String(value)),
+        removeItem: (key: string) => void memoryStorageShim.delete(key)
+      }
+    };
+    try {
+      const store = await import("../../memory/memoryStore");
+      const resolver = await import("../../memory/memoryConflictResolver");
+      const now = Date.now();
+
+      // 样例 1：对立偏好收敛——「喜欢猫」→「不喜欢猫了」不并列两条
+      store.clearMemories();
+      store.upsertMemoryDeduped({
+        id: "m5-cat-1", memoryType: "preference", subjectType: "self", subjectName: "",
+        content: "喜欢猫", confidence: 0.8, sensitivity: "normal", source: "对话",
+        createdAt: now, updatedAt: now
+      });
+      store.upsertMemoryDeduped({
+        id: "m5-cat-2", memoryType: "preference", subjectType: "self", subjectName: "",
+        content: "不喜欢猫了", confidence: 0.8, sensitivity: "normal", source: "对话",
+        createdAt: now + 1_000, updatedAt: now + 1_000
+      });
+      const catEntries = store.listMemories();
+      if (
+        catEntries.length !== 1
+        || !catEntries[0].content.includes("不喜欢")
+      ) {
+        failures.push(`M5 样例1：对立偏好应收敛为一条最新表述，实际 ${catEntries.length} 条：${catEntries.map((entry) => entry.content).join("/")}`);
+      }
+
+      // 样例 2：称呼槽更新——「叫我小陈」→「还是叫我阿陈吧」
+      store.clearMemories();
+      store.upsertMemoryDeduped({
+        id: "m5-name-1", memoryType: "userProfile", subjectType: "self", subjectName: "",
+        content: "以后叫我小陈", confidence: 0.9, sensitivity: "normal", source: "对话",
+        createdAt: now, updatedAt: now
+      });
+      store.upsertMemoryDeduped({
+        id: "m5-name-2", memoryType: "userProfile", subjectType: "self", subjectName: "",
+        content: "还是叫我阿陈吧", confidence: 0.9, sensitivity: "normal", source: "对话",
+        createdAt: now + 1_000, updatedAt: now + 1_000
+      });
+      const nameEntries = store.listMemories();
+      if (nameEntries.length !== 1 || !nameEntries[0].content.includes("阿陈")) {
+        failures.push(`M5 样例2：称呼槽应更新为阿陈且不并列，实际 ${nameEntries.map((entry) => entry.content).join("/")}`);
+      }
+
+      // 样例 3：无关记忆共存——亲属健康 + 本人偏好互不影响
+      store.clearMemories();
+      store.upsertMemoryDeduped({
+        id: "m5-health-1", memoryType: "healthRecord", subjectType: "relative", subjectName: "母亲",
+        content: "母亲血压高", confidence: 0.85, sensitivity: "sensitive", source: "对话",
+        createdAt: now, updatedAt: now
+      });
+      store.upsertMemoryDeduped({
+        id: "m5-coffee-1", memoryType: "preference", subjectType: "self", subjectName: "",
+        content: "我喜欢咖啡", confidence: 0.8, sensitivity: "normal", source: "对话",
+        createdAt: now + 500, updatedAt: now + 500
+      });
+      const coexistEntries = store.listMemories();
+      if (coexistEntries.length !== 2) {
+        failures.push(`M5 样例3：无关记忆应共存两条，实际 ${coexistEntries.length} 条`);
+      }
+
+      // 样例 4：衰减仅影响排序——同 confidence 下旧条得分更低，且不物理删除
+      const oldEntry = { ...coexistEntries[0], updatedAt: now - 180 * 24 * 60 * 60 * 1000 };
+      const newEntry = { ...coexistEntries[0], updatedAt: now };
+      const oldScore = resolver.applyMemoryDecayScore(oldEntry, now);
+      const newScore = resolver.applyMemoryDecayScore(newEntry, now);
+      if (!(oldScore < newScore && newScore > 0)) {
+        failures.push("M5 样例4：时间衰减应让旧条排序分低于新条且不归零");
+      }
+      if (resolver.isOpposingPolarity("喜欢猫", "不喜欢猫了") === false
+        || resolver.isOpposingPolarity("喜欢猫", "喜欢狗") === true) {
+        failures.push("M5 极性判定异常：对立识别/非对立不误判失败");
+      }
+
+      // agentRelationship 合并窗不受冲突裁决破坏：同类关系事件走原 dedupe，不做对立覆盖
+      store.clearMemories();
+      store.upsertMemoryDeduped({
+        id: "m5-rel-1", memoryType: "agentRelationship", subjectType: "self", subjectName: "",
+        content: "用户今天表扬了 VOID", confidence: 0.7, sensitivity: "normal", source: "对话",
+        createdAt: now, updatedAt: now
+      }, { mergeWindowMs: 6 * 60 * 60 * 1000 });
+      store.upsertMemoryDeduped({
+        id: "m5-rel-2", memoryType: "agentRelationship", subjectType: "self", subjectName: "",
+        content: "用户刚才骂了 VOID 一句", confidence: 0.7, sensitivity: "normal", source: "对话",
+        createdAt: now + 1_000, updatedAt: now + 1_000
+      }, { mergeWindowMs: 6 * 60 * 60 * 1000 });
+      const relationshipCount = store.listMemories().length;
+      if (relationshipCount !== 2) {
+        failures.push(`M5 关系事件：agentRelationship 不做对立覆盖，两事件应共存，实际 ${relationshipCount} 条`);
+      }
+
+      store.clearMemories();
+      notes.push("M5 冲突合并与衰减断言通过：对立偏好/称呼槽收敛、无关共存、衰减只影响排序、agentRelationship 合并窗不破坏");
+    } finally {
+      existingWindow.window = previousWindow;
+    }
+  }
+
   const localTextSearchRoute = resolveTurnCapability("在 D:\\AI\\void-runtime\\downloads 目录里查找 VOID", []);
   if (
     localTextSearchRoute.capability !== "file"
