@@ -65,22 +65,14 @@ export function useBlobStateAnimation(visualState: VoidVisualState) {
       .to(animatedValuesRef.current, { transitionEnergy: 0.55, duration: 1.05, ease: "sine.inOut" }, 0)
       .to(animatedValuesRef.current, { transitionEnergy: 0, duration: 1.35, ease: "sine.inOut" }, 1.05);
 
-    let speakingPulse: gsap.core.Tween | null = null;
-    if (visualState === "speaking") {
-      speakingPulse = gsap.to(animatedValuesRef.current, {
-        audioLevel: 1,
-        duration: 0.72,
-        ease: "sine.inOut",
-        repeat: -1,
-        yoyo: true
-      });
-    } else {
+    // audioLevel 不再在这里做模拟 yoyo 脉冲：真实播放电平由 VoidBlob 的 useFrame 按信号新鲜度
+    // 混合（PCM 主路径用真值，Blob fallback 回退正弦脉冲），状态切换后自然衰减回 0。
+    if (visualState !== "speaking") {
       gsap.to(animatedValuesRef.current, { audioLevel: 0, duration: 0.5, ease: "sine.out" });
     }
 
     return () => {
       transition.kill();
-      speakingPulse?.kill();
     };
   }, [baseColor, edgeColor, visualState]);
 

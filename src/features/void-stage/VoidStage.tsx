@@ -191,6 +191,8 @@ export function VoidStage() {
   // 本地音量 VAD 的最新活跃度快照（ref 供 STT 回调同步读取，避免闭包旧值）：
   // 打断判定的「真实人声」二次校验依据，"active" 表示麦克风能量高于环境噪声阈值。
   const voiceActivityLevelRef = useRef<VoiceActivityLevel>("silent");
+  // 真实 TTS 播放电平信号（0-1 + 更新时间戳）；Blob fallback 不产生更新，视觉侧按超时回退模拟脉冲
+  const playbackLevelSignalRef = useRef<{ value: number; updatedAt: number }>({ value: 0, updatedAt: 0 });
   // 对话回合的单调递增 id：用户打断（barge-in）时自增以「作废」当前回合的后续副作用
   const activeExchangeIdRef = useRef(0);
   const exchangeAbortControllerRef = useRef<AbortController | null>(null);
@@ -349,6 +351,11 @@ export function VoidStage() {
       },
       onError: () => {
         tryCompleteVoiceOutputSession("idle");
+      },
+      // 阶段 2 挂账项：真实 TTS 播放电平 → 经 ref 直通 R3F useFrame，不走 setState（约 10Hz，避免重渲染）
+      onLevel: (level) => {
+        playbackLevelSignalRef.current.value = level;
+        playbackLevelSignalRef.current.updatedAt = performance.now();
       }
     });
 
@@ -1424,6 +1431,7 @@ export function VoidStage() {
         thinkingModePulseEventId={thinkingModePulseEventId}
         thinkingModePulseDirection={thinkingModePulseDirection}
         emotionVisualHint={emotionVisualHint}
+        playbackLevelSignal={playbackLevelSignalRef}
       />
       <VoidResponseLayer
         isVisible={responseLayer.isVisible}

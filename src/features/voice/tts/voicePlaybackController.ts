@@ -2,6 +2,8 @@ type VoicePlaybackLifecycle = {
   onStart?: () => void;
   onEnd?: () => void;
   onError?: () => void;
+  /** 阶段 2 挂账项：PCM 主路径的真实播放电平（RMS 归一化 0-1，约 10Hz）；Blob fallback 不产生该信号。 */
+  onLevel?: (level: number) => void;
 };
 
 export class VoicePlaybackController {
@@ -44,6 +46,8 @@ export class VoicePlaybackController {
     if (pcmAudioContext && pcmAudioContext.state !== "closed") {
       void pcmAudioContext.close();
     }
+    // 打断/停止时同步归零播放电平
+    this.lifecycle.onLevel?.(0);
     for (const audioUrl of this.queue) {
       URL.revokeObjectURL(audioUrl);
     }
@@ -109,6 +113,9 @@ export class VoicePlaybackController {
               });
             }
           }
+          if (event.data?.type === "level" && typeof event.data.value === "number") {
+            this.lifecycle.onLevel?.(event.data.value);
+          }
           if (event.data?.type === "drained") resolve();
         };
       });
@@ -160,6 +167,8 @@ export class VoicePlaybackController {
     if (this.pcmAudioContext === audioContext) this.pcmAudioContext = null;
     if (audioContext.state !== "closed") void audioContext.close();
     this.hasStartedCurrentSession = false;
+    // 播放结束立即归零电平，避免视觉残留到状态机切回 idle
+    this.lifecycle.onLevel?.(0);
     if (succeeded) this.lifecycle.onEnd?.();
     else this.lifecycle.onError?.();
   }

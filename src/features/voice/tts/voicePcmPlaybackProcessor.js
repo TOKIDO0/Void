@@ -1,4 +1,7 @@
 const START_BUFFER_MS = 200;
+// 真实播放电平上报节流间隔（秒）。AudioWorkletGlobalScope 没有 performance/performance.now，
+// 用 Worklet 全局 currentTime（AudioContext 时间轴，单位秒）驱动节流。
+const LEVEL_EMIT_INTERVAL_SEC = 0.1;
 
 class VoidPcmPlaybackProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -13,6 +16,9 @@ class VoidPcmPlaybackProcessor extends AudioWorkletProcessor {
     this.startedEmitted = false;
     this.drainedEmitted = false;
     this.sourcePhase = 0;
+    this.levelAccumulatedSquares = 0;
+    this.levelSampleCount = 0;
+    this.levelLastEmitTime = 0;
 
     this.port.onmessage = (event) => {
       const message = event.data;
@@ -40,6 +46,8 @@ class VoidPcmPlaybackProcessor extends AudioWorkletProcessor {
         this.playing = false;
         this.finishRequested = true;
         this.sourcePhase = 0;
+        this.levelAccumulatedSquares = 0;
+        this.levelSampleCount = 0;
       }
     };
   }
@@ -65,25 +73,48 @@ class VoidPcmPlaybackProcessor extends AudioWorkletProcessor {
     const step = this.inputSampleRate / sampleRate;
     for (let index = 0; index < output.length; index += 1) {
       const sample = this.peekSample(Math.floor(this.sourcePhase));
+      let outputValue = 0;
       if (sample === null) {
         output[index] = 0;
-        continue;
+      } else {
+        outputValue = sample / 32768;
+        output[index] = outputValue;
+        this.sourcePhase += step;
+        const consumed = Math.floor(this.sourcePhase);
+        if (consumed > 0) {
+          this.consumeSamples(consumed);
+          this.sourcePhase -= consumed;
+        }
+        if (!this.startedEmitted) {
+          this.startedEmitted = true;
+          this.port.postMessage({ type: "started" });
+        }
       }
-      output[index] = sample / 32768;
-      this.sourcePhase += step;
-      const consumed = Math.floor(this.sourcePhase);
-      if (consumed > 0) {
-        this.consumeSamples(consumed);
-        this.sourcePhase -= consumed;
-      }
-      if (!this.startedEmitted) {
-        this.startedEmitted = true;
-        this.port.postMessage({ type: "started" });
-      }
+      // 真实播放电平：对实际写入的样本累计 RMS（静音段也计入，让主体在语句间隙收缩）
+      this.levelAccumulatedSquares += outputValue * outputValue;
+      this.levelSampleCount += 1;
     }
 
+    this.emitLevelIfNeeded();
     this.emitDrainedIfNeeded();
     return true;
+  }
+
+  emitLevelIfNeeded() {
+    if (this.levelSampleCount === 0) {
+      return;
+    }
+    const elapsed = currentTime - this.levelLastEmitTime;
+    if (elapsed < LEVEL_EMIT_INTERVAL_SEC) {
+      return;
+    }
+    this.levelLastEmitTime = currentTime;
+    const rms = Math.sqrt(this.levelAccumulatedSquares / this.levelSampleCount);
+    this.levelAccumulatedSquares = 0;
+    this.levelSampleCount = 0;
+    // 语音 RMS 常态远低于 1；做轻度增益并 clamp，让视觉起伏可感知且不溢出。
+    const normalizedLevel = Math.min(1, rms * 4);
+    this.port.postMessage({ type: "level", value: normalizedLevel });
   }
 
   peekSample(relativeIndex) {

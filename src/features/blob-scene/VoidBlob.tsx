@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef } from "react";
+import type { RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Mesh, ShaderMaterial } from "three";
 import { blobFragmentShader, blobVertexShader, createBlobUniforms } from "./blobShader";
 import { useBlobStateAnimation } from "./useBlobStateAnimation";
+import type { PlaybackLevelSignal } from "./BlobScene";
 import type { VoidVisualState } from "../void-state/voidVisualState";
 import type { VisualProfileHint } from "../emotion/emotionToResponsePolicy";
 
@@ -13,9 +15,14 @@ type VoidBlobProps = {
   thinkingModePulseEventId: number;
   thinkingModePulseDirection: "on" | "off";
   emotionVisualHint: VisualProfileHint;
+  playbackLevelSignal?: RefObject<PlaybackLevelSignal>;
 };
 
 const THINKING_MODE_PULSE_DURATION_MS = 860;
+// 真实电平信号的新鲜窗口：超过该时长没有新样本（如 Blob fallback）则回退模拟脉冲。
+const PLAYBACK_LEVEL_FRESH_WINDOW_MS = 350;
+// 模拟脉冲参数：与旧 gsap yoyo 版本同节奏（0.72s 往返），保证 fallback 视觉不退化。
+const SIMULATED_PULSE_PERIOD_SEC = 1.44;
 // 情绪视觉偏移的安全区间：乘性系数 clamp 到 [0.6, 1.4]，防止极端情绪把形变推出可视稳定范围。
 const EMOTION_VISUAL_SCALE_MIN = 0.6;
 const EMOTION_VISUAL_SCALE_MAX = 1.4;
@@ -30,7 +37,8 @@ export function VoidBlob({
   isExpandedResponseClosing,
   thinkingModePulseEventId,
   thinkingModePulseDirection,
-  emotionVisualHint
+  emotionVisualHint,
+  playbackLevelSignal
 }: VoidBlobProps) {
   const meshRef = useRef<Mesh | null>(null);
   const materialRef = useRef<ShaderMaterial | null>(null);
@@ -65,6 +73,24 @@ export function VoidBlob({
     const closingEaseSpeed = isExpandedResponseClosing ? 18 : 10;
     closingSuppressionRef.current +=
       (closingTarget - closingSuppressionRef.current) * Math.min(delta * closingEaseSpeed, 1);
+
+    // 阶段 2 挂账项：speaking 音频起伏优先用真实播放电平；信号过期（Blob fallback）回退模拟脉冲。
+    // 统一在 useFrame 里低通逼近目标值，替代原 gsap yoyo 脉冲，两条路径视觉节奏一致。
+    const nowMs = performance.now();
+    const signal = playbackLevelSignal?.current;
+    const hasFreshRealLevel =
+      !!signal && nowMs - signal.updatedAt < PLAYBACK_LEVEL_FRESH_WINDOW_MS;
+    let targetAudioLevel = 0;
+    if (visualState === "speaking") {
+      if (hasFreshRealLevel) {
+        targetAudioLevel = Math.min(1, Math.max(0, signal.value));
+      } else {
+        targetAudioLevel = (Math.sin((clock.elapsedTime * Math.PI * 2) / SIMULATED_PULSE_PERIOD_SEC) + 1) / 2;
+      }
+    }
+    animatedValues.audioLevel +=
+      (targetAudioLevel - animatedValues.audioLevel) * Math.min(delta * 10, 1);
+
     const speakingLift = animatedValues.audioLevel * 0.42;
     const breath = Math.sin(clock.elapsedTime * ((Math.PI * 2) / 3)) * 0.018;
     const transitionLift = animatedValues.transitionEnergy * 0.006;
