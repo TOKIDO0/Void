@@ -12,6 +12,9 @@ import {
 } from "./agentRelationshipMemory";
 import { searchMemoriesInCandidates } from "./memorySearchIndex";
 import { applyMemoryDecayScore } from "./memoryConflictResolver";
+import { isSemanticSearchEnabled } from "./memorySemanticConfig";
+import { embedMemoryTexts } from "./memoryEmbeddingClient";
+import { fuseSemanticRanking } from "./memorySemanticRanker";
 
 /** 召回意图：从用户当前问题推断，决定拉哪些分区。 */
 export type RetrievalIntent =
@@ -97,6 +100,85 @@ export function retrieveMemories(query: string, options: RetrieveOptions = {}): 
     : [];
 
   // 先放默认分区，再追加关系档案；按 id 去重，总量仍受 maxEntries + 关系上限约束。
+  const merged = mergeUniqueEntries(baseEntries, relationshipEntries);
+
+  return { intent, entries: merged };
+}
+
+/** 语义召回的候选数硬上限：超过则本轮直接走全文，避免一次编码过多文本拖慢发消息。 */
+const SEMANTIC_CANDIDATE_LIMIT = 512;
+
+/**
+ * 语义增强召回（M4）。仅当用户开启「本地语义检索」时启用。
+ * 流程：判意图 → 取候选（同分区/未过期门禁，与同步版完全一致）
+ *   → bridge 本地编码 query 与候选 → 全文分 + 向量分融合排序 → 截断。
+ * 任一前置不满足或向量不可用（bridge 未起 / 超时 / 首次模型加载中）→ 无缝降级到同步全文版，
+ * 保证「关或失败」时行为与 M3 一字不差。分区门禁在编码之前算好，语义相似度绝不扩召回范围。
+ */
+export async function retrieveMemoriesAsync(
+  query: string,
+  options: RetrieveOptions = {},
+  signal?: AbortSignal
+): Promise<RetrieveResult> {
+  // 开关关 = 完全等价 M3：不加载模型、不下载权重、无隐私外发。
+  if (!isSemanticSearchEnabled()) {
+    return retrieveMemories(query, options);
+  }
+
+  const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
+  const now = options.now ?? Date.now();
+  const allEntries = listMemories();
+  ensureMemorySearchIndexFromStore();
+
+  const intent = detectIntent(query);
+  const targetTypes = INTENT_TYPE_MAP[intent];
+  const candidates = allEntries
+    .filter((entry) => targetTypes.includes(entry.memoryType))
+    .filter((entry) => entry.expiresAt === undefined || entry.expiresAt > now);
+
+  const normalizedQuery = query.trim();
+  // 无候选 / 空查询 / 候选过多 → 交回同步全文（也覆盖了 fuse 的空集短路）。
+  if (candidates.length === 0 || !normalizedQuery || candidates.length > SEMANTIC_CANDIDATE_LIMIT) {
+    return retrieveMemories(query, options);
+  }
+
+  // 并行编码查询与候选内容；任一失败即整轮降级。
+  const [queryVectors, candidateVectors] = await Promise.all([
+    embedMemoryTexts([normalizedQuery], { isQuery: true, signal }),
+    embedMemoryTexts(candidates.map((entry) => entry.content), { isQuery: false, signal })
+  ]);
+
+  const embeddingUnavailable =
+    !queryVectors ||
+    queryVectors.length === 0 ||
+    !candidateVectors ||
+    candidateVectors.length !== candidates.length;
+  if (embeddingUnavailable) {
+    return retrieveMemories(query, options);
+  }
+
+  const textHits = searchMemoriesInCandidates(
+    normalizedQuery,
+    candidates.map((entry) => entry.id),
+    Math.max(maxEntries * 3, 12)
+  );
+
+  const baseEntries = fuseSemanticRanking({
+    candidates,
+    queryVector: queryVectors[0],
+    candidateVectors,
+    textHits,
+    maxEntries,
+    now
+  });
+
+  // 关系旁路与同步版一致：仅显式谈 VOID 关系时额外并入，最多 2 条。
+  const relationshipEntries = isExplicitVoidRelationshipTopic(query)
+    ? selectAgentRelationshipEntries(allEntries, {
+        maxEntries: AGENT_RELATIONSHIP_RECALL_LIMIT,
+        now
+      })
+    : [];
   const merged = mergeUniqueEntries(baseEntries, relationshipEntries);
 
   return { intent, entries: merged };

@@ -14,7 +14,9 @@ import { executeToolCall } from "../execution/toolExecutor";
 import {
   createConfirmationRequest,
   DEFAULT_RISK_POLICY,
+  inspectToolInputSafety,
   requiresUserConfirmation,
+  resolveHighestRiskLevel,
   type ConfirmationDecision,
   type ConfirmationRequest
 } from "../permissions";
@@ -45,6 +47,7 @@ import {
   formatToolConfirmWaitMessage,
   formatToolProgressMessage
 } from "./toolProgressCopy";
+import { buildToolResultRelay } from "./toolResultRelay";
 import {
   formatBehaviorToolRefusal,
   isBehaviorToolGateBlocked,
@@ -92,8 +95,8 @@ const DEFAULT_MAX_ROUNDS = 8;
 const DEFAULT_MAX_TOOL_INVOCATIONS = 8;
 /** 同一工具连续失败/空结果多少次后熔断 */
 const MAX_SAME_TOOL_STREAK = 3;
-/** 回灌模型的单条 tool 结果最大字符，防上下文膨胀 */
-const MAX_TOOL_RESULT_CHARS = 6000;
+/** 回灌模型的单条 tool 结果最大字符；主压缩在 toolResultRelay，这里只做最后保险 */
+const MAX_TOOL_RESULT_CHARS = 9000;
 
 /**
  * 桥接不可达（sidecar 未启动）时回灌给模型的硬约束：
@@ -114,6 +117,7 @@ const TERMINAL_SUCCESS_TOOLS = new Set([
   "file.placeDownload",
   "file.verify",
   "file.move",
+  "file.writeText",
   "desktop.revealPath",
   "desktop.openKnownLocation"
 ]);
@@ -681,7 +685,8 @@ async function runSingleToolCall(params: {
   }
 
   const input = injectTaskId(parsedInput, params.taskId);
-  const riskLevel: RiskLevel = tool.riskLevel;
+  const safetyReview = inspectToolInputSafety(toolName, input);
+  const riskLevel: RiskLevel = resolveHighestRiskLevel(tool.riskLevel, safetyReview.riskLevel);
 
   if (requiresUserConfirmation(riskLevel, DEFAULT_RISK_POLICY)) {
     if (!params.requestConfirmation) {
@@ -696,8 +701,9 @@ async function runSingleToolCall(params: {
       stepId: params.stepId,
       toolName,
       riskLevel,
-      title: `确认：${toolName}`,
-      description: buildToolConfirmationDescription(toolName, riskLevel, input),
+      title: safetyReview.confirmationTitle ?? `确认：${toolName}`,
+      description: safetyReview.confirmationDescription
+        ?? buildToolConfirmationDescription(toolName, riskLevel, input),
       inputSummary: sanitizeForAudit(
         input && typeof input === "object" ? (input as Record<string, unknown>) : { value: input },
         tool.auditPolicy.redactInputKeys ?? []
@@ -725,7 +731,11 @@ async function runSingleToolCall(params: {
       toolName,
       event: "permission.confirmation.requested",
       message: `等待用户确认：${toolName}`,
-      data: { confirmationId: confirmation.id, riskLevel }
+      data: {
+        confirmationId: confirmation.id,
+        riskLevel,
+        safetyReason: safetyReview.reason
+      }
     });
 
     const decision = await waitForAbortableConfirmation(
@@ -779,11 +789,7 @@ async function runSingleToolCall(params: {
     });
 
     if (result.ok) {
-      return JSON.stringify({
-        ok: true,
-        summary: result.summary,
-        data: result.data
-      });
+      return JSON.stringify(buildToolResultRelay(toolName, result));
     }
 
     // 回灌失败细节：fileCode/failureKind 让模型能点名 PATH_NOT_ALLOWED 等，
@@ -914,7 +920,38 @@ function truncateToolResult(payload: string) {
   if (payload.length <= MAX_TOOL_RESULT_CHARS) {
     return payload;
   }
-  return `${payload.slice(0, MAX_TOOL_RESULT_CHARS)}\n…(结果已截断，请基于已有条目继续)`;
+
+  const parsed = safeParseJson(payload);
+  if (parsed?.ok === true) {
+    const summary = typeof parsed.summary === "string"
+      ? parsed.summary.slice(0, 800)
+      : "工具结果过大，已省略详细内容";
+    const fallback: Record<string, unknown> = {
+      ok: true,
+      summary,
+      data: {
+        note: "工具结果超过最终回灌预算，详细 data 已省略；不要假设省略内容已经被检查。"
+      },
+      truncation: {
+        truncated: true,
+        reason: "TOOL_RESULT_RELAY_TOO_LARGE",
+        originalCharacters: payload.length,
+        maxCharacters: MAX_TOOL_RESULT_CHARS
+      }
+    };
+    if (parsed.contentSafety) {
+      fallback.contentSafety = parsed.contentSafety;
+    }
+    return JSON.stringify(fallback);
+  }
+
+  return JSON.stringify({
+    ok: false,
+    error: {
+      code: "TOOL_RESULT_RELAY_TOO_LARGE",
+      message: "工具结果超过最终回灌预算，已省略原始内容；请基于已有摘要回复用户，必要时换更窄的读取范围。"
+    }
+  });
 }
 
 function safeParseJson(text: string): Record<string, unknown> | null {

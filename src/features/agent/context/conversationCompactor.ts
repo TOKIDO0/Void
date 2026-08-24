@@ -34,10 +34,12 @@ type CompactHistoryResult = {
 
 const WORKING_SUMMARY_STORAGE_KEY = "void.conversationWorkingSummary.v1";
 const MAX_SUMMARY_CHARACTERS = 700;
+const MAX_SUMMARY_LINES = 18;
+const MAX_PRIORITY_SUMMARY_LINES = 6;
 
 /** 用户侧更值得保留进摘要的约束线索。 */
 const USER_CONSTRAINT_PATTERN =
-  /记住|以后|不要|别再|必须|约定|叫我|我是|我喜欢|我不喜欢|请你|记住我|下次|始终|永远/;
+  /记住|以后|不要|别再|必须|约定|叫我|别叫|改叫|称呼|名字|我是|我叫|我喜欢|我不喜欢|请你|记住我|下次|始终|永远|还是叫我/;
 
 /**
  * 按 token 预算裁近窗，并把更旧消息折叠进工作摘要（规则抽取，默认不调 LLM）。
@@ -180,7 +182,7 @@ function buildRuleBasedSummary(
 ): string {
   const lines: string[] = [];
   if (previousSummary.trim()) {
-    lines.push(previousSummary.trim());
+    lines.push(...previousSummary.trim().split("\n").map((line) => line.trim()).filter(Boolean));
   }
 
   for (const message of olderMessages) {
@@ -190,8 +192,8 @@ function buildRuleBasedSummary(
     }
 
     if (message.role === "user") {
-      if (USER_CONSTRAINT_PATTERN.test(content) || content.length <= 80) {
-        lines.push(`用户：${clipLine(content, 120)}`);
+      if (isPriorityUserConstraint(content)) {
+        lines.push(`用户约定：${clipLine(content, 120)}`);
       } else {
         lines.push(`用户：${clipLine(content, 80)}`);
       }
@@ -221,7 +223,29 @@ function buildRuleBasedSummary(
     uniqueLines.push(line);
   }
 
-  return uniqueLines.slice(-18).join("\n");
+  const priorityLines = uniqueLines
+    .filter(isPrioritySummaryLine)
+    .slice(-MAX_PRIORITY_SUMMARY_LINES);
+  const priorityKeys = new Set(priorityLines.map(normalizeSummaryLineKey));
+  const regularLines = uniqueLines
+    .filter((line) => !priorityKeys.has(normalizeSummaryLineKey(line)))
+    .slice(-(MAX_SUMMARY_LINES - priorityLines.length));
+
+  // 高价值约束放在摘要尾部，后续字符裁剪时优先保住称呼、偏好、禁止项等用户约定。
+  return [...regularLines, ...priorityLines].join("\n");
+}
+
+function isPriorityUserConstraint(content: string): boolean {
+  return USER_CONSTRAINT_PATTERN.test(content);
+}
+
+function isPrioritySummaryLine(line: string): boolean {
+  return line.startsWith("用户约定：")
+    || (line.startsWith("用户：") && USER_CONSTRAINT_PATTERN.test(line));
+}
+
+function normalizeSummaryLineKey(line: string): string {
+  return line.replace(/\s+/g, "");
 }
 
 function formatSummaryForPrompt(

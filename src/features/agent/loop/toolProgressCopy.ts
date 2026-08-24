@@ -28,12 +28,26 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "file.placeDownload": "正在保存到下载目录…",
   "file.verify": "正在校验文件…",
   "file.listDirectory": "正在列出目录…",
-  "file.readText": "正在读取文本…",
+  "file.inspectPath": "正在检查路径…",
+  "file.findByName": "正在按名称查找文件…",
+  "file.listRecentArtifacts": "正在查看最近产物…",
+  "file.readText": "正在读取文件内容…",
+  "file.searchText": "正在搜索本地文本…",
+  "file.inspectWriteTarget": "正在预检写入目标…",
   "file.createDirectory": "正在创建目录…",
   "file.move": "正在移动或重命名…",
+  "file.writeText": "正在写入文本文件…",
   "software.listSupported": "正在查看已支持的官方软件…",
   "software.resolveInstaller": "正在解析官方安装包信息…",
   "software.downloadInstaller": "正在下载并校验官方安装包…",
+  "security.inspectLocalRuntime": "正在检查本地运行时安全配置…",
+  "agent.inspectCapabilities": "正在整理当前可用能力…",
+  "agent.planTaskRoute": "正在预演任务工具路线…",
+  "agent.inspectToolContract": "正在检查工具契约…",
+  "agent.inspectExtensionPolicy": "正在检查扩展机制安全边界…",
+  "agent.inspectSafetyHooks": "正在检查动态安全确认规则…",
+  "agent.inspectPrivacyBoundaries": "正在检查隐私与数据边界…",
+  "agent.inspectTaskPlaybooks": "正在整理可用任务范式…",
   echo: "正在执行内部校验…"
 };
 
@@ -49,6 +63,7 @@ const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "desktop.openKnownLocation": "请确认是否打开此电脑",
   "file.createDirectory": "请确认是否创建目录",
   "file.move": "请确认是否移动或重命名",
+  "file.writeText": "请确认是否写入文本文件",
   "software.resolveInstaller": "请确认要解析的软件",
   "software.downloadInstaller": "请确认是否下载该官方安装包"
 };

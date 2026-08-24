@@ -94,6 +94,43 @@ export type FileListDirectoryData = {
   truncated: boolean;
 };
 
+export type FileInspectPathData = {
+  status: "ok";
+  path: string;
+  fileName: string;
+  parentPath: string;
+  exists: boolean;
+  kind: "file" | "directory" | "missing" | "symlink" | "other";
+  isSymbolicLink: boolean;
+  bytes?: number;
+  extension?: string;
+  mediaKind: FileVerifyData["mediaKind"];
+  modifiedAt?: number;
+  readTextLikelySupported: boolean;
+  readTextByteLimit?: number;
+  readTextSizeAllowed?: boolean;
+  sensitiveHint: boolean;
+  safetyNotes: string[];
+  inspectedAt: number;
+};
+
+export type FileListRecentArtifactsData = {
+  rootPath: string;
+  entries: Array<{
+    path: string;
+    fileName: string;
+    kind: "file" | "directory";
+    bytes?: number;
+    extension?: string;
+    mediaKind: FileVerifyData["mediaKind"];
+    modifiedAt: number;
+  }>;
+  count: number;
+  limit: number;
+  truncated: boolean;
+  listedAt: number;
+};
+
 export type FileReadTextData = {
   path: string;
   fileName: string;
@@ -101,6 +138,84 @@ export type FileReadTextData = {
   bytes: number;
   characters: number;
   truncated: boolean;
+  sourceKind?: "text" | "pdf" | "docx";
+};
+
+export type FileSearchTextRequest = {
+  path: string;
+  query: string;
+  caseSensitive?: boolean;
+  maxResults?: number;
+  maxDepth?: number;
+  extensions?: string[];
+};
+
+export type FileFindByNameRequest = {
+  path: string;
+  query: string;
+  caseSensitive?: boolean;
+  maxResults?: number;
+  maxDepth?: number;
+  kind?: "any" | "file" | "directory";
+};
+
+export type FileSearchTextMatch = {
+  path: string;
+  fileName: string;
+  lineNumber: number;
+  column: number;
+  preview: string;
+};
+
+export type FileFindByNameMatch = {
+  path: string;
+  fileName: string;
+  kind: "file" | "directory";
+  bytes?: number;
+  extension?: string;
+  mediaKind: FileVerifyData["mediaKind"];
+  modifiedAt: number;
+};
+
+export type FileSearchTextData = {
+  path: string;
+  query: string;
+  caseSensitive: boolean;
+  matches: FileSearchTextMatch[];
+  matchCount: number;
+  filesScanned: number;
+  filesMatched: number;
+  directoriesScanned: number;
+  truncated: boolean;
+  skipped: {
+    directories: number;
+    files: number;
+    binaryOrInvalidUtf8: number;
+    tooLarge: number;
+    unsupportedExtension: number;
+    hiddenSensitive: number;
+    symbolicLinks: number;
+  };
+  searchedAt: number;
+};
+
+export type FileFindByNameData = {
+  path: string;
+  query: string;
+  caseSensitive: boolean;
+  kindFilter: "any" | "file" | "directory";
+  matches: FileFindByNameMatch[];
+  matchCount: number;
+  entriesScanned: number;
+  directoriesScanned: number;
+  truncated: boolean;
+  skipped: {
+    directories: number;
+    files: number;
+    symbolicLinks: number;
+    notAllowed: number;
+  };
+  searchedAt: number;
 };
 
 export type MoveConflictPolicy = "refuse" | "rename";
@@ -119,6 +234,51 @@ export type FileMoveData = {
   conflictPolicy: MoveConflictPolicy;
   renamedForConflict: boolean;
   movedAt: number;
+};
+
+export type TextWriteConflictPolicy = "refuse" | "overwrite" | "rename";
+
+export type FileInspectWriteTargetData = {
+  status: "ok";
+  path: string;
+  fileName: string;
+  parentPath: string;
+  extension: string;
+  conflictPolicy: TextWriteConflictPolicy;
+  targetExists: boolean;
+  targetKind: "file" | "directory" | "other" | "missing";
+  targetBytes?: number;
+  resolvedPath: string;
+  resolvedFileName: string;
+  wouldCreate: boolean;
+  wouldOverwrite: boolean;
+  wouldRename: boolean;
+  writable: boolean;
+  blockingCode?: "DESTINATION_EXISTS" | "INVALID_REQUEST";
+  blockingReason?: string;
+  requiresConfirmation: boolean;
+  inspectedAt: number;
+};
+
+export type FileWriteTextRequest = {
+  /** 绝对路径；与 fileName 二选一。 */
+  path?: string;
+  /** 仅文件名；缺省写入默认下载根，不允许包含目录分隔符。 */
+  fileName?: string;
+  content: string;
+  conflictPolicy: TextWriteConflictPolicy;
+};
+
+export type FileWriteTextData = {
+  path: string;
+  fileName: string;
+  bytes: number;
+  characters: number;
+  conflictPolicy: TextWriteConflictPolicy;
+  created: boolean;
+  overwritten: boolean;
+  renamedForConflict: boolean;
+  writtenAt: number;
 };
 
 export type FileApiSuccess<T> = { ok: true; data: T };

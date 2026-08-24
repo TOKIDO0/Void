@@ -42,7 +42,7 @@ async function main() {
   mkdirSync(buildDir, { recursive: true });
   mkdirSync(binariesDir, { recursive: true });
 
-  // 1. esbuild 打包为单个 CJS。ws 的可选原生加速依赖标记为 external（缺失时 ws 自动回退纯 JS）。
+  // 1. esbuild 打包为单个 CJS。可选原生/动态依赖标记为 external，运行时按需加载或由依赖自身回退。
   console.log("[build-sidecar] bundling with esbuild...");
   await build({
     entryPoints: [join(projectRoot, "server", "voidBridgeServer.ts")],
@@ -50,7 +50,15 @@ async function main() {
     platform: "node",
     format: "cjs",
     target: "node22",
-    external: ["bufferutil", "utf-8-validate"],
+    external: [
+      "bufferutil",
+      "utf-8-validate",
+      "@huggingface/transformers",
+      "onnxruntime-common",
+      "onnxruntime-node",
+      "chromium-bidi/*",
+      "*.node"
+    ],
     outfile: bundlePath
   });
 

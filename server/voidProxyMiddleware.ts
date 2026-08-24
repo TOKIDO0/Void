@@ -7,6 +7,7 @@
  * 供 vite 插件（开发）与 sidecar 服务（生产）复用，避免两份实现分叉。
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { HttpRequestError, isRequestBodyTooLarge } from "./http/httpRequest";
 
 /** 允许透传给上游的请求头白名单（模型 + 豆包 openspeech v3 鉴权头） */
 const ALLOWED_FORWARD_HEADERS = [
@@ -27,14 +28,88 @@ const ALLOWED_FORWARD_HEADERS = [
 
 /** 语音响应需要透传回浏览器的响应头 */
 const VOICE_PASS_THROUGH_HEADERS = ["content-type", "content-length", "x-tt-logid", "x-request-id"];
+const PROXY_REQUEST_BODY_MAX_BYTES = 4 * 1024 * 1024;
+const PROXY_MAX_CONCURRENT_REQUESTS = readPositiveIntegerEnv(
+  "VOID_PROXY_MAX_CONCURRENT_REQUESTS",
+  8
+);
+
+let activeProxyRequests = 0;
+
+export function getProxyRuntimeStatus() {
+  return {
+    requestBodyMaxBytes: PROXY_REQUEST_BODY_MAX_BYTES,
+    maxConcurrentRequests: PROXY_MAX_CONCURRENT_REQUESTS,
+    activeRequests: activeProxyRequests
+  };
+}
 
 /** 读取完整请求体为 Buffer */
-export function readRequestBody(request: IncomingMessage): Promise<Buffer> {
+export function readRequestBody(
+  request: IncomingMessage,
+  maxBytes = PROXY_REQUEST_BODY_MAX_BYTES
+): Promise<Buffer> {
+  const declaredLength = Number(request.headers["content-length"]);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    request.resume();
+    return Promise.reject(
+      new HttpRequestError(
+        "REQUEST_BODY_TOO_LARGE",
+        `代理请求体不能超过 ${maxBytes} 字节`
+      )
+    );
+  }
+
   return new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => resolve(Buffer.concat(chunks)));
-    request.on("error", reject);
+    let receivedBytes = 0;
+    let settled = false;
+
+    const cleanup = () => {
+      request.off("data", onData);
+      request.off("end", onEnd);
+      request.off("error", onError);
+    };
+
+    const onData = (chunk: Buffer | string) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      receivedBytes += buffer.length;
+      if (receivedBytes > maxBytes) {
+        settled = true;
+        cleanup();
+        request.resume();
+        reject(
+          new HttpRequestError(
+            "REQUEST_BODY_TOO_LARGE",
+            `代理请求体不能超过 ${maxBytes} 字节`
+          )
+        );
+        return;
+      }
+      chunks.push(buffer);
+    };
+
+    const onEnd = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(Buffer.concat(chunks));
+    };
+
+    const onError = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    request.on("data", onData);
+    request.on("end", onEnd);
+    request.on("error", onError);
   });
 }
 
@@ -74,14 +149,21 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
     return;
   }
 
-  const requestBody = await readRequestBody(request);
-  const forwardedHeaders = buildForwardedHeaders(request.headers);
-  const method = request.method ?? "GET";
+  const releaseProxySlot = tryAcquireProxySlot(response);
+  if (!releaseProxySlot) {
+    return;
+  }
 
+  let clientAbort: ReturnType<typeof createClientDisconnectAbortController> | null = null;
   try {
+    const requestBody = await readRequestBody(request);
+    const forwardedHeaders = buildForwardedHeaders(request.headers);
+    const method = request.method ?? "GET";
+    clientAbort = createClientDisconnectAbortController(request, response);
     const proxyResponse = await fetch(parsedTargetUrl, {
       method,
       headers: forwardedHeaders,
+      signal: clientAbort.signal,
       // GET/HEAD 不允许携带 body（undici 会直接抛错）；模型列表拉取即 GET。
       body: method === "GET" || method === "HEAD" ? undefined : requestBody
     });
@@ -97,9 +179,18 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
     }
 
     const responseText = await proxyResponse.text();
-    response.end(responseText);
+    if (!response.destroyed && !response.writableEnded) {
+      response.end(responseText);
+    }
   } catch (error) {
+    if (isRequestBodyTooLarge(error)) {
+      respondProxyBodyTooLarge(response, error);
+      return;
+    }
     respondProxyError(response, error, parsedTargetUrl.toString(), "[void-model-proxy]");
+  } finally {
+    clientAbort?.cleanup();
+    releaseProxySlot();
   }
 }
 
@@ -113,14 +204,21 @@ export async function handleVoiceProxy(request: IncomingMessage, response: Serve
     return;
   }
 
-  const requestBody = await readRequestBody(request);
-  const forwardedHeaders = buildForwardedHeaders(request.headers);
-  const method = request.method ?? "GET";
+  const releaseProxySlot = tryAcquireProxySlot(response);
+  if (!releaseProxySlot) {
+    return;
+  }
 
+  let clientAbort: ReturnType<typeof createClientDisconnectAbortController> | null = null;
   try {
+    const requestBody = await readRequestBody(request);
+    const forwardedHeaders = buildForwardedHeaders(request.headers);
+    const method = request.method ?? "GET";
+    clientAbort = createClientDisconnectAbortController(request, response);
     const proxyResponse = await fetch(parsedTargetUrl, {
       method,
       headers: forwardedHeaders,
+      signal: clientAbort.signal,
       body: method === "GET" || method === "HEAD" ? undefined : requestBody
     });
 
@@ -128,10 +226,42 @@ export async function handleVoiceProxy(request: IncomingMessage, response: Serve
     response.setHeader("Content-Type", proxyResponse.headers.get("content-type") ?? "application/octet-stream");
     copyVoiceResponseHeaders(proxyResponse, response);
     await streamResponseBody(proxyResponse, response);
-    response.end();
+    if (!response.destroyed && !response.writableEnded) {
+      response.end();
+    }
   } catch (error) {
+    if (isRequestBodyTooLarge(error)) {
+      respondProxyBodyTooLarge(response, error);
+      return;
+    }
     respondProxyError(response, error, parsedTargetUrl.toString(), "[void-voice-proxy]");
+  } finally {
+    clientAbort?.cleanup();
+    releaseProxySlot();
   }
+}
+
+function createClientDisconnectAbortController(
+  request: IncomingMessage,
+  response: ServerResponse
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  let cleaned = false;
+  const abortUpstream = () => {
+    if (!cleaned) {
+      controller.abort();
+    }
+  };
+  request.on("aborted", abortUpstream);
+  response.on("close", abortUpstream);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      cleaned = true;
+      request.off("aborted", abortUpstream);
+      response.off("close", abortUpstream);
+    }
+  };
 }
 
 /** 解析并校验 `x-void-target-url` 目标地址；不合法时直接写回错误并返回 null */
@@ -171,22 +301,121 @@ async function streamResponseBody(proxyResponse: Response, response: ServerRespo
     return;
   }
   const reader = proxyResponse.body.getReader();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
+  try {
+    while (true) {
+      if (response.destroyed || response.writableEnded) {
+        await reader.cancel();
+        return;
+      }
+
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      if (response.destroyed || response.writableEnded) {
+        await reader.cancel();
+        return;
+      }
+
+      const canContinue = response.write(Buffer.from(value));
+      if (!canContinue) {
+        await waitForResponseDrainOrClose(response);
+      }
     }
-    response.write(Buffer.from(value));
+  } finally {
+    reader.releaseLock();
   }
+}
+
+function waitForResponseDrainOrClose(response: ServerResponse): Promise<void> {
+  if (response.destroyed || response.writableEnded) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      response.off("drain", onDrain);
+      response.off("close", onClose);
+      response.off("error", onError);
+      resolve();
+    };
+    const onDrain = () => cleanup();
+    const onClose = () => cleanup();
+    const onError = () => cleanup();
+
+    response.once("drain", onDrain);
+    response.once("close", onClose);
+    response.once("error", onError);
+  });
+}
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function tryAcquireProxySlot(response: ServerResponse): (() => void) | null {
+  if (activeProxyRequests >= PROXY_MAX_CONCURRENT_REQUESTS) {
+    respondProxyBusy(response);
+    return null;
+  }
+
+  activeProxyRequests += 1;
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    activeProxyRequests = Math.max(0, activeProxyRequests - 1);
+  };
+}
+
+function respondProxyBusy(response: ServerResponse): void {
+  if (response.destroyed || response.writableEnded) {
+    return;
+  }
+  response.statusCode = 429;
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  response.end(JSON.stringify({
+    ok: false,
+    error: {
+      code: "PROXY_BUSY",
+      message: `本地代理并发已达上限（${PROXY_MAX_CONCURRENT_REQUESTS}）`
+    }
+  }));
 }
 
 /** 统一的转发失败响应：结构化错误详情 + 502 */
 function respondProxyError(response: ServerResponse, error: unknown, targetUrl: string, logPrefix: string): void {
-  const proxyErrorDetails = buildProxyErrorDetails(error, targetUrl);
+  if (response.destroyed || response.writableEnded) {
+    return;
+  }
+  const proxyErrorDetails = buildProxyErrorDetails(error, redactProxyTargetUrl(targetUrl));
   console.error(`${logPrefix} request failed`, proxyErrorDetails);
   response.statusCode = 502;
   response.setHeader("Content-Type", "application/json");
   response.end(JSON.stringify(proxyErrorDetails));
+}
+
+function respondProxyBodyTooLarge(response: ServerResponse, error: unknown): void {
+  if (response.destroyed || response.writableEnded) {
+    return;
+  }
+  response.statusCode = 413;
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  response.end(JSON.stringify({
+    ok: false,
+    error: {
+      code: "REQUEST_BODY_TOO_LARGE",
+      message: error instanceof Error ? error.message : "代理请求体超限"
+    }
+  }));
 }
 
 function buildProxyErrorDetails(error: unknown, targetUrl: string) {
@@ -204,6 +433,16 @@ function buildProxyErrorDetails(error: unknown, targetUrl: string) {
     causeErrno: readErrorLikeField(nestedCause, "errno"),
     causeSyscall: readErrorLikeField(nestedCause, "syscall")
   };
+}
+
+function redactProxyTargetUrl(targetUrl: string): string {
+  try {
+    const parsed = new URL(targetUrl);
+    const querySuffix = parsed.search ? "?[redacted]" : "";
+    return `${parsed.origin}${parsed.pathname}${querySuffix}`;
+  } catch {
+    return "[invalid-target-url]";
+  }
 }
 
 function asErrorLike(value: unknown): Record<string, unknown> | null {

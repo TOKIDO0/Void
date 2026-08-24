@@ -100,9 +100,23 @@ export { fileDownloadMediaPageTool } from "./builtin/fileDownloadMediaPageTool";
 export { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
 export { fileVerifyTool } from "./builtin/fileVerifyTool";
 export { fileListDirectoryTool } from "./builtin/fileListDirectoryTool";
+export { fileInspectPathTool } from "./builtin/fileInspectPathTool";
+export { fileFindByNameTool } from "./builtin/fileFindByNameTool";
+export { fileListRecentArtifactsTool } from "./builtin/fileListRecentArtifactsTool";
 export { fileReadTextTool } from "./builtin/fileReadTextTool";
+export { fileSearchTextTool } from "./builtin/fileSearchTextTool";
+export { fileInspectWriteTargetTool } from "./builtin/fileInspectWriteTargetTool";
 export { fileCreateDirectoryTool } from "./builtin/fileCreateDirectoryTool";
 export { fileMoveTool } from "./builtin/fileMoveTool";
+export { fileWriteTextTool } from "./builtin/fileWriteTextTool";
+export { securityInspectLocalRuntimeTool } from "./builtin/securityInspectLocalRuntimeTool";
+export { agentInspectCapabilitiesTool } from "./builtin/agentInspectCapabilitiesTool";
+export { agentPlanTaskRouteTool } from "./builtin/agentPlanTaskRouteTool";
+export { agentInspectToolContractTool } from "./builtin/agentInspectToolContractTool";
+export { agentInspectExtensionPolicyTool } from "./builtin/agentInspectExtensionPolicyTool";
+export { agentInspectSafetyHooksTool } from "./builtin/agentInspectSafetyHooksTool";
+export { agentInspectPrivacyBoundariesTool } from "./builtin/agentInspectPrivacyBoundariesTool";
+export { agentInspectTaskPlaybooksTool } from "./builtin/agentInspectTaskPlaybooksTool";
 export { clipboardReadTool } from "./builtin/clipboardReadTool";
 export { clipboardWriteTool } from "./builtin/clipboardWriteTool";
 export { desktopRevealPathTool } from "./builtin/desktopRevealPathTool";
@@ -127,6 +141,62 @@ export type {
   FileVerifyToolInput,
   FileVerifyToolOutput
 } from "./builtin/fileVerifyTool";
+export type {
+  FileListRecentArtifactsToolInput,
+  FileListRecentArtifactsToolOutput
+} from "./builtin/fileListRecentArtifactsTool";
+export type {
+  FileInspectPathToolInput,
+  FileInspectPathToolOutput
+} from "./builtin/fileInspectPathTool";
+export type {
+  FileFindByNameToolInput,
+  FileFindByNameToolOutput
+} from "./builtin/fileFindByNameTool";
+export type {
+  FileWriteTextToolInput,
+  FileWriteTextToolOutput
+} from "./builtin/fileWriteTextTool";
+export type {
+  FileSearchTextToolInput,
+  FileSearchTextToolOutput
+} from "./builtin/fileSearchTextTool";
+export type {
+  FileInspectWriteTargetToolInput,
+  FileInspectWriteTargetToolOutput
+} from "./builtin/fileInspectWriteTargetTool";
+export type {
+  SecurityInspectLocalRuntimeToolInput,
+  SecurityInspectLocalRuntimeToolOutput
+} from "./builtin/securityInspectLocalRuntimeTool";
+export type {
+  AgentInspectCapabilitiesToolInput,
+  AgentInspectCapabilitiesToolOutput
+} from "./builtin/agentInspectCapabilitiesTool";
+export type {
+  AgentPlanTaskRouteToolInput,
+  AgentPlanTaskRouteToolOutput
+} from "./builtin/agentPlanTaskRouteTool";
+export type {
+  AgentInspectToolContractToolInput,
+  AgentInspectToolContractToolOutput
+} from "./builtin/agentInspectToolContractTool";
+export type {
+  AgentInspectExtensionPolicyToolInput,
+  AgentInspectExtensionPolicyToolOutput
+} from "./builtin/agentInspectExtensionPolicyTool";
+export type {
+  AgentInspectSafetyHooksToolInput,
+  AgentInspectSafetyHooksToolOutput
+} from "./builtin/agentInspectSafetyHooksTool";
+export type {
+  AgentInspectPrivacyBoundariesToolInput,
+  AgentInspectPrivacyBoundariesToolOutput
+} from "./builtin/agentInspectPrivacyBoundariesTool";
+export type {
+  AgentInspectTaskPlaybooksToolInput,
+  AgentInspectTaskPlaybooksToolOutput
+} from "./builtin/agentInspectTaskPlaybooksTool";
 export type {
   ClipboardReadToolInput,
   ClipboardReadToolOutput

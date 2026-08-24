@@ -22,7 +22,10 @@ export function sanitizeForAudit(
   }
 
   if (typeof value === "string") {
-    return looksLikeSecret(value) ? REDACTED : clipString(value, 500);
+    if (looksLikeSecret(value)) {
+      return REDACTED;
+    }
+    return clipString(redactUrlForAudit(value), 500);
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
@@ -70,6 +73,25 @@ function looksLikeSecret(value: string) {
     return true;
   }
   return false;
+}
+
+function redactUrlForAudit(value: string): string {
+  const trimmed = value.trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return value;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return value;
+    }
+    const querySuffix = parsed.search ? "?[redacted]" : "";
+    const hashSuffix = parsed.hash ? "#[redacted]" : "";
+    return `${parsed.origin}${parsed.pathname}${querySuffix}${hashSuffix}`;
+  } catch {
+    return value;
+  }
 }
 
 function clipString(value: string, maxLength: number) {

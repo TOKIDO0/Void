@@ -1,4 +1,5 @@
 import { createProxyUnavailableError } from "../../lib/model-providers/providerErrors";
+import { bridgeAuthHeadersForUrl } from "../../lib/runtime/voidBridgeAuth";
 import { isTauriRuntime, resolveBridgeHttpUrl } from "../../lib/runtime/voidBridgeRuntime";
 import type { VoiceRequestMode } from "./voiceProviderConfig";
 
@@ -49,12 +50,14 @@ export function buildVoiceFetchTarget(endpointUrl: string, requestMode: VoiceReq
 
 export async function fetchVoiceWithProxy(target: VoiceFetchTarget, init: RequestInit) {
   try {
+    const authHeaders = isTauriRuntime() ? await bridgeAuthHeadersForUrl(target.url) : {};
     return await fetch(target.url, {
       ...init,
       signal: init.signal,
       headers: {
         ...(init.headers as Record<string, string> | undefined),
-        ...target.headers
+        ...target.headers,
+        ...authHeaders
       }
     });
   } catch (error) {

@@ -13,6 +13,7 @@ export function createBrowserError(
     | "NAVIGATION_FAILED"
     | "PARSE_FAILED"
     | "BROWSER_UNAVAILABLE"
+    | "RESOURCE_LIMIT"
     | "TIMEOUT"
     | "INTERNAL_ERROR",
   message: string,

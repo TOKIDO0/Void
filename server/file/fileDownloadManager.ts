@@ -6,7 +6,9 @@
 import {
   createWriteStream,
   existsSync,
+  lstatSync,
   mkdirSync,
+  realpathSync,
   renameSync,
   statSync,
   unlinkSync
@@ -18,8 +20,10 @@ import {
   assertAllowedDestinationDirectory,
   createFileError,
   ensureRuntimeDirectories,
+  isPathInsideRoot,
   resolveDownloadTempRoot
 } from "./fileRuntimePaths";
+import { fetchWithPublicDownloadGuard } from "./httpDownloadSafety";
 import { assertAllowedFilePath } from "./filePathPolicy";
 import type {
   FileDownloadToTempData,
@@ -196,6 +200,7 @@ export class FileDownloadManager {
     taskId: string;
     url: string;
     suggestedFileName?: string;
+    signal?: AbortSignal;
   }): Promise<FileDownloadToTempData> {
     const taskId = input.taskId.trim();
     if (!taskId) {
@@ -206,16 +211,19 @@ export class FileDownloadManager {
     const tempDir = taskTempDirectory(taskId);
 
     let response: Response;
+    let finalUrl = url;
     try {
-      response = await fetch(url, {
-        method: "GET",
-        redirect: "follow",
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        }
-      });
+      const fetched = await fetchWithPublicDownloadGuard(url, { signal: input.signal });
+      response = fetched.response;
+      finalUrl = fetched.finalUrl;
     } catch (error) {
+      if (
+        typeof error === "object"
+        && error !== null
+        && "fileCode" in error
+      ) {
+        throw error;
+      }
       throw createFileError(
         "DOWNLOAD_FAILED",
         error instanceof Error ? `下载失败：${error.message}` : "下载失败",
@@ -227,7 +235,7 @@ export class FileDownloadManager {
       throw createFileError(
         "DOWNLOAD_FAILED",
         `下载 HTTP ${response.status}`,
-        { url, status: response.status }
+        { url: finalUrl, status: response.status }
       );
     }
 
@@ -250,12 +258,12 @@ export class FileDownloadManager {
     const fileName = sanitizeFileName(
       input.suggestedFileName?.trim()
       || fromHeader
-      || guessFileNameFromUrl(url)
+      || guessFileNameFromUrl(finalUrl)
     );
     const tempPath = join(tempDir, `${Date.now()}_${fileName}`);
 
     if (!response.body) {
-      throw createFileError("DOWNLOAD_FAILED", "响应无正文", { url });
+      throw createFileError("DOWNLOAD_FAILED", "响应无正文", { url: finalUrl });
     }
 
     const nodeStream = Readable.fromWeb(response.body as import("node:stream/web").ReadableStream);
@@ -266,13 +274,13 @@ export class FileDownloadManager {
         nodeStream.destroy(createFileError(
           "DOWNLOAD_FAILED",
           `下载中止：超过大小上限 ${MAX_DOWNLOAD_BYTES} bytes`,
-          { url }
+          { url: finalUrl }
         ));
       }
     });
 
     try {
-      await pipeline(nodeStream, createWriteStream(tempPath));
+      await pipeline(nodeStream, createWriteStream(tempPath), { signal: input.signal });
     } catch (error) {
       if (existsSync(tempPath)) {
         try {
@@ -291,14 +299,14 @@ export class FileDownloadManager {
       throw createFileError(
         "DOWNLOAD_FAILED",
         error instanceof Error ? error.message : "写入临时文件失败",
-        { url }
+        { url: finalUrl }
       );
     }
 
     const stat = statSync(tempPath);
     return {
       taskId,
-      url,
+      url: finalUrl,
       tempPath,
       fileName,
       bytes: stat.size,
@@ -329,12 +337,24 @@ export class FileDownloadManager {
       throw createFileError("FILE_NOT_FOUND", `临时文件不存在：${tempPath}`);
     }
 
-    // 临时文件必须在 downloads-temp 下，防止把任意路径当下载源移动
+    // 临时文件必须在 downloads-temp 下，防止把任意路径当下载源移动。
     const tempRoot = resolve(resolveDownloadTempRoot());
-    if (!tempPath.startsWith(tempRoot)) {
+    if (!isPathInsideRoot(tempPath, tempRoot)) {
       throw createFileError(
         "PATH_NOT_ALLOWED",
         `临时路径不在允许的 temp 目录：${tempPath}`,
+        { tempRoot }
+      );
+    }
+    const tempStat = lstatSync(tempPath);
+    if (!tempStat.isFile() || tempStat.isSymbolicLink()) {
+      throw createFileError("INVALID_REQUEST", `临时路径不是普通文件：${tempPath}`);
+    }
+    const realTempPath = realpathSync(tempPath);
+    if (!isPathInsideRoot(realTempPath, tempRoot)) {
+      throw createFileError(
+        "PATH_NOT_ALLOWED",
+        `临时文件真实路径不在允许的 temp 目录：${realTempPath}`,
         { tempRoot }
       );
     }
@@ -373,7 +393,7 @@ export class FileDownloadManager {
     }
 
     try {
-      renameSync(tempPath, finalPath);
+      renameSync(realTempPath, finalPath);
     } catch {
       // 跨盘符时 rename 可能失败：读改写不在此阶段引入；明确报错
       throw createFileError(

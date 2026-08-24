@@ -1,13 +1,44 @@
-import { existsSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, parse } from "node:path";
 import { assertAllowedFilePath } from "./filePathPolicy";
 import { createFileError } from "./fileRuntimePaths";
 import { guessMediaKind } from "./fileDownloadManager";
 import type {
   FileCreateDirectoryData,
+  FileInspectWriteTargetData,
   FileMoveData,
+  FileWriteTextData,
   MoveConflictPolicy
 } from "./fileTypes";
+import type { TextWriteConflictPolicy } from "./fileTypes";
+
+const MAX_TEXT_WRITE_CHARACTERS = 200_000;
+const MAX_TEXT_WRITE_BYTES = 512 * 1024;
+const TEXT_FILE_EXTENSIONS = new Set([
+  ".txt",
+  ".md",
+  ".markdown",
+  ".json",
+  ".jsonl",
+  ".csv",
+  ".tsv",
+  ".log",
+  ".html",
+  ".htm",
+  ".css",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  ".sql",
+  ".xml",
+  ".svg",
+  ".yaml",
+  ".yml"
+]);
 
 function sameVolume(sourcePath: string, destinationPath: string): boolean {
   const sourceRoot = parse(sourcePath).root;
@@ -31,6 +62,36 @@ function resolveRenameConflict(destinationPath: string): string {
     }
   }
   throw createFileError("MOVE_FAILED", "无法生成不冲突的目标名称");
+}
+
+function assertTextLikePath(pathValue: string): void {
+  const extension = extname(pathValue).toLowerCase();
+  if (!TEXT_FILE_EXTENSIONS.has(extension)) {
+    throw createFileError(
+      "INVALID_REQUEST",
+      `文本写入只支持常见文本扩展名：${Array.from(TEXT_FILE_EXTENSIONS).join(", ")}`
+    );
+  }
+}
+
+function assertTextWriteContent(content: string): Buffer {
+  if (content.length > MAX_TEXT_WRITE_CHARACTERS) {
+    throw createFileError(
+      "FILE_TOO_LARGE",
+      `文本内容不能超过 ${MAX_TEXT_WRITE_CHARACTERS} 字符`
+    );
+  }
+  if (content.includes("\0")) {
+    throw createFileError("BINARY_FILE", "文本写入拒绝包含 NUL 字符的内容");
+  }
+  const buffer = Buffer.from(content, "utf8");
+  if (buffer.byteLength > MAX_TEXT_WRITE_BYTES) {
+    throw createFileError(
+      "FILE_TOO_LARGE",
+      `文本内容不能超过 ${MAX_TEXT_WRITE_BYTES} bytes`
+    );
+  }
+  return buffer;
 }
 
 export class FileMutationManager {
@@ -93,6 +154,140 @@ export class FileMutationManager {
       conflictPolicy,
       renamedForConflict,
       movedAt: Date.now()
+    };
+  }
+
+  writeText(
+    pathValue: string,
+    content: string,
+    conflictPolicy: TextWriteConflictPolicy
+  ): FileWriteTextData {
+    let destinationPath = assertAllowedFilePath(pathValue, { mustExist: false });
+    assertTextLikePath(destinationPath);
+
+    const destinationParent = assertAllowedFilePath(dirname(destinationPath));
+    if (!statSync(destinationParent).isDirectory()) {
+      throw createFileError("INVALID_REQUEST", `目标父路径不是目录：${destinationParent}`);
+    }
+
+    const buffer = assertTextWriteContent(content);
+    let created = true;
+    let overwritten = false;
+    let renamedForConflict = false;
+
+    if (existsSync(destinationPath)) {
+      const existingStat = statSync(destinationPath);
+      if (!existingStat.isFile()) {
+        throw createFileError("INVALID_REQUEST", `目标路径不是文件：${destinationPath}`);
+      }
+      if (conflictPolicy === "refuse") {
+        throw createFileError("DESTINATION_EXISTS", `目标文件已存在：${destinationPath}`);
+      }
+      if (conflictPolicy === "rename") {
+        destinationPath = resolveRenameConflict(destinationPath);
+        renamedForConflict = true;
+      } else {
+        created = false;
+        overwritten = true;
+      }
+    }
+
+    try {
+      writeFileSync(destinationPath, buffer, { flag: overwritten ? "w" : "wx" });
+    } catch (error) {
+      throw createFileError(
+        "WRITE_FAILED",
+        error instanceof Error ? error.message : "文本写入失败",
+        { destinationPath }
+      );
+    }
+
+    return {
+      path: destinationPath,
+      fileName: basename(destinationPath),
+      bytes: buffer.byteLength,
+      characters: content.length,
+      conflictPolicy,
+      created,
+      overwritten,
+      renamedForConflict,
+      writtenAt: Date.now()
+    };
+  }
+
+  inspectTextWriteTarget(
+    pathValue: string,
+    conflictPolicy: TextWriteConflictPolicy
+  ): FileInspectWriteTargetData {
+    const destinationPath = assertAllowedFilePath(pathValue, { mustExist: false });
+    assertTextLikePath(destinationPath);
+
+    const destinationParent = assertAllowedFilePath(dirname(destinationPath));
+    if (!statSync(destinationParent).isDirectory()) {
+      throw createFileError("INVALID_REQUEST", `目标父路径不是目录：${destinationParent}`);
+    }
+
+    const extension = extname(destinationPath).toLowerCase();
+    const targetExists = existsSync(destinationPath);
+    let targetKind: FileInspectWriteTargetData["targetKind"] = "missing";
+    let targetBytes: number | undefined;
+    let resolvedPath = destinationPath;
+    let wouldCreate = true;
+    let wouldOverwrite = false;
+    let wouldRename = false;
+    let writable = true;
+    let blockingCode: FileInspectWriteTargetData["blockingCode"];
+    let blockingReason: string | undefined;
+
+    if (targetExists) {
+      const targetStat = statSync(destinationPath);
+      if (targetStat.isFile()) {
+        targetKind = "file";
+        targetBytes = targetStat.size;
+        if (conflictPolicy === "refuse") {
+          writable = false;
+          blockingCode = "DESTINATION_EXISTS";
+          blockingReason = `目标文件已存在：${destinationPath}`;
+        } else if (conflictPolicy === "rename") {
+          resolvedPath = resolveRenameConflict(destinationPath);
+          wouldRename = true;
+        } else {
+          wouldCreate = false;
+          wouldOverwrite = true;
+        }
+      } else if (targetStat.isDirectory()) {
+        targetKind = "directory";
+        writable = false;
+        blockingCode = "INVALID_REQUEST";
+        blockingReason = `目标路径是目录，不是文件：${destinationPath}`;
+      } else {
+        targetKind = "other";
+        writable = false;
+        blockingCode = "INVALID_REQUEST";
+        blockingReason = `目标路径不是普通文件：${destinationPath}`;
+      }
+    }
+
+    return {
+      status: "ok",
+      path: destinationPath,
+      fileName: basename(destinationPath),
+      parentPath: destinationParent,
+      extension,
+      conflictPolicy,
+      targetExists,
+      targetKind,
+      targetBytes,
+      resolvedPath,
+      resolvedFileName: basename(resolvedPath),
+      wouldCreate,
+      wouldOverwrite,
+      wouldRename,
+      writable,
+      blockingCode,
+      blockingReason,
+      requiresConfirmation: true,
+      inspectedAt: Date.now()
     };
   }
 }

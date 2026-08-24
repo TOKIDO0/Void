@@ -3,6 +3,8 @@
  * 前端工具只调这里；下载 URL 永不由模型直接传入 download。
  */
 
+import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
+
 const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
 
 function resolveBridgeOrigin(): string {
@@ -89,9 +91,10 @@ async function postSoftwareApi<T>(
 
   let response: Response;
   try {
+    const authHeaders = await bridgeAuthHeadersForUrl(url);
     response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(body),
       signal: timeoutController.signal
     });

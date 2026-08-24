@@ -51,6 +51,13 @@ export function mapFileErrorToToolError(error: unknown): ToolError {
         withKind("path_not_allowed", info.details),
         false
       );
+    case "DOWNLOAD_BLOCKED":
+      return createToolError(
+        "PERMISSION_DENIED",
+        info.message,
+        withKind("download_blocked", info.details),
+        false
+      );
     case "OVERWRITE_REFUSED":
       return createToolError(
         "PERMISSION_DENIED",
@@ -68,6 +75,7 @@ export function mapFileErrorToToolError(error: unknown): ToolError {
     case "FILE_TOO_LARGE":
     case "INVALID_UTF8":
     case "BINARY_FILE":
+    case "UNSUPPORTED_DOCUMENT":
       return createToolError(
         "EXECUTION_FAILED",
         info.message,
@@ -137,6 +145,13 @@ export function mapFileErrorToToolError(error: unknown): ToolError {
         "EXECUTION_FAILED",
         info.message,
         withKind("move_failed", info.details),
+        false
+      );
+    case "WRITE_FAILED":
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withKind("write_failed", info.details),
         false
       );
     case "VERIFY_FAILED":

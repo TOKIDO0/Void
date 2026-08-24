@@ -23,12 +23,26 @@ import { fileDownloadMediaPageTool } from "./builtin/fileDownloadMediaPageTool";
 import { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
 import { fileVerifyTool } from "./builtin/fileVerifyTool";
 import { fileListDirectoryTool } from "./builtin/fileListDirectoryTool";
+import { fileInspectPathTool } from "./builtin/fileInspectPathTool";
+import { fileFindByNameTool } from "./builtin/fileFindByNameTool";
+import { fileListRecentArtifactsTool } from "./builtin/fileListRecentArtifactsTool";
 import { fileReadTextTool } from "./builtin/fileReadTextTool";
+import { fileSearchTextTool } from "./builtin/fileSearchTextTool";
+import { fileInspectWriteTargetTool } from "./builtin/fileInspectWriteTargetTool";
 import { fileCreateDirectoryTool } from "./builtin/fileCreateDirectoryTool";
 import { fileMoveTool } from "./builtin/fileMoveTool";
+import { fileWriteTextTool } from "./builtin/fileWriteTextTool";
+import { securityInspectLocalRuntimeTool } from "./builtin/securityInspectLocalRuntimeTool";
 import { softwareListSupportedTool } from "./builtin/softwareListSupportedTool";
 import { softwareResolveInstallerTool } from "./builtin/softwareResolveInstallerTool";
 import { softwareDownloadInstallerTool } from "./builtin/softwareDownloadInstallerTool";
+import { agentInspectCapabilitiesTool } from "./builtin/agentInspectCapabilitiesTool";
+import { agentPlanTaskRouteTool } from "./builtin/agentPlanTaskRouteTool";
+import { agentInspectToolContractTool } from "./builtin/agentInspectToolContractTool";
+import { agentInspectExtensionPolicyTool } from "./builtin/agentInspectExtensionPolicyTool";
+import { agentInspectSafetyHooksTool } from "./builtin/agentInspectSafetyHooksTool";
+import { agentInspectPrivacyBoundariesTool } from "./builtin/agentInspectPrivacyBoundariesTool";
+import { agentInspectTaskPlaybooksTool } from "./builtin/agentInspectTaskPlaybooksTool";
 import { hasTool, registerTool } from "./toolRegistry";
 
 /**
@@ -60,12 +74,26 @@ export function registerBuiltinTools() {
     filePlaceDownloadTool,
     fileVerifyTool,
     fileListDirectoryTool,
+    fileInspectPathTool,
+    fileFindByNameTool,
+    fileListRecentArtifactsTool,
     fileReadTextTool,
+    fileSearchTextTool,
+    fileInspectWriteTargetTool,
     fileCreateDirectoryTool,
     fileMoveTool,
+    fileWriteTextTool,
+    securityInspectLocalRuntimeTool,
     softwareListSupportedTool,
     softwareResolveInstallerTool,
-    softwareDownloadInstallerTool
+    softwareDownloadInstallerTool,
+    agentInspectCapabilitiesTool,
+    agentPlanTaskRouteTool,
+    agentInspectToolContractTool,
+    agentInspectExtensionPolicyTool,
+    agentInspectSafetyHooksTool,
+    agentInspectPrivacyBoundariesTool,
+    agentInspectTaskPlaybooksTool
   ] as const;
 
   for (const tool of tools) {

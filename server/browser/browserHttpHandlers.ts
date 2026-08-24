@@ -91,9 +91,11 @@ async function withBrowserHandler<T>(
         ? 400
         : payloadError.code === "SESSION_NOT_FOUND" || payloadError.code === "PAGE_NOT_FOUND"
           ? 404
-          : payloadError.code === "BROWSER_UNAVAILABLE"
-            ? 503
-            : 500;
+          : payloadError.code === "RESOURCE_LIMIT"
+            ? 429
+            : payloadError.code === "BROWSER_UNAVAILABLE"
+              ? 503
+              : 500;
     const payload: BrowserApiResponse<never> = {
       ok: false,
       error: payloadError

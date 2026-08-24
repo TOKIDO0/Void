@@ -55,6 +55,17 @@ function collectIssues(
     return;
   }
 
+  if (schema.anyOf?.length) {
+    const anyBranchValid = schema.anyOf.some((branch) => {
+      const branchIssues: SchemaValidationIssue[] = [];
+      collectIssues(branch, value, path, branchIssues);
+      return branchIssues.length === 0;
+    });
+    if (!anyBranchValid) {
+      issues.push({ path, message: "至少需要满足一个 anyOf 条件" });
+    }
+  }
+
   if (typeof value === "string") {
     if (typeof schema.minLength === "number" && value.length < schema.minLength) {
       issues.push({ path, message: `字符串长度不得小于 ${schema.minLength}` });
@@ -87,7 +98,12 @@ function collectIssues(
     }
   }
 
-  if (schema.type === "object" || (schema.properties && isPlainObject(value))) {
+  if (
+    schema.type === "object"
+    || schema.properties
+    || schema.required
+    || schema.additionalProperties !== undefined
+  ) {
     if (!isPlainObject(value)) {
       issues.push({ path, message: "期望对象" });
       return;

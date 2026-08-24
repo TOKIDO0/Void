@@ -3,6 +3,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { join } from "node:path";
 import {
   isInvalidJsonBody,
   isRequestBodyTooLarge,
@@ -12,21 +13,32 @@ import { fileDownloadManager } from "./fileDownloadManager";
 import { mediaPageDownloadManager } from "./mediaPageDownloadManager";
 import { fileAccessManager } from "./fileAccessManager";
 import { fileMutationManager } from "./fileMutationManager";
-import { getFileErrorPayload } from "./fileRuntimePaths";
+import { getFileErrorPayload, resolveDownloadFinalRoot } from "./fileRuntimePaths";
 import type {
   FileApiResponse,
   FileDownloadToTempData,
   FileDownloadMediaPageData,
+  FileFindByNameData,
+  FileFindByNameRequest,
+  FileInspectPathData,
+  FileInspectWriteTargetData,
   FileListDirectoryData,
+  FileListRecentArtifactsData,
   FileCreateDirectoryData,
   FileMoveData,
   FilePlaceDownloadData,
   FileReadTextData,
+  FileSearchTextData,
   FileVerifyData,
+  FileWriteTextData,
+  TextWriteConflictPolicy,
   OverwritePolicy
 } from "./fileTypes";
 
 function sendJson(response: ServerResponse, status: number, body: unknown) {
+  if (response.destroyed || response.writableEnded) {
+    return;
+  }
   response.statusCode = status;
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.end(JSON.stringify(body));
@@ -46,6 +58,109 @@ function readString(record: Record<string, unknown>, key: string): string | unde
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readRawString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readOptionalNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw createInvalidFileRequest(`${key} 必须是数字`);
+  }
+  return value;
+}
+
+function readOptionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw createInvalidFileRequest(`${key} 必须是布尔值`);
+  }
+  return value;
+}
+
+function readOptionalStringArray(record: Record<string, unknown>, key: string): string[] | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw createInvalidFileRequest(`${key} 必须是字符串数组`);
+  }
+  return value;
+}
+
+function createInvalidFileRequest(message: string) {
+  return Object.assign(new Error(message), { fileCode: "INVALID_REQUEST" });
+}
+
+function readSafeDefaultFileName(record: Record<string, unknown>): string | undefined {
+  const fileName = readString(record, "fileName");
+  if (!fileName) {
+    return undefined;
+  }
+
+  if (
+    fileName.includes("/")
+    || fileName.includes("\\")
+    || /[<>:"|?*\x00-\x1F]/.test(fileName)
+    || /[ .]$/.test(fileName)
+    || fileName === "."
+    || fileName === ".."
+  ) {
+    throw createInvalidFileRequest(`fileName 只能是普通文件名，不能包含路径或非法字符：${fileName}`);
+  }
+
+  const reservedName = fileName.split(".")[0].toUpperCase();
+  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(reservedName)) {
+    throw createInvalidFileRequest(`fileName 不能使用 Windows 保留名：${fileName}`);
+  }
+
+  return fileName;
+}
+
+function resolveTextWritePath(record: Record<string, unknown>): string {
+  const path = readString(record, "path");
+  const fileName = readSafeDefaultFileName(record);
+  if (path && fileName) {
+    throw createInvalidFileRequest("path 与 fileName 只能提供一个");
+  }
+  if (path) {
+    return path;
+  }
+  if (fileName) {
+    return join(resolveDownloadFinalRoot(), fileName);
+  }
+  throw createInvalidFileRequest("缺少 path 或 fileName");
+}
+
+function createRequestAbortSignal(
+  request: IncomingMessage,
+  response: ServerResponse
+): AbortSignal {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort();
+    }
+  };
+
+  request.once("aborted", abort);
+  response.once("close", () => {
+    if (!response.writableEnded) {
+      abort();
+    }
+  });
+
+  return controller.signal;
 }
 
 async function withFileHandler<T>(
@@ -72,30 +187,40 @@ async function withFileHandler<T>(
       return;
     }
     const payloadError = getFileErrorPayload(error);
-    const status =
-      payloadError.code === "INVALID_REQUEST"
-      || payloadError.code === "MEDIA_HOST_NOT_ALLOWED"
-      || payloadError.code === "CROSS_DEVICE_MOVE"
-        ? 400
-        : payloadError.code === "PATH_NOT_ALLOWED" || payloadError.code === "OVERWRITE_REFUSED"
-          ? 403
-        : payloadError.code === "FILE_NOT_FOUND"
-          ? 404
-          : payloadError.code === "FILE_TOO_LARGE"
-            ? 413
-            : payloadError.code === "INVALID_UTF8" || payloadError.code === "BINARY_FILE"
-              ? 415
-              : payloadError.code === "DESTINATION_EXISTS"
-                ? 409
-                : payloadError.code === "YTDLP_NOT_FOUND"
-                || payloadError.code === "FFMPEG_NOT_FOUND"
-                  ? 503
-            : 500;
+    const status = resolveFileErrorStatus(payloadError.code);
     const payload: FileApiResponse<never> = {
       ok: false,
       error: payloadError
     };
     sendJson(response, status, payload);
+  }
+}
+
+function resolveFileErrorStatus(code: string): number {
+  switch (code) {
+    case "INVALID_REQUEST":
+    case "MEDIA_HOST_NOT_ALLOWED":
+    case "CROSS_DEVICE_MOVE":
+      return 400;
+    case "DOWNLOAD_BLOCKED":
+    case "PATH_NOT_ALLOWED":
+    case "OVERWRITE_REFUSED":
+      return 403;
+    case "FILE_NOT_FOUND":
+      return 404;
+    case "DESTINATION_EXISTS":
+      return 409;
+    case "FILE_TOO_LARGE":
+      return 413;
+    case "INVALID_UTF8":
+    case "BINARY_FILE":
+    case "UNSUPPORTED_DOCUMENT":
+      return 415;
+    case "YTDLP_NOT_FOUND":
+    case "FFMPEG_NOT_FOUND":
+      return 503;
+    default:
+      return 500;
   }
 }
 
@@ -106,6 +231,28 @@ function parseOverwritePolicy(value: unknown): OverwritePolicy {
   throw Object.assign(new Error("overwritePolicy 必须是 refuse | overwrite | rename"), {
     fileCode: "INVALID_REQUEST"
   });
+}
+
+function parseTextWriteConflictPolicy(value: unknown): TextWriteConflictPolicy {
+  if (value === "refuse" || value === "overwrite" || value === "rename") {
+    return value;
+  }
+  throw Object.assign(new Error("conflictPolicy 必须是 refuse | overwrite | rename"), {
+    fileCode: "INVALID_REQUEST"
+  });
+}
+
+function readOptionalFindByNameKind(
+  record: Record<string, unknown>
+): FileFindByNameRequest["kind"] | undefined {
+  const value = record.kind;
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "any" || value === "file" || value === "directory") {
+    return value;
+  }
+  throw createInvalidFileRequest("kind 必须是 any | file | directory");
 }
 
 /**
@@ -144,7 +291,8 @@ export async function handleFileHttpRequest(
       return fileDownloadManager.downloadToTemp({
         taskId,
         url,
-        suggestedFileName: readString(body, "suggestedFileName")
+        suggestedFileName: readString(body, "suggestedFileName"),
+        signal: createRequestAbortSignal(request, response)
       });
     });
     return true;
@@ -213,6 +361,26 @@ export async function handleFileHttpRequest(
     return true;
   }
 
+  if (pathname === "/void-file/inspect-path") {
+    await withFileHandler<FileInspectPathData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const path = readString(body, "path");
+      if (!path) {
+        throw Object.assign(new Error("缺少 path"), { fileCode: "INVALID_REQUEST" });
+      }
+      return fileAccessManager.inspectPath(path);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/list-recent-artifacts") {
+    await withFileHandler<FileListRecentArtifactsData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      return fileAccessManager.listRecentArtifacts(readOptionalNumber(body, "limit"));
+    });
+    return true;
+  }
+
   if (pathname === "/void-file/read-text") {
     await withFileHandler<FileReadTextData>(response, async () => {
       const body = asRecord(await readJsonBody(request));
@@ -221,6 +389,52 @@ export async function handleFileHttpRequest(
         throw Object.assign(new Error("缺少 path"), { fileCode: "INVALID_REQUEST" });
       }
       return fileAccessManager.readText(path);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/search-text") {
+    await withFileHandler<FileSearchTextData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const path = readString(body, "path");
+      const query = readString(body, "query");
+      if (!path || !query) {
+        throw Object.assign(new Error("缺少 path 或 query"), { fileCode: "INVALID_REQUEST" });
+      }
+      return fileAccessManager.searchText(
+        {
+          path,
+          query,
+          caseSensitive: readOptionalBoolean(body, "caseSensitive"),
+          maxResults: readOptionalNumber(body, "maxResults"),
+          maxDepth: readOptionalNumber(body, "maxDepth"),
+          extensions: readOptionalStringArray(body, "extensions")
+        },
+        createRequestAbortSignal(request, response)
+      );
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/find-by-name") {
+    await withFileHandler<FileFindByNameData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const path = readString(body, "path");
+      const query = readString(body, "query");
+      if (!path || !query) {
+        throw Object.assign(new Error("缺少 path 或 query"), { fileCode: "INVALID_REQUEST" });
+      }
+      return fileAccessManager.findByName(
+        {
+          path,
+          query,
+          caseSensitive: readOptionalBoolean(body, "caseSensitive"),
+          maxResults: readOptionalNumber(body, "maxResults"),
+          maxDepth: readOptionalNumber(body, "maxDepth"),
+          kind: readOptionalFindByNameKind(body)
+        },
+        createRequestAbortSignal(request, response)
+      );
     });
     return true;
   }
@@ -249,6 +463,39 @@ export async function handleFileHttpRequest(
         });
       }
       return fileMutationManager.move(sourcePath, destinationPath, conflictPolicy);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/write-text") {
+    await withFileHandler<FileWriteTextData>(response, async () => {
+      const body = asRecord(await readJsonBody(request, 768 * 1024));
+      const path = resolveTextWritePath(body);
+      const content = readRawString(body, "content");
+      if (content === undefined) {
+        throw createInvalidFileRequest("缺少 content");
+      }
+      return fileMutationManager.writeText(
+        path,
+        content,
+        body.conflictPolicy === undefined
+          ? "refuse"
+          : parseTextWriteConflictPolicy(body.conflictPolicy)
+      );
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/inspect-write-target") {
+    await withFileHandler<FileInspectWriteTargetData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const path = resolveTextWritePath(body);
+      return fileMutationManager.inspectTextWriteTarget(
+        path,
+        body.conflictPolicy === undefined
+          ? "refuse"
+          : parseTextWriteConflictPolicy(body.conflictPolicy)
+      );
     });
     return true;
   }

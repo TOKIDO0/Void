@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -19,6 +20,50 @@ function expectFileError(work, expectedCode) {
   throw new Error(`预期失败 ${expectedCode}，实际成功`);
 }
 
+async function expectFileErrorAsync(work, expectedCode) {
+  try {
+    await work();
+  } catch (error) {
+    assert(error?.fileCode === expectedCode, `期望 ${expectedCode}，实际 ${error?.fileCode}`);
+    return;
+  }
+  throw new Error(`预期失败 ${expectedCode}，实际成功`);
+}
+
+async function startDownloadFixtureServer() {
+  const server = createServer((request, response) => {
+    if (request.url === "/redirect.txt") {
+      response.statusCode = 302;
+      response.setHeader("Location", "/sample.txt");
+      response.end();
+      return;
+    }
+    response.statusCode = 200;
+    response.setHeader("Content-Type", "text/plain; charset=utf-8");
+    response.end("download safety sample");
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert(address && typeof address === "object", "下载 fixture server 未拿到端口");
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    port: address.port,
+    close: () => new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    })
+  };
+}
+
 async function main() {
   const runtimeRoot = mkdtempSync(path.join(os.tmpdir(), "void-file-mutation-root-"));
   const outsideRoot = mkdtempSync(path.join(os.tmpdir(), "void-file-mutation-outside-"));
@@ -35,6 +80,12 @@ async function main() {
     );
     const { fileDownloadManager } = await import(
       pathToFileURL(path.join(projectRoot, "server/file/fileDownloadManager.ts")).href
+    );
+    const { fileAccessManager } = await import(
+      pathToFileURL(path.join(projectRoot, "server/file/fileAccessManager.ts")).href
+    );
+    const { fetchWithPublicDownloadGuard } = await import(
+      pathToFileURL(path.join(projectRoot, "server/file/httpDownloadSafety.ts")).href
     );
 
     const workspace = path.join(runtimeRoot, "workspace");
@@ -66,6 +117,181 @@ async function main() {
     assert(renamed.renamedForConflict && existsSync(renamed.destinationPath), "rename 策略应生成新目标");
     assert(existsSync(conflictTarget), "rename 策略不得覆盖原目标");
 
+    const newWriteTarget = path.join(workspace, "write-preview-new.md");
+    const newWriteTargetInspection = fileMutationManager.inspectTextWriteTarget(newWriteTarget, "refuse");
+    assert(newWriteTargetInspection.writable, "新文本文件预检应允许写入");
+    assert(newWriteTargetInspection.wouldCreate, "新文本文件预检应标记为将创建");
+    assert(!newWriteTargetInspection.targetExists, "新文本文件预检应识别目标不存在");
+    assert(newWriteTargetInspection.resolvedPath === newWriteTarget, "新文本文件预检不应改写目标路径");
+    assert(!existsSync(newWriteTarget), "写入目标预检不得创建新文件");
+
+    const refuseWriteTargetInspection = fileMutationManager.inspectTextWriteTarget(conflictTarget, "refuse");
+    assert(!refuseWriteTargetInspection.writable, "已存在文本文件 + refuse 预检应标记不可写");
+    assert(refuseWriteTargetInspection.blockingCode === "DESTINATION_EXISTS", "已存在文本文件 + refuse 应返回 DESTINATION_EXISTS");
+    assert(!refuseWriteTargetInspection.wouldOverwrite, "refuse 预检不得标记覆盖");
+
+    const renameWriteTargetInspection = fileMutationManager.inspectTextWriteTarget(conflictTarget, "rename");
+    assert(renameWriteTargetInspection.writable, "已存在文本文件 + rename 预检应允许写入");
+    assert(renameWriteTargetInspection.wouldRename, "已存在文本文件 + rename 预检应标记改名");
+    assert(renameWriteTargetInspection.resolvedPath !== conflictTarget, "rename 预检应给出新目标路径");
+    assert(!existsSync(renameWriteTargetInspection.resolvedPath), "rename 预检不得创建改名后的文件");
+
+    expectFileError(
+      () => fileMutationManager.inspectTextWriteTarget(path.join(workspace, "blocked.exe"), "refuse"),
+      "INVALID_REQUEST"
+    );
+
+    const inspectNote = path.join(workspace, "inspect-note.md");
+    writeFileSync(inspectNote, "inspect path smoke", "utf8");
+    const inspectedFile = fileAccessManager.inspectPath(inspectNote);
+    assert(inspectedFile.exists, "inspectPath should report existing files");
+    assert(inspectedFile.kind === "file", "inspectPath should classify regular files");
+    assert(inspectedFile.bytes === 18, "inspectPath should expose file byte size");
+    assert(inspectedFile.extension === ".md", "inspectPath should expose extension");
+    assert(inspectedFile.mediaKind === "text", "inspectPath should classify text media");
+    assert(inspectedFile.readTextLikelySupported, "inspectPath should mark markdown as likely readable");
+    assert(inspectedFile.readTextSizeAllowed, "inspectPath should mark small markdown as size-allowed");
+    assert(!("content" in inspectedFile), "inspectPath should not expose file content");
+
+    const inspectedDirectory = fileAccessManager.inspectPath(workspace);
+    assert(inspectedDirectory.exists && inspectedDirectory.kind === "directory", "inspectPath should classify directories");
+    assert(!inspectedDirectory.readTextLikelySupported, "inspectPath should not mark directories as readable text");
+
+    const inspectedMissing = fileAccessManager.inspectPath(path.join(workspace, "missing-note.md"));
+    assert(!inspectedMissing.exists && inspectedMissing.kind === "missing", "inspectPath should report missing allowed-root paths");
+
+    const sensitivePath = path.join(workspace, ".env");
+    writeFileSync(sensitivePath, "TOKEN=secret", "utf8");
+    const inspectedSensitive = fileAccessManager.inspectPath(sensitivePath);
+    assert(inspectedSensitive.sensitiveHint, "inspectPath should flag sensitive file names");
+    assert(
+      inspectedSensitive.safetyNotes.some((note) => note.includes("敏感凭据")),
+      "inspectPath should explain sensitive-path confirmation"
+    );
+
+    const inspectedLinkPath = path.join(workspace, "inspect-link");
+    symlinkSync(outsideRoot, inspectedLinkPath, "junction");
+    const inspectedLink = fileAccessManager.inspectPath(inspectedLinkPath);
+    assert(inspectedLink.kind === "symlink", "inspectPath should report symlinks and junctions");
+    assert(inspectedLink.isSymbolicLink, "inspectPath should mark symlink metadata");
+    assert(!inspectedLink.readTextLikelySupported, "inspectPath should not mark symlinks as readable text");
+    assert(
+      inspectedLink.safetyNotes.some((note) => note.includes("不跟随")),
+      "inspectPath should explain that symlinks are not followed"
+    );
+
+    expectFileError(() => fileAccessManager.inspectPath(path.join(outsideRoot, "outside.txt")), "PATH_NOT_ALLOWED");
+
+    const nestedSearchDirectory = path.join(workspace, "nested");
+    const reportDirectory = path.join(workspace, "report-dir");
+    mkdirSync(nestedSearchDirectory);
+    mkdirSync(reportDirectory);
+    const reportAlpha = path.join(workspace, "report-alpha.md");
+    const reportBeta = path.join(nestedSearchDirectory, "report-beta.txt");
+    const notesFile = path.join(workspace, "notes.txt");
+    const reportLink = path.join(workspace, "report-link");
+    writeFileSync(reportAlpha, "alpha report content must stay unread", "utf8");
+    writeFileSync(reportBeta, "beta report content must stay unread", "utf8");
+    writeFileSync(notesFile, "notes", "utf8");
+    symlinkSync(outsideRoot, reportLink, "junction");
+
+    const foundReports = fileAccessManager.findByName({
+      path: workspace,
+      query: "report"
+    });
+    const foundReportNames = foundReports.matches.map((entry) => entry.fileName).sort();
+    assert(
+      foundReportNames.join("|") === "report-alpha.md|report-beta.txt|report-dir",
+      "findByName should match files and directories by name across bounded depth"
+    );
+    assert(foundReports.kindFilter === "any", "findByName should default kind filter to any");
+    assert(foundReports.matches.every((entry) => !("content" in entry)), "findByName should not expose file content");
+    assert(foundReports.skipped.symbolicLinks >= 1, "findByName should skip symlinks and junctions");
+    assert(!foundReportNames.includes("report-link"), "findByName should not return symlink matches");
+    assert(
+      foundReports.matches.some((entry) =>
+        entry.fileName === "report-alpha.md"
+        && entry.kind === "file"
+        && entry.extension === ".md"
+        && entry.mediaKind === "text"
+        && entry.bytes > 0
+      ),
+      "findByName file matches should include bytes, extension and mediaKind metadata"
+    );
+
+    const limitedReports = fileAccessManager.findByName({
+      path: workspace,
+      query: "report",
+      maxResults: 2
+    });
+    assert(limitedReports.matchCount === 2 && limitedReports.truncated, "findByName should honor maxResults and mark truncation");
+
+    const reportFilesOnly = fileAccessManager.findByName({
+      path: workspace,
+      query: "report",
+      kind: "file"
+    });
+    assert(
+      reportFilesOnly.matches.length === 2
+      && reportFilesOnly.matches.every((entry) => entry.kind === "file"),
+      "findByName kind=file should only return files"
+    );
+
+    const reportDirectoriesOnly = fileAccessManager.findByName({
+      path: workspace,
+      query: "report",
+      kind: "directory"
+    });
+    assert(
+      reportDirectoriesOnly.matches.length === 1
+      && reportDirectoriesOnly.matches[0].fileName === "report-dir",
+      "findByName kind=directory should only return matching directories"
+    );
+
+    expectFileError(() => fileAccessManager.findByName({ path: outsideRoot, query: "report" }), "PATH_NOT_ALLOWED");
+    expectFileError(() => fileAccessManager.findByName({ path: workspace, query: "" }), "INVALID_REQUEST");
+
+    // file.listRecentArtifacts only returns one-level metadata from the default downloads root.
+    const downloads = path.join(runtimeRoot, "downloads");
+    mkdirSync(downloads, { recursive: true });
+    const oldArtifact = path.join(downloads, "old-note.txt");
+    const newerArtifact = path.join(downloads, "newer-report.md");
+    const newestArtifact = path.join(downloads, "newest-data.json");
+    const linkedArtifact = path.join(downloads, "linked-outside");
+    writeFileSync(oldArtifact, "old artifact", "utf8");
+    writeFileSync(newerArtifact, "newer artifact", "utf8");
+    writeFileSync(newestArtifact, "{\"ok\":true}", "utf8");
+    const baseMtimeMs = Date.now() - 60_000;
+    utimesSync(oldArtifact, new Date(baseMtimeMs), new Date(baseMtimeMs + 1_000));
+    utimesSync(newerArtifact, new Date(baseMtimeMs), new Date(baseMtimeMs + 2_000));
+    utimesSync(newestArtifact, new Date(baseMtimeMs), new Date(baseMtimeMs + 3_000));
+    symlinkSync(outsideRoot, linkedArtifact, "junction");
+
+    const recentArtifacts = fileAccessManager.listRecentArtifacts(2);
+    const recentNames = recentArtifacts.entries.map((entry) => entry.fileName);
+    assert(
+      path.resolve(recentArtifacts.rootPath).toLowerCase() === path.resolve(downloads).toLowerCase(),
+      "listRecentArtifacts should use the default downloads root"
+    );
+    assert(recentArtifacts.limit === 2 && recentArtifacts.count === 2, "listRecentArtifacts should honor limit");
+    assert(
+      recentNames.join("|") === "newest-data.json|newer-report.md",
+      "listRecentArtifacts should sort by modified time descending"
+    );
+    assert(!recentNames.includes("linked-outside"), "listRecentArtifacts should skip symlinks and junctions");
+    assert(
+      path.resolve(recentArtifacts.entries[0].path).toLowerCase() === path.resolve(newestArtifact).toLowerCase()
+      && recentArtifacts.entries[0].bytes === 11
+      && recentArtifacts.entries[0].extension === ".json"
+      && recentArtifacts.entries[0].mediaKind === "text",
+      "listRecentArtifacts should return file path, bytes, extension and mediaKind"
+    );
+    assert(!("content" in recentArtifacts.entries[0]), "listRecentArtifacts should not expose file content");
+
+    const clampedRecentArtifacts = fileAccessManager.listRecentArtifacts(999);
+    assert(clampedRecentArtifacts.limit === 50, "listRecentArtifacts should clamp limit to 50");
+    expectFileError(() => fileAccessManager.listRecentArtifacts(0), "INVALID_REQUEST");
+
     const outsideTarget = path.join(outsideRoot, "outside.txt");
     expectFileError(() => fileMutationManager.move(moved, outsideTarget, "refuse"), "PATH_NOT_ALLOWED");
     assert(existsSync(moved), "根外拒绝后源文件必须保持不变");
@@ -89,8 +315,48 @@ async function main() {
       assert(existsSync(moved), "跨盘拒绝后源文件必须保持不变");
     }
 
+    const originalAllowedPrivateHosts = process.env.VOID_DOWNLOAD_ALLOWED_PRIVATE_HOSTS;
+    const downloadFixture = await startDownloadFixtureServer();
+    try {
+      delete process.env.VOID_DOWNLOAD_ALLOWED_PRIVATE_HOSTS;
+      await expectFileErrorAsync(
+        () => fetchWithPublicDownloadGuard(`${downloadFixture.origin}/sample.txt`),
+        "DOWNLOAD_BLOCKED"
+      );
+
+      process.env.VOID_DOWNLOAD_ALLOWED_PRIVATE_HOSTS = `127.0.0.1:${downloadFixture.port}`;
+      const allowed = await fetchWithPublicDownloadGuard(`${downloadFixture.origin}/sample.txt`);
+      assert(allowed.response.ok && allowed.finalUrl.endsWith("/sample.txt"), "allowlist 后本地直链应可下载");
+      await allowed.response.body?.cancel();
+
+      const redirected = await fetchWithPublicDownloadGuard(`${downloadFixture.origin}/redirect.txt`);
+      assert(
+        redirected.response.ok
+        && redirected.redirectChain.length === 2
+        && redirected.finalUrl.endsWith("/sample.txt"),
+        "allowlist 后同主机重定向应逐跳校验并放行"
+      );
+      await redirected.response.body?.cancel();
+
+      process.env.VOID_DOWNLOAD_ALLOWED_PRIVATE_HOSTS = `127.0.0.1:${downloadFixture.port + 1}`;
+      await expectFileErrorAsync(
+        () => fetchWithPublicDownloadGuard(`${downloadFixture.origin}/sample.txt`),
+        "DOWNLOAD_BLOCKED"
+      );
+    } finally {
+      if (originalAllowedPrivateHosts === undefined) {
+        delete process.env.VOID_DOWNLOAD_ALLOWED_PRIVATE_HOSTS;
+      } else {
+        process.env.VOID_DOWNLOAD_ALLOWED_PRIVATE_HOSTS = originalAllowedPrivateHosts;
+      }
+      await downloadFixture.close();
+    }
+
     console.log("[agent-file-mutation-smoke] PASSED");
-    console.log(" - 创建/移动/重命名成功；冲突/根外/链接逃逸/深层创建均零写入拒绝");
+    console.log(" - 创建/移动/重命名成功；写入目标预检零写盘；冲突/根外/链接逃逸/深层创建均零写入拒绝");
+    console.log(" - 路径元数据预检零读正文：文件/目录/缺失/敏感名/junction/根外路径均按边界处理");
+    console.log(" - 文件名查找只返回元数据：文件/目录/嵌套/结果上限/kind 过滤/junction/根外路径均按边界处理");
+    console.log(" - 私网下载默认拦截，显式 host:port allowlist 后逐跳放行，错端口仍拒绝");
   } finally {
     rmSync(runtimeRoot, { recursive: true, force: true });
     rmSync(outsideRoot, { recursive: true, force: true });

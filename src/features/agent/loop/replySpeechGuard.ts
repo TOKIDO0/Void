@@ -18,7 +18,7 @@ export type ReplySpeechGuardContext = {
   didOpenAutomationWindow: boolean;
   /** 本轮是否成功打开受限桌面系统位置 */
   didOpenDesktopLocation: boolean;
-  /** 本轮是否成功落盘/校验下载（place/verify） */
+  /** 本轮是否成功落盘/校验下载，或完成受限文本保存 */
   didCompleteDownload?: boolean;
   /** 本轮是否成功执行过页面点击/长按（互动前置证据，仍不能单凭此说「已三连」） */
   didPageClick?: boolean;
@@ -158,6 +158,7 @@ export function inspectToolResultForOpenEvidence(
   if (
     toolName === "file.placeDownload"
     || toolName === "file.verify"
+    || toolName === "file.writeText"
     || toolName === "file.downloadMediaPage"
     // 官方安装包：downloadInstaller 成功即已校验落盘，算下载完成证据
     || toolName === "software.downloadInstaller"

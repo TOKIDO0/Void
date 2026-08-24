@@ -1,3 +1,5 @@
+import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
+
 const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
 const BRIDGE_HEALTH_TIMEOUT_MS = 1500;
 
@@ -21,8 +23,11 @@ export async function isVoidBridgeReachable(signal?: AbortSignal) {
   signal?.addEventListener("abort", onAbort, { once: true });
 
   try {
-    const response = await fetch(`${resolveBridgeOrigin()}/void-bridge/health`, {
+    const url = `${resolveBridgeOrigin()}/void-bridge/health`;
+    const authHeaders = await bridgeAuthHeadersForUrl(url);
+    const response = await fetch(url, {
       method: "GET",
+      headers: authHeaders,
       signal: controller.signal
     });
     if (!response.ok) {

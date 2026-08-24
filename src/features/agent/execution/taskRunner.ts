@@ -4,8 +4,9 @@
 import {
   createConfirmationRequest,
   DEFAULT_RISK_POLICY,
+  inspectToolInputSafety,
   requiresUserConfirmation,
-  resolveEffectiveRiskLevel,
+  resolveHighestRiskLevel,
   type ConfirmationDecision,
   type ConfirmationRequest
 } from "../permissions";
@@ -184,7 +185,8 @@ async function runSingleStep(
   }
 
   const dynamicRisk = resolveDynamicRisk(step, tool.riskLevel, step.input);
-  const effectiveRisk = resolveEffectiveRiskLevel(tool.riskLevel, dynamicRisk);
+  const safetyReview = inspectToolInputSafety(step.toolName, step.input);
+  const effectiveRisk = resolveHighestRiskLevel(tool.riskLevel, dynamicRisk, safetyReview.riskLevel);
   const policy = options.riskPolicy ?? DEFAULT_RISK_POLICY;
 
   let nextPlan = updateStep(plan, step.id, (current) => ({
@@ -211,13 +213,14 @@ async function runSingleStep(
       stepId: step.id,
       toolName: step.toolName,
       riskLevel: effectiveRisk,
-      title: step.title,
-      description: buildToolConfirmationDescription(
-        step.toolName,
-        effectiveRisk,
-        step.input,
-        step.title
-      ),
+      title: safetyReview.confirmationTitle ?? step.title,
+      description: safetyReview.confirmationDescription
+        ?? buildToolConfirmationDescription(
+          step.toolName,
+          effectiveRisk,
+          step.input,
+          step.title
+        ),
       inputSummary: sanitizeForAudit(
         step.input,
         tool.auditPolicy.redactInputKeys ?? []
@@ -233,6 +236,7 @@ async function runSingleStep(
       data: {
         confirmationId: confirmation.id,
         riskLevel: effectiveRisk,
+        safetyReason: safetyReview.reason,
         inputSummary: confirmation.inputSummary
       },
       redactKeys: tool.auditPolicy.redactInputKeys

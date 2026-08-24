@@ -132,6 +132,9 @@ function cloneSchema(schema: ToolJsonSchema): unknown {
   if (schema.required) {
     next.required = [...schema.required];
   }
+  if (schema.anyOf) {
+    next.anyOf = schema.anyOf.map((item) => cloneSchema(item));
+  }
   if (schema.additionalProperties !== undefined) {
     next.additionalProperties = schema.additionalProperties;
   }

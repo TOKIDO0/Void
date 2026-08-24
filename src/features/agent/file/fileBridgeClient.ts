@@ -7,14 +7,24 @@ import type {
   FileDownloadToTempData,
   FileDownloadMediaPageData,
   FileCreateDirectoryData,
+  FileFindByNameData,
+  FileFindByNameRequest,
+  FileInspectPathData,
   FileListDirectoryData,
   FilePlaceDownloadData,
   FileReadTextData,
+  FileSearchTextData,
+  FileSearchTextRequest,
+  FileInspectWriteTargetData,
+  FileListRecentArtifactsData,
   FileMoveData,
   MoveConflictPolicy,
+  FileWriteTextData,
+  TextWriteConflictPolicy,
   FileVerifyData,
   OverwritePolicy
 } from "./fileBridgeTypes";
+import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 
 const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
 
@@ -94,9 +104,10 @@ async function postFileApi<T>(
 
   let response: Response;
   try {
+    const authHeaders = await bridgeAuthHeadersForUrl(url);
     response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(body),
       signal: timeoutController.signal
     });
@@ -162,9 +173,10 @@ async function postFileApiWithTimeout<T>(
 
   let response: Response;
   try {
+    const authHeaders = await bridgeAuthHeadersForUrl(url);
     response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(body),
       signal: timeoutController.signal
     });
@@ -264,11 +276,43 @@ export async function listDirectory(
   return postFileApi<FileListDirectoryData>("/void-file/list-directory", input, signal);
 }
 
+export async function inspectPath(
+  input: { path: string },
+  signal?: AbortSignal
+): Promise<FileInspectPathData> {
+  return postFileApi<FileInspectPathData>("/void-file/inspect-path", input, signal);
+}
+
+export async function listRecentArtifacts(
+  input: { limit?: number },
+  signal?: AbortSignal
+): Promise<FileListRecentArtifactsData> {
+  return postFileApi<FileListRecentArtifactsData>(
+    "/void-file/list-recent-artifacts",
+    input,
+    signal
+  );
+}
+
 export async function readText(
   input: { path: string },
   signal?: AbortSignal
 ): Promise<FileReadTextData> {
   return postFileApi<FileReadTextData>("/void-file/read-text", input, signal);
+}
+
+export async function searchText(
+  input: FileSearchTextRequest,
+  signal?: AbortSignal
+): Promise<FileSearchTextData> {
+  return postFileApi<FileSearchTextData>("/void-file/search-text", input, signal);
+}
+
+export async function findByName(
+  input: FileFindByNameRequest,
+  signal?: AbortSignal
+): Promise<FileFindByNameData> {
+  return postFileApi<FileFindByNameData>("/void-file/find-by-name", input, signal);
 }
 
 export async function createDirectory(
@@ -287,4 +331,31 @@ export async function moveFile(
   signal?: AbortSignal
 ): Promise<FileMoveData> {
   return postFileApi<FileMoveData>("/void-file/move", input, signal);
+}
+
+export async function writeText(
+  input: {
+    path?: string;
+    fileName?: string;
+    content: string;
+    conflictPolicy: TextWriteConflictPolicy;
+  },
+  signal?: AbortSignal
+): Promise<FileWriteTextData> {
+  return postFileApi<FileWriteTextData>("/void-file/write-text", input, signal);
+}
+
+export async function inspectWriteTarget(
+  input: {
+    path?: string;
+    fileName?: string;
+    conflictPolicy: TextWriteConflictPolicy;
+  },
+  signal?: AbortSignal
+): Promise<FileInspectWriteTargetData> {
+  return postFileApi<FileInspectWriteTargetData>(
+    "/void-file/inspect-write-target",
+    input,
+    signal
+  );
 }

@@ -25,6 +25,7 @@ import {
   saveSettingsLanguage,
   type SettingsLanguage
 } from "./settingsI18n";
+import { isSemanticSearchEnabled, setSemanticSearchEnabled } from "../memory/memorySemanticConfig";
 import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
 
 /** 单厂商模型列表拉取状态。 */
@@ -40,6 +41,7 @@ const MODEL_STRENGTH_ORDER: ModelStrength[] = ["low", "middle", "high", "max"];
 export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps) {
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
   const [voiceRuntimeConfig, setVoiceRuntimeConfig] = useState(() => loadVoiceRuntimeConfig());
+  const [semanticSearchDraft, setSemanticSearchDraft] = useState(() => isSemanticSearchEnabled());
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
   const [selectedPresetId, setSelectedPresetId] = useState(() => findPresetId(loadModelConfig()));
   const [isAdvancedModelOpen, setIsAdvancedModelOpen] = useState(false);
@@ -68,11 +70,13 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
 
     const storedConfig = loadModelConfig();
     const storedVoiceRuntimeConfig = loadVoiceRuntimeConfig();
+    const storedSemanticSearchEnabled = isSemanticSearchEnabled();
     const storedPresetId = findPresetId(storedConfig);
     const storedModelOptions = getModelOptionsForPreset(storedPresetId);
 
     setDraftConfig(storedConfig);
     setVoiceRuntimeConfig(storedVoiceRuntimeConfig);
+    setSemanticSearchDraft(storedSemanticSearchEnabled);
     setSelectedPresetId(storedPresetId);
     setIsAdvancedModelOpen(
       !storedModelOptions.some((option: { modelName: string }) => option.modelName === storedConfig.modelName)
@@ -255,6 +259,11 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     }));
   };
 
+  const handleSemanticSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
+    markDirty();
+    setSemanticSearchDraft(event.target.checked);
+  };
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     saveModelConfig({
@@ -265,6 +274,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     saveVoiceRuntimeConfig({
       doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId
     });
+    setSemanticSearchEnabled(semanticSearchDraft);
     setIsDirty(false);
     onClose();
   };
@@ -487,6 +497,28 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
                       checked={draftConfig.streamEnabled && canStream}
                       disabled={!canStream}
                       onChange={handleStreamEnabledChange}
+                    />
+                    <span className="model-settings-modal__switch-track">
+                      <span className="model-settings-modal__switch-thumb" />
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section className="model-settings-modal__section">
+              <h3 className="model-settings-modal__section-title">{copy.sectionMemory}</h3>
+              <div className="model-settings-modal__card">
+                <div className="model-settings-modal__switch-row">
+                  <div>
+                    <span className="model-settings-modal__switch-title">{copy.semanticSearch}</span>
+                    <small>{copy.semanticSearchHint}</small>
+                  </div>
+                  <label className="model-settings-modal__switch">
+                    <input
+                      type="checkbox"
+                      checked={semanticSearchDraft}
+                      onChange={handleSemanticSearchChange}
                     />
                     <span className="model-settings-modal__switch-track">
                       <span className="model-settings-modal__switch-thumb" />

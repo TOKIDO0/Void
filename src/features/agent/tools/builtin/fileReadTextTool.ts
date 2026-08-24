@@ -8,7 +8,7 @@ export type FileReadTextToolOutput = FileReadTextData;
 
 export const fileReadTextTool: ToolDefinition<FileReadTextToolInput, FileReadTextToolOutput> = {
   name: "file.readText",
-  description: "读取允许根内的严格 UTF-8 小型文本文件；拒绝二进制、非法 UTF-8 和超限文件。",
+  description: "读取允许根内的小型文本/PDF/DOCX 内容；文本要求严格 UTF-8，PDF/DOCX 只抽取可见文字层；拒绝二进制、非法 UTF-8、扫描件/损坏文档和超限文件。",
   version: "1.0.0",
   riskLevel: "L0",
   inputSchema: {
@@ -25,9 +25,10 @@ export const fileReadTextTool: ToolDefinition<FileReadTextToolInput, FileReadTex
       path: { type: "string" },
       fileName: { type: "string" },
       content: { type: "string", maxLength: 200000 },
-      bytes: { type: "number", minimum: 0, maximum: 1048576 },
+      bytes: { type: "number", minimum: 0, maximum: 12582912 },
       characters: { type: "number", minimum: 0, maximum: 200000 },
-      truncated: { type: "boolean" }
+      truncated: { type: "boolean" },
+      sourceKind: { type: "string", enum: ["text", "pdf", "docx"] }
     }
   },
   requiredResources: FILE_STATIC_RESOURCES,

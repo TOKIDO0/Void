@@ -23,3 +23,11 @@ export {
   listReadyStepIds,
   markBlockedStepsSkipped
 } from "./taskPlanner";
+
+export {
+  listAgentTaskPlaybooks
+} from "./taskPlaybookPolicy";
+export type {
+  AgentTaskPlaybookCategory,
+  AgentTaskPlaybookDefinition
+} from "./taskPlaybookPolicy";

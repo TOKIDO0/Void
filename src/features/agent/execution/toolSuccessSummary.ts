@@ -89,6 +89,63 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
     return `${toolName} 完成：${fileName || record.finalPath}（${String(bytes)} bytes${signaturePart}）→ ${record.finalPath}`;
   }
 
+  if (toolName === "security.inspectLocalRuntime" && typeof record.overall === "string") {
+    const checks = Array.isArray(record.checks) ? record.checks : [];
+    const failedChecks = checks.filter(
+      (check) => typeof check === "object"
+        && check !== null
+        && (check as { ok?: unknown }).ok === false
+    );
+    return `${toolName} 完成：整体 ${record.overall}，${checks.length - failedChecks.length}/${checks.length} 项通过`;
+  }
+
+  if (toolName === "agent.inspectCapabilities" && typeof record.capabilityCount === "number") {
+    const toolCount = typeof record.toolCount === "number" ? record.toolCount : "?";
+    return `${toolName} 完成：${record.capabilityCount} 类能力，${String(toolCount)} 个用户可见工具`;
+  }
+
+  if (toolName === "agent.planTaskRoute" && typeof record.capability === "string") {
+    const toolCount = Array.isArray(record.availableToolNames)
+      ? record.availableToolNames.length
+      : "?";
+    return `${toolName} 完成：${record.capability} 路由，${String(toolCount)} 个可用工具（未执行）`;
+  }
+
+  if (toolName === "agent.inspectToolContract" && typeof record.status === "string") {
+    const normalizedToolName =
+      typeof record.normalizedToolName === "string" ? record.normalizedToolName : "未知工具";
+    if (record.status === "not_found") {
+      return `${toolName} 完成：未找到 ${normalizedToolName}`;
+    }
+    const tool = record.tool;
+    const risk =
+      tool && typeof tool === "object" && typeof (tool as { riskLevel?: unknown }).riskLevel === "string"
+        ? (tool as { riskLevel: string }).riskLevel
+        : "?";
+    return `${toolName} 完成：${normalizedToolName}（风险 ${risk}）`;
+  }
+
+  if (toolName === "agent.inspectExtensionPolicy" && typeof record.executableExtensionRuntime === "string") {
+    const detectedCount = Array.isArray(record.detectedExtensionToolNames)
+      ? record.detectedExtensionToolNames.length
+      : "?";
+    return `${toolName} 完成：扩展运行时 ${record.executableExtensionRuntime}，检测到 ${String(detectedCount)} 个扩展工具`;
+  }
+
+  if (toolName === "agent.inspectSafetyHooks" && typeof record.hookCount === "number") {
+    return `${toolName} 完成：${record.hookCount} 条动态安全确认规则`;
+  }
+
+  if (toolName === "agent.inspectPrivacyBoundaries" && typeof record.ruleCount === "number") {
+    return `${toolName} 完成：${record.ruleCount} 条隐私与数据边界规则`;
+  }
+
+  if (toolName === "agent.inspectTaskPlaybooks" && typeof record.playbookCount === "number") {
+    const availableCount =
+      typeof record.availablePlaybookCount === "number" ? record.availablePlaybookCount : "?";
+    return `${toolName} 完成：${String(availableCount)}/${record.playbookCount} 个任务范式可用`;
+  }
+
   if (toolName === "file.verify") {
     if (record.exists) {
       const fileName = typeof record.fileName === "string" ? record.fileName : "";
@@ -106,11 +163,52 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
     return `${toolName} 完成：${record.path}（${count} 项${truncated}）`;
   }
 
+  if (toolName === "file.inspectPath" && typeof record.path === "string") {
+    const exists = record.exists === true ? "存在" : "不存在";
+    const kind = typeof record.kind === "string" ? record.kind : "unknown";
+    const readable = record.readTextLikelySupported === true ? "可尝试读取文本" : "不建议直接读文本";
+    return `${toolName} 完成：${record.path}（${exists}，${kind}，${readable}）`;
+  }
+
+  if (toolName === "file.findByName" && typeof record.path === "string") {
+    const query = typeof record.query === "string" ? record.query : "";
+    const matchCount = record.matchCount ?? "?";
+    const truncated = record.truncated === true ? "，已截断" : "";
+    return `${toolName} 完成：${record.path} 查找「${query.slice(0, 40)}」（${String(matchCount)} 项${truncated}）`;
+  }
+
+  if (toolName === "file.listRecentArtifacts" && typeof record.rootPath === "string") {
+    const count = typeof record.count === "number" ? record.count : 0;
+    const truncated = record.truncated === true ? "，已截断" : "";
+    return `${toolName} 完成：${record.rootPath} 最近 ${count} 项${truncated}`;
+  }
+
   if (toolName === "file.readText" && typeof record.path === "string") {
     const fileName = typeof record.fileName === "string" ? record.fileName : "";
     const characters = record.characters ?? "?";
+    const sourceKind = typeof record.sourceKind === "string" ? `${record.sourceKind}, ` : "";
     const truncated = record.truncated === true ? "，已截断" : "";
-    return `${toolName} 完成：${fileName || record.path}（${String(characters)} 字${truncated}）`;
+    return `${toolName} 完成：${fileName || record.path}（${sourceKind}${String(characters)} 字${truncated}）`;
+  }
+
+  if (toolName === "file.searchText" && typeof record.path === "string") {
+    const query = typeof record.query === "string" ? record.query : "";
+    const matchCount = record.matchCount ?? "?";
+    const filesMatched = record.filesMatched ?? "?";
+    const truncated = record.truncated === true ? "，已截断" : "";
+    return `${toolName} 完成：${record.path} 搜索「${query.slice(0, 40)}」（${String(matchCount)} 条，${String(filesMatched)} 个文件${truncated}）`;
+  }
+
+  if (toolName === "file.inspectWriteTarget" && typeof record.resolvedPath === "string") {
+    const policy = typeof record.conflictPolicy === "string" ? record.conflictPolicy : "?";
+    const writable = record.writable === true ? "可写入" : "会被阻止";
+    const action =
+      record.wouldOverwrite === true
+        ? "覆盖"
+        : record.wouldRename === true
+          ? "自动改名"
+          : "创建";
+    return `${toolName} 完成：${writable}，策略 ${policy} 将${action} → ${record.resolvedPath}`;
   }
 
   if (toolName === "file.createDirectory" && typeof record.path === "string") {
@@ -127,6 +225,15 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
         ? `（${mediaKind || "unknown"}${bytes !== undefined ? `, ${bytes} bytes` : ""}）`
         : "";
     return `${toolName} 完成：${sourcePath} → ${record.destinationPath}${meta}${renamed}`;
+  }
+
+  if (toolName === "file.writeText" && typeof record.path === "string") {
+    const fileName = typeof record.fileName === "string" ? record.fileName : "";
+    const characters = record.characters ?? "?";
+    const bytes = record.bytes ?? "?";
+    const renamed = record.renamedForConflict === true ? "，冲突已自动改名" : "";
+    const overwritten = record.overwritten === true ? "，已覆盖旧文件" : "";
+    return `${toolName} 完成：${fileName || record.path}（${String(characters)} 字, ${String(bytes)} bytes）→ ${record.path}${renamed}${overwritten}`;
   }
 
   if (toolName === "desktop.revealPath" && typeof record.revealedPath === "string") {

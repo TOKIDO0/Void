@@ -1,5 +1,6 @@
 import type { ModelRequestMode } from "../../features/settings/modelConfig";
 import { createNetworkError, createProxyUnavailableError } from "./providerErrors";
+import { bridgeAuthHeadersForUrl } from "../runtime/voidBridgeAuth";
 import { isTauriRuntime, resolveBridgeHttpUrl } from "../runtime/voidBridgeRuntime";
 
 type ProviderFetchTarget = {
@@ -94,11 +95,13 @@ export function buildFetchTarget(endpointUrl: string) {
 
 export async function fetchWithProxyFallback(fetchTarget: ProviderFetchTarget, init: RequestInit) {
   try {
+    const authHeaders = isTauriRuntime() ? await bridgeAuthHeadersForUrl(fetchTarget.url) : {};
     return await fetch(fetchTarget.url, {
       ...init,
       headers: {
         ...(init.headers as Record<string, string> | undefined),
-        ...fetchTarget.headers
+        ...fetchTarget.headers,
+        ...authHeaders
       }
     });
   } catch (proxyError) {

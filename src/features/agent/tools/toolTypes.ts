@@ -20,6 +20,7 @@ export type ToolJsonSchema = {
   description?: string;
   properties?: Record<string, ToolJsonSchema>;
   required?: string[];
+  anyOf?: ToolJsonSchema[];
   additionalProperties?: boolean;
   items?: ToolJsonSchema;
   enum?: Array<string | number | boolean | null>;

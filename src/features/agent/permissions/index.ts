@@ -19,6 +19,18 @@ export {
 } from "./permissionGate";
 
 export {
+  classifySensitiveHttpUrl,
+  classifySensitiveFilePath,
+  inspectFreeformRequestSafety,
+  inspectToolInputSafety,
+  listToolSafetyHookDefinitions,
+  resolveHighestRiskLevel,
+  type RequestSafetyFinding,
+  type ToolSafetyHookDefinition,
+  type ToolSafetyReview
+} from "./toolSafetyPolicy";
+
+export {
   parseVoiceConfirmationIntent,
   normalizeVoiceConfirmationText,
   type VoiceConfirmationIntent

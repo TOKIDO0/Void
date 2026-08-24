@@ -119,6 +119,26 @@ export function buildToolConfirmationDescription(
     ].filter(Boolean).join("\n");
   }
 
+  if (toolName === "file.writeText") {
+    const path = typeof record.path === "string" ? record.path : "";
+    const fileName = typeof record.fileName === "string" ? record.fileName : "";
+    const content = typeof record.content === "string" ? record.content : "";
+    const conflictPolicy = typeof record.conflictPolicy === "string"
+      ? record.conflictPolicy
+      : "refuse";
+    const preview = content.length > 160 ? `${content.slice(0, 160)}…` : content;
+    return [
+      `将在允许根内写入文本文件（风险 ${riskLevel}）。`,
+      path ? `完整路径：${path}` : undefined,
+      !path && fileName ? `文件名：${fileName}` : undefined,
+      !path && fileName ? "默认目录：D:\\AI\\void-runtime\\downloads" : undefined,
+      `长度：${content.length} 字符`,
+      `冲突策略：${conflictPolicy}（refuse=已存在则失败 / rename=自动改名 / overwrite=覆盖旧文件）`,
+      preview ? `预览：${preview}` : "内容为空。",
+      "确认后才会写盘；拒绝则不会创建或覆盖文件。仅支持常见文本扩展名。"
+    ].filter(Boolean).join("\n");
+  }
+
   if (toolName === "desktop.revealPath") {
     const path = typeof record.path === "string" ? record.path : "";
     return [

@@ -69,6 +69,8 @@ type ManagedSession = {
 
 /** 默认可视窗口尺寸：桌面常见比例，避免移动端布局 */
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
+const DEFAULT_MAX_BROWSER_SESSIONS = 4;
+const DEFAULT_BROWSER_SESSION_IDLE_TTL_MS = 10 * 60 * 1000;
 
 /**
  * 无头开关：
@@ -102,6 +104,15 @@ function clampLimit(limit: number | undefined, fallback = 8) {
   return Math.min(20, Math.max(1, Math.floor(limit)));
 }
 
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function assertHttpUrl(url: string) {
   let parsed: URL;
   try {
@@ -119,6 +130,14 @@ export class BrowserSessionManager {
   private browser: Browser | null = null;
   private launching: Promise<Browser> | null = null;
   private readonly sessions = new Map<string, ManagedSession>();
+  private readonly maxSessions = readPositiveIntegerEnv(
+    "VOID_BROWSER_MAX_SESSIONS",
+    DEFAULT_MAX_BROWSER_SESSIONS
+  );
+  private readonly sessionIdleTtlMs = readPositiveIntegerEnv(
+    "VOID_BROWSER_SESSION_IDLE_TTL_MS",
+    DEFAULT_BROWSER_SESSION_IDLE_TTL_MS
+  );
   /**
    * 截图落盘：优先 D:\AI\void-runtime\browser-screenshots（避开已满的 C 盘）。
    * 可用环境变量 VOID_BROWSER_SCREENSHOT_DIR 覆盖。
@@ -144,6 +163,16 @@ export class BrowserSessionManager {
     return [...this.sessions.keys()];
   }
 
+  getRuntimeStatus() {
+    return {
+      browserReady: this.isBrowserReady(),
+      activeSessions: this.sessions.size,
+      maxSessions: this.maxSessions,
+      sessionIdleTtlMs: this.sessionIdleTtlMs,
+      headless: isHeadlessMode()
+    };
+  }
+
   /**
    * 确保任务拥有独立 BrowserContext。
    */
@@ -153,6 +182,18 @@ export class BrowserSessionManager {
     if (existing) {
       existing.lastUsedAt = Date.now();
       return { taskId: normalizedTaskId, created: false };
+    }
+
+    await this.closeExpiredSessions();
+    if (this.sessions.size >= this.maxSessions) {
+      throw createBrowserError(
+        "RESOURCE_LIMIT",
+        `浏览器会话已达上限（${this.maxSessions} 个），请等待当前任务结束或关闭旧会话后再试`,
+        {
+          maxSessions: this.maxSessions,
+          activeSessions: this.sessions.size
+        }
+      );
     }
 
     const browser = await this.getBrowser();
@@ -866,6 +907,34 @@ export class BrowserSessionManager {
       await idleBrowser.close();
     } catch (error) {
       console.error("[void-browser] close idle browser failed", error);
+    }
+  }
+
+  private async closeExpiredSessions(): Promise<void> {
+    if (this.sessionIdleTtlMs <= 0 || this.sessions.size === 0) {
+      return;
+    }
+
+    const now = Date.now();
+    const expiredTaskIds = [...this.sessions.values()]
+      .filter((session) => now - session.lastUsedAt > this.sessionIdleTtlMs)
+      .map((session) => session.taskId);
+
+    for (const taskId of expiredTaskIds) {
+      const session = this.sessions.get(taskId);
+      if (!session) {
+        continue;
+      }
+      this.sessions.delete(taskId);
+      try {
+        await session.context.close();
+      } catch (error) {
+        console.error("[void-browser] close expired context failed", error);
+      }
+    }
+
+    if (expiredTaskIds.length > 0) {
+      await this.closeBrowserWhenIdle();
     }
   }
 

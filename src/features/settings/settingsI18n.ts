@@ -33,7 +33,10 @@ type SettingsCopy = {
   streamOutputHint: string;
   sectionProvider: string;
   sectionGeneration: string;
+  sectionMemory: string;
   sectionVoice: string;
+  semanticSearch: string;
+  semanticSearchHint: string;
   strengthRuleTitle: string;
   strengthRuleText: string;
   showSecret: string;
@@ -105,7 +108,10 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     streamOutputHint: "开启后不会等整段回复写完才显示，而是模型生成一点就显示一点。",
     sectionProvider: "01 / 服务商配置",
     sectionGeneration: "02 / 生成参数",
-    sectionVoice: "03 / 语音",
+    sectionMemory: "03 / 记忆",
+    sectionVoice: "04 / 语音",
+    semanticSearch: "本地语义检索",
+    semanticSearchHint: "开启后用本地向量重排已召回记忆；首次使用会下载小模型到 D 盘缓存，失败时自动回退全文检索。",
     strengthRuleTitle: "关于模型强度",
     strengthRuleText: "模型强度与下拉中的模型档位对应，不会在后台偷偷替换你当前选中的模型名称。",
     showSecret: "显示",
@@ -175,7 +181,10 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     streamOutputHint: "When enabled, the reply appears piece by piece while the model is still generating.",
     sectionProvider: "01 / Provider",
     sectionGeneration: "02 / Generation",
-    sectionVoice: "03 / Voice",
+    sectionMemory: "03 / Memory",
+    sectionVoice: "04 / Voice",
+    semanticSearch: "Local semantic search",
+    semanticSearchHint: "Ranks recalled memories with local embeddings. The first use downloads a small model to the D drive cache; failures fall back to full-text search.",
     strengthRuleTitle: "About model strength",
     strengthRuleText: "Strength maps to the selected model tier and will not silently replace your current model name.",
     showSecret: "Show",

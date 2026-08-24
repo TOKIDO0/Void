@@ -12,6 +12,7 @@ import type {
   DesktopOpenKnownLocationData,
   DesktopRevealPathData
 } from "./desktopBridgeTypes";
+import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 
 const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
 
@@ -66,9 +67,10 @@ async function postDesktopApi<T>(
 
   let response: Response;
   try {
+    const authHeaders = await bridgeAuthHeadersForUrl(url);
     response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(body),
       signal: timeoutController.signal
     });

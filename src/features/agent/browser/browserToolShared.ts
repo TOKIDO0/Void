@@ -66,6 +66,8 @@ export function mapBrowserErrorToToolError(error: unknown): ToolError {
       );
     case "BROWSER_UNAVAILABLE":
       return createToolError("EXECUTION_FAILED", info.message, info.details, true);
+    case "RESOURCE_LIMIT":
+      return createToolError("RESOURCE_BUSY", info.message, info.details, true);
     case "TIMEOUT":
       return createToolError("TIMEOUT", info.message, info.details, true);
     case "SESSION_NOT_FOUND":

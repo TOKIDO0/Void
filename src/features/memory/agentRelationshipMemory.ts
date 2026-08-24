@@ -156,6 +156,10 @@ export function isExplicitVoidRelationshipTopic(query: string): boolean {
     /你还(在)?生气/,
     /你还在不高兴/,
     /你是不是(还)?(在)?生气/,
+    /你(?:是不是|是否)?还?(?:在)?生我(的)?气/,
+    /你是不是不高兴/,
+    /你还怪我/,
+    /你讨厌我/,
     /我们和好/,
     /跟你和好/,
     /向你道歉/,
@@ -182,7 +186,7 @@ export function isExplicitVoidRelationshipTopic(query: string): boolean {
 
   // 弱信号：同时出现「你」指向 + 关系动词，且不是明显谈第三方人际
   const hasYou = text.includes("你");
-  const hasRelationCue = /(生气|记仇|和好|道歉|原谅|关系|冒犯|顶嘴)/.test(text);
+  const hasRelationCue = /(生气|生我气|生我的气|不高兴|怪我|讨厌我|记仇|和好|道歉|原谅|关系|冒犯|顶嘴)/.test(text);
   const talksAboutOthers = /(朋友|同事|家人|母亲|父亲|妈妈|爸爸|对象|男友|女友)/.test(text);
   return hasYou && hasRelationCue && !talksAboutOthers;
 }
