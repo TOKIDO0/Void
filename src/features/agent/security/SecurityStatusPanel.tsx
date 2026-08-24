@@ -119,9 +119,24 @@ export function SecurityStatusPanel({ isOpen, onClose }: SecurityStatusPanelProp
     );
   };
 
+  // 与记忆面板同构：关闭时不渲染任何 DOM；点击遮罩层也可关闭。
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <div className="security-status" role="dialog" aria-modal="true" aria-label={copy.title}>
-      <div className="security-status__panel">
+    <div
+      className="security-status"
+      role="presentation"
+      onMouseDown={onClose}
+    >
+      <div
+        className="security-status__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={copy.title}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <header className="security-status__header">
           <div className="security-status__title-group">
             <div className="security-status__heading">
@@ -152,6 +167,8 @@ export function SecurityStatusPanel({ isOpen, onClose }: SecurityStatusPanelProp
         </header>
 
         <div className="security-status__body">
+          <p className="security-status__intro">{copy.intro}</p>
+
           {fetchState.phase === "loading" && (
             <div className="security-status__placeholder">
               <h3>{copy.loadingTitle}</h3>

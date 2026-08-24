@@ -17,6 +17,8 @@ type SecurityStatusCopy = {
   refreshing: string;
   inspectedAt: string;
   neverInspected: string;
+  /** 人话开场白：解释面板用途、数据来源与隐私边界（用户反馈看不懂，2026-08-24）。 */
+  intro: string;
   overallLabels: Record<"healthy" | "attention" | "unsafe", string>;
   severityLabels: Record<SecuritySeverityLabel, string>;
   sections: {
@@ -76,6 +78,7 @@ const SECURITY_STATUS_COPY: Record<SettingsLanguage, SecurityStatusCopy> = {
     refreshing: "正在检查…",
     inspectedAt: "检查于",
     neverInspected: "尚未检查",
+    intro: "这里展示 VOID 本机工具服务的安全自检结果：比如它是否只监听你这台电脑、有没有开启访问令牌校验、各类上限设置是否合理。所有内容都来自本机只读检查——不扫描磁盘、不执行命令、不联网外发。",
     overallLabels: {
       healthy: "状态良好",
       attention: "需要留意",
@@ -141,6 +144,7 @@ const SECURITY_STATUS_COPY: Record<SettingsLanguage, SecurityStatusCopy> = {
     refreshing: "Checking…",
     inspectedAt: "Checked at",
     neverInspected: "Not checked yet",
+    intro: "This panel shows the security self-check results of VOID's local tool service — for example whether it only listens on this computer, whether an access token is required, and whether its limits look sane. Everything comes from a read-only local check: no disk scans, no commands, nothing sent online.",
     overallLabels: {
       healthy: "Healthy",
       attention: "Attention",
