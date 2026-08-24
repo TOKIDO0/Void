@@ -46,6 +46,7 @@ import {
   doesTurnCapabilityRequireBridge,
   resolveTurnCapability
 } from "../turnRouting/turnCapabilityRouter";
+import { buildToolUseSystemSuffix } from "../voidConversation";
 
 export type SmokeResult = {
   ok: boolean;
@@ -1203,6 +1204,29 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("最近保存/下载/生成产物定位应只暴露 file.listRecentArtifacts 和可选 desktop.revealPath，不应暴露读正文、写入或网页搜索工具");
   } else {
     notes.push("最近产物定位路由正确：默认目录元数据查看与可选展示位置可用，读写正文工具不暴露");
+  }
+
+  // 阶段 W（39 号文档）：产物汇报纪律应同源拼入 file / browser 两组后缀，且不污染其它能力组
+  const artifactDisciplineMarkers = [
+    "三段式",
+    "禁止逐字朗读盘符绝对路径",
+    "直接调 desktop.revealPath",
+    "自动起简短可辨识的名字",
+    "一次只问一个缺失项",
+    "忠实保存一字不改"
+  ];
+  const artifactFileSuffix = buildToolUseSystemSuffix("file");
+  const artifactBrowserSuffix = buildToolUseSystemSuffix("browser");
+  const artifactAgentSuffix = buildToolUseSystemSuffix("agent");
+  if (
+    !artifactDisciplineMarkers.every((marker) => artifactFileSuffix.includes(marker))
+    || !artifactDisciplineMarkers.every((marker) => artifactBrowserSuffix.includes(marker))
+    || artifactAgentSuffix.includes("三段式")
+    || artifactAgentSuffix.includes("desktop.revealPath 展示位置")
+  ) {
+    failures.push("产物汇报纪律应同源拼入 file 与 browser 工具组后缀（三段式/口播友好/reveal 三档/自动命名/单次追问/忠实保存），且不得污染其它能力组");
+  } else {
+    notes.push("产物汇报纪律拼装正确：file/browser 同源包含三段式汇报、口播友好、reveal 三档、默认命名分层与单次追问规范");
   }
 
   const localTextSearchRoute = resolveTurnCapability("在 D:\\AI\\void-runtime\\downloads 目录里查找 VOID", []);

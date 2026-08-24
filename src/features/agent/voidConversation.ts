@@ -132,7 +132,7 @@ const BROWSER_TOOL_USE_SUFFIX = [
 
 const FILE_TOOL_USE_SUFFIX = [
   "本轮只允许操作白名单根目录内的本地文件。",
-  "查看目录用 file.listDirectory（只列当前一层，不递归）；检查路径是否存在、类型、大小、能不能读或是否像敏感文件，用 file.inspectPath；按文件名/目录名查找用 file.findByName（只搜名称，不读正文）；找最近保存/下载/生成的产物用 file.listRecentArtifacts；读取正文用 file.readText；不知道具体文件但用户要在目录里找关键词/内容时，先用 file.searchText 定位，再按需 file.readText 读取目标文件；写入前检查目标路径/文件名是否安全、是否会覆盖、是否会自动改名时，用 file.inspectWriteTarget；新建一层目录用 file.createDirectory；移动/重命名用 file.move（同盘原子移动，绝不覆盖）；保存用户明确给出的文本用 file.writeText：有允许根内绝对路径就传 path，只有普通文件名就传 fileName（默认保存到 D:\\AI\\void-runtime\\downloads），没有文件名先问；默认 conflictPolicy=refuse，除非用户明确要求覆盖才可用 overwrite；展示位置用 desktop.revealPath。",
+   "查看目录用 file.listDirectory（只列当前一层，不递归）；检查路径是否存在、类型、大小、能不能读或是否像敏感文件，用 file.inspectPath；按文件名/目录名查找用 file.findByName（只搜名称，不读正文）；找最近保存/下载/生成的产物用 file.listRecentArtifacts；读取正文用 file.readText；不知道具体文件但用户要在目录里找关键词/内容时，先用 file.searchText 定位，再按需 file.readText 读取目标文件；写入前检查目标路径/文件名是否安全、是否会覆盖、是否会自动改名时，用 file.inspectWriteTarget；新建一层目录用 file.createDirectory；移动/重命名用 file.move（同盘原子移动，绝不覆盖）；保存用户明确给出的文本用 file.writeText：有允许根内绝对路径就传 path，只有普通文件名就传 fileName（默认保存到 D:\\AI\\void-runtime\\downloads）；自动命名场景先用 inspectWriteTarget 预检并用 conflictPolicy=rename 兜底同名；其余情况默认 conflictPolicy=refuse，除非用户明确要求覆盖才可用 overwrite；展示位置用 desktop.revealPath。",
   "本地资料/项目文档/知识库检索闭环：若用户要搜索、总结、汇总并保存，先确认缺失的路径、关键词或文件名；只有文件名线索时先 file.findByName 定位；路径和正文关键词齐全时按 file.searchText → file.readText 精读相关文件 → file.writeText 保存摘要/报告执行。findByName 和 searchText 结果都只用于定位，不得声称已完整阅读未读取的文件。",
   "下载后整理（文件已在默认下载根如 D:\\AI\\void-runtime\\downloads）：file.createDirectory 建一层子目录（如按日期 yyyy-mm-dd 或任务名；父目录须已存在）→ file.move 把已落盘文件移入 → file.verify；冲突用 refuse 或 rename，绝不覆盖。",
   "除 file.writeText 的 fileName 入口外，路径一律使用绝对路径。失败时如实说明 PATH_NOT_ALLOWED / DESTINATION_EXISTS / CROSS_DEVICE_MOVE / FILE_NOT_FOUND 等错误码。"
@@ -181,6 +181,20 @@ const SOFTWARE_TOOL_USE_SUFFIX = [
   "若 canAutoDownload=true 且有 resolutionId：向用户简述软件名/来源主机/文件名（若有），确认后调用 software.downloadInstaller(resolutionId)。成功后汇报 finalPath、bytes、sha256、signatureStatus；用户要求打开位置时再 desktop.revealPath(path=finalPath)。",
   "download 失败时必须点名 failureCode（如 DOWNLOAD_TRIGGER_NOT_FOUND / SIGNATURE_INVALID / PATH_NOT_ALLOWED），禁止空口「工具失败」。",
   "禁止把 B 站「客户端安装包」和 B 站「视频下载」混为一谈；禁止为讨好用户假装支持未登记软件。"
+];
+
+/**
+ * 阶段 W（39 号文档）：任务产物汇报与收尾纪律。
+ * file / browser 两类路由都会产出本地文件，共用同一段真源，防止话术漂移。
+ * 只约束「落盘之后」的汇报与收尾行为；不改变任何工具契约、权限与确认级别。
+ */
+const ARTIFACT_REPORT_DISCIPLINE = [
+  "产物落盘成功的汇报用三段式：先一句话说结果；再报文件名、位置和大小或字数（改名、截断等异常必须如实说明）；最后至多一句可选后续（如想看就说一声）。200 字以内的简单保存一两句话讲清即可，不套结构。",
+  "位置一律用自然说法（如默认下载文件夹里的 xxx.md），禁止逐字朗读盘符绝对路径；用户明确索要路径时才以文字给出完整路径。",
+  "展示位置分三档：默认只在话里提一句可以打开，不主动弹窗；用户预先说了存好后打开/给我看/马上要用，完成后直接调 desktop.revealPath（多文件只展示最终目录一次）；未落盘成功禁止调 revealPath，用户拒绝确认后不得声称已打开。",
+  "产物缺文件名但主题明确时，自动起简短可辨识的名字并明确告知，同名冲突自动改名兜底并如实报告新名字；用户已给名字就照用，遇同名先问怎么处理；只有主题模糊才问一次并给建议。",
+  "报告类产物用骨架：网页检索报告=结论摘要+要点列表(关键条带来源)+链接清单；本地资料汇总=结论+关键片段(标注来源文件)+下一步建议；用户明确给出的文本忠实保存一字不改，绝不套模板。",
+  "缺参数时一次只问一个缺失项并给推荐默认值（如：没说存哪，放默认下载文件夹可以吗？）；优先是非问/二选一；参数齐全时禁止多余反问，澄清后继续完成原任务。"
 ];
 
 export async function sendVoidMessage(
@@ -498,7 +512,8 @@ function enforceRelationshipRefusalReply(
   return formatBehaviorToolRefusal(behaviorDecision.taskGate);
 }
 
-function buildToolUseSystemSuffix(capability: TurnCapability) {
+/** 导出供 runtime-smoke 断言纪律拼装（阶段 W，39 号文档 §5.1）；生产路径勿直接调用。 */
+export function buildToolUseSystemSuffix(capability: TurnCapability) {
   const capabilityRules = capability === "browser"
     ? BROWSER_TOOL_USE_SUFFIX
     : capability === "file"
@@ -514,7 +529,11 @@ function buildToolUseSystemSuffix(capability: TurnCapability) {
               : capability === "software"
                 ? SOFTWARE_TOOL_USE_SUFFIX
                 : [];
-  return [...TOOL_USE_COMMON_SUFFIX, ...capabilityRules].join("");
+  // 阶段 W：file / browser 都会产出本地文件，追加同一段产物汇报纪律（39 号文档 §3.1）
+  const artifactRules = capability === "browser" || capability === "file"
+    ? ARTIFACT_REPORT_DISCIPLINE
+    : [];
+  return [...TOOL_USE_COMMON_SUFFIX, ...capabilityRules, ...artifactRules].join("");
 }
 
 export function createPendingAssistantConversation(
