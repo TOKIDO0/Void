@@ -47,6 +47,7 @@ import {
   resolveTurnCapability
 } from "../turnRouting/turnCapabilityRouter";
 import { buildToolUseSystemSuffix } from "../voidConversation";
+import { parseLocalUiCommand } from "../localCommands/localUiCommandParser";
 
 export type SmokeResult = {
   ok: boolean;
@@ -1227,6 +1228,38 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("产物汇报纪律应同源拼入 file 与 browser 工具组后缀（三段式/口播友好/reveal 三档/自动命名/单次追问/忠实保存），且不得污染其它能力组");
   } else {
     notes.push("产物汇报纪律拼装正确：file/browser 同源包含三段式汇报、口播友好、reveal 三档、默认命名分层与单次追问规范");
+  }
+
+  // 阶段 X（40 号文档）：安全面板窄指令正例，整句命中才开 UI
+  const securityOpenCommand = parseLocalUiCommand("打开安全面板");
+  const securityCloseCommand = parseLocalUiCommand("关闭安全状态面板");
+  const securityPoliteCommand = parseLocalUiCommand("帮我打开安全状态");
+  if (
+    securityOpenCommand?.kind !== "modal"
+    || securityOpenCommand.target !== "security"
+    || securityOpenCommand.open !== true
+    || securityCloseCommand?.kind !== "modal"
+    || securityCloseCommand.target !== "security"
+    || securityCloseCommand.open !== false
+    || securityPoliteCommand?.kind !== "modal"
+    || securityPoliteCommand.target !== "security"
+  ) {
+    failures.push("「打开/关闭安全面板」等明确指令应识别为 security 模态命令，礼貌前缀应被剥离");
+  } else {
+    notes.push("安全面板本地指令正确：明确面板指令直接开合 UI，不经对话链路");
+  }
+
+  // 阶段 X：安全问询负例——自然语言安全话题不得被劫持成本地 UI 指令
+  const securityConversationNegatives = [
+    "检查一下这个链接安不安全",
+    "你还记得我吗",
+    "确认一下是否安全状态正常",
+    "帮我评估一下这个操作的风险"
+  ];
+  if (!securityConversationNegatives.every((utterance) => parseLocalUiCommand(utterance) === null)) {
+    failures.push("自然语言安全问询不应被本地 UI 指令劫持，必须继续走对话 + 工具链路");
+  } else {
+    notes.push("安全问询对话不被劫持：自然语句不触发安全面板，仍走 security.inspectLocalRuntime 链路");
   }
 
   const localTextSearchRoute = resolveTurnCapability("在 D:\\AI\\void-runtime\\downloads 目录里查找 VOID", []);

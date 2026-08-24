@@ -73,6 +73,7 @@ type SettingsCopy = {
   menuUploadFile: string;
   menuHistory: string;
   menuMemory: string;
+  menuSecurity: string;
   menuSettings: string;
 };
 
@@ -148,6 +149,7 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuUploadFile: "上传文件",
     menuHistory: "历史记录",
     menuMemory: "记忆面板",
+    menuSecurity: "安全状态",
     menuSettings: "设置"
   },
   "en-US": {
@@ -221,6 +223,7 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuUploadFile: "Upload file",
     menuHistory: "History",
     menuMemory: "Memory",
+    menuSecurity: "Security",
     menuSettings: "Settings"
   }
 };

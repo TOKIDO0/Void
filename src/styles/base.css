@@ -2153,3 +2153,383 @@ body {
     line-height: 1.56;
   }
 }
+
+/* ============================================================
+   VOID security status panel (40 号文档)
+   Read-only runtime security summary; reuses the neutral dark
+   glass modal design system. Semantic state colors only.
+   ============================================================ */
+
+.security-status {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.security-status__panel {
+  position: relative;
+  width: min(880px, calc(100vw - 40px));
+  height: min(720px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 24px;
+  background: rgba(18, 18, 22, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 32px 64px rgba(0, 0, 0, 0.55);
+  color: rgba(244, 244, 245, 0.94);
+  backdrop-filter: blur(28px) saturate(1.15);
+  -webkit-backdrop-filter: blur(28px) saturate(1.15);
+}
+
+.security-status__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: 0 0 auto;
+  padding: 18px 28px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.security-status__title-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.security-status__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.security-status__eyebrow,
+.security-status__heading h2 {
+  margin: 0;
+}
+
+.security-status__eyebrow {
+  color: rgba(161, 161, 170, 0.95);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+.security-status__heading h2 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  color: #fff;
+}
+
+.security-status__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.security-status__refresh {
+  height: 32px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(244, 244, 245, 0.94);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.security-status__refresh:hover:not(:disabled) {
+  background: #fff;
+  border-color: #fff;
+  color: #000;
+}
+
+.security-status__refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.security-status__close {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  padding: 0;
+  background: transparent;
+  color: rgba(161, 161, 170, 0.95);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.security-status__close:hover {
+  background: #fff;
+  border-color: #fff;
+  color: #000;
+}
+
+.security-status__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 28px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+.security-status__placeholder {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.security-status__placeholder h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.security-status__placeholder p {
+  margin: 0;
+  max-width: 420px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(161, 161, 170, 0.95);
+}
+
+.security-status__placeholder--error h3 {
+  color: rgba(252, 165, 165, 0.96);
+}
+
+.security-status__error-code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px !important;
+  letter-spacing: 0.04em;
+  color: rgba(212, 212, 216, 0.75) !important;
+}
+
+.security-status__placeholder--error .security-status__refresh {
+  margin-top: 6px;
+}
+
+.security-status__overall {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.security-status__overall-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.security-status__overall--healthy .security-status__overall-dot {
+  background: rgba(74, 222, 128, 0.95);
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.45);
+}
+
+.security-status__overall--attention .security-status__overall-dot {
+  background: rgba(251, 191, 36, 0.95);
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.4);
+}
+
+.security-status__overall--unsafe .security-status__overall-dot {
+  background: rgba(248, 113, 113, 0.95);
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.45);
+}
+
+.security-status__overall-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.security-status__overall-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(161, 161, 170, 0.85);
+}
+
+.security-status__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.security-status__card {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 16px 18px;
+}
+
+.security-status__card h3 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: rgba(228, 228, 231, 0.92);
+}
+
+.security-status__card dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.security-status__card dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.security-status__card dt {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: rgba(161, 161, 170, 0.95);
+}
+
+.security-status__card dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(244, 244, 245, 0.94);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.security-status__checks {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+
+.security-status__checks h3 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: rgba(228, 228, 231, 0.92);
+}
+
+.security-status__checks ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.security-status__checks li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.security-status__check-badge {
+  flex: 0 0 auto;
+  min-width: 44px;
+  text-align: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.security-status__check-badge--info {
+  color: rgba(134, 239, 172, 0.96);
+  background: rgba(74, 222, 128, 0.1);
+  border: 1px solid rgba(74, 222, 128, 0.22);
+}
+
+.security-status__check-badge--warning {
+  color: rgba(253, 230, 138, 0.96);
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.22);
+}
+
+.security-status__check-badge--danger {
+  color: rgba(254, 202, 202, 0.96);
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.22);
+}
+
+.security-status__check-message {
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(228, 228, 231, 0.92);
+}
+
+.security-status__note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(161, 161, 170, 0.8);
+}
+
+@media (max-width: 760px) {
+  .security-status__panel {
+    width: 100%;
+    height: calc(100dvh - 32px);
+    border-radius: 20px;
+  }
+
+  .security-status__header {
+    padding: 14px 18px;
+  }
+
+  .security-status__body {
+    padding: 16px 18px 20px;
+  }
+
+  .security-status__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .security-status__overall-time {
+    margin-left: 0;
+  }
+}

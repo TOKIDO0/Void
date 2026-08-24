@@ -58,6 +58,7 @@ import type { TtsExpressionAction } from "../emotion/expression/expressionTypes"
 import { classifyTaskContext } from "../emotion/taskContextClassifier";
 import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
+import { SecurityStatusPanel } from "../agent/security/SecurityStatusPanel";
 import { assessSalience } from "../memory/memorySalience";
 import { assessSensitivity, resolveWriteDecision } from "../memory/memoryPolicy";
 import { upsertMemoryDeduped } from "../memory/memoryStore";
@@ -123,6 +124,7 @@ export function VoidStage() {
   const [visualState, setVisualState] = useState<VoidVisualState>("idle");
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
   const [isMemoryPanelOpen, setIsMemoryPanelOpen] = useState(false);
+  const [isSecurityPanelOpen, setIsSecurityPanelOpen] = useState(false);
   // L2/L3 极简确认条（辅路径）；主路径仍是对话/语音驱动工具
   const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationRequest | null>(null);
   const confirmationResolverRef = useRef<((decision: ConfirmationDecision) => void) | null>(null);
@@ -981,6 +983,8 @@ export function VoidStage() {
         setIsModelSettingsOpen(command.open);
       } else if (command.target === "memory") {
         setIsMemoryPanelOpen(command.open);
+      } else if (command.target === "security") {
+        setIsSecurityPanelOpen(command.open);
       } else if (command.open) {
         openExpandedResponse();
         if (!conversationHistoryRef.current.length) {
@@ -1340,6 +1344,10 @@ export function VoidStage() {
     setIsMemoryPanelOpen(true);
   }, []);
 
+  const handleOpenSecurityPanel = useCallback(() => {
+    setIsSecurityPanelOpen(true);
+  }, []);
+
   useEffect(() => {
     conversationHistoryRef.current = conversationHistory;
   }, [conversationHistory]);
@@ -1428,6 +1436,7 @@ export function VoidStage() {
         onOpenModelConfig={handleOpenModelConfig}
         onOpenConversationHistory={openExpandedResponse}
         onOpenMemoryManager={handleOpenMemoryManager}
+        onOpenSecurityPanel={handleOpenSecurityPanel}
       />
       <ExpandedResponseOverlay
         isOpen={isExpandedResponseOpen}
@@ -1439,6 +1448,7 @@ export function VoidStage() {
       />
       <ModelSettingsModal isOpen={isModelSettingsOpen} onClose={() => setIsModelSettingsOpen(false)} />
       <MemoryManagerPanel isOpen={isMemoryPanelOpen} onClose={() => setIsMemoryPanelOpen(false)} />
+      <SecurityStatusPanel isOpen={isSecurityPanelOpen} onClose={() => setIsSecurityPanelOpen(false)} />
       {pendingConfirmation ? (
         <AgentConfirmBar
           request={pendingConfirmation}

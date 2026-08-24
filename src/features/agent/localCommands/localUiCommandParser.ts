@@ -11,7 +11,7 @@
  *   - 与 turnCapabilityRouter（agent 工具意图）完全分离，不新增 capability。
  */
 
-export type LocalUiModalTarget = "settings" | "history" | "memory";
+export type LocalUiModalTarget = "settings" | "history" | "memory" | "security";
 
 export type LocalUiCommand =
   | { kind: "modal"; target: LocalUiModalTarget; open: boolean }
@@ -32,7 +32,9 @@ const CLOSE_VERBS = "关闭|关掉|收起|隐藏|关";
 const MODAL_TARGET_PATTERNS: Array<{ pattern: string; target: LocalUiModalTarget }> = [
   { pattern: "模型设置|设置", target: "settings" },
   { pattern: "历史记录|对话历史|历史", target: "history" },
-  { pattern: "记忆面板|记忆", target: "memory" }
+  { pattern: "记忆面板|记忆", target: "memory" },
+  // 40 号文档 D2：安全问询走对话 + 工具；只有明确的「面板/状态」指令才开 UI。
+  { pattern: "安全状态面板|安全面板|安全状态", target: "security" }
 ];
 
 /** 目标词后允许的冗余后缀（「打开设置面板」「开历史记录窗口」）。 */
