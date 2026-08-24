@@ -73,8 +73,9 @@ type SettingsCopy = {
   menuUploadFile: string;
   menuHistory: string;
   menuMemory: string;
-  menuSecurity: string;
   menuSettings: string;
+  /** 设置模态顶部页签：安全状态（2026-08-24 信息架构调整：从操作栏迁入设置中心）。 */
+  securityTab: string;
 };
 
 export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
@@ -149,8 +150,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuUploadFile: "上传文件",
     menuHistory: "历史记录",
     menuMemory: "记忆面板",
-    menuSecurity: "安全状态",
-    menuSettings: "设置"
+    menuSettings: "设置",
+    securityTab: "安全状态"
   },
   "en-US": {
     settings: "Settings",
@@ -223,8 +224,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuUploadFile: "Upload file",
     menuHistory: "History",
     menuMemory: "Memory",
-    menuSecurity: "Security",
-    menuSettings: "Settings"
+    menuSettings: "Settings",
+    securityTab: "Security"
   }
 };
 

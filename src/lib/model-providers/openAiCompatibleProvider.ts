@@ -23,10 +23,13 @@ type OpenAiCompatibleToolCall = {
 type OpenAiCompatibleChoice = {
   message?: {
     content?: string | null;
+    /** 推理模型（DeepSeek R1/V4 系、o1 类）的思考过程字段；content 为空时它说明额度被思考耗尽。 */
+    reasoning_content?: string | null;
     tool_calls?: OpenAiCompatibleToolCall[];
   };
   delta?: {
     content?: string | null;
+    reasoning_content?: string | null;
     tool_calls?: OpenAiCompatibleToolCall[];
   };
   finish_reason?: string | null;
@@ -142,6 +145,13 @@ export const openAiCompatibleProvider: ModelProvider = {
     const toolCalls = normalizeToolCalls(message?.tool_calls);
 
     if (!content && toolCalls.length === 0) {
+      // 推理模型（reasoning model）专用诊断：思考过程吃光输出额度时 content 为空，
+      // 笼统报「没有返回有效内容」会让用户以为配置错了。点名根因并给出解法。
+      if (typeof message?.reasoning_content === "string" && message.reasoning_content.trim()) {
+        throw new Error(
+          `当前是推理模型：它把输出长度全部用于思考过程，没有产出最终回答（finish_reason=${choice?.finish_reason ?? "unknown"}）。请在「设置 → 模型」把输出长度调到「长文/代码」（6000）或更高，或改用非推理模型。`
+        );
+      }
       throw new Error("模型没有返回有效内容。");
     }
 
@@ -362,6 +372,7 @@ async function readOpenAiCompatibleStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let content = "";
+  let reasoningLength = 0;
   // 流式 tool_calls 按 index 累积（部分中转站会边流边吐 arguments）
   const toolCallBuffers = new Map<
     number,
@@ -396,6 +407,12 @@ async function readOpenAiCompatibleStream(
         if (token) {
           content += token;
           onToken?.(token);
+        }
+
+        // 推理模型的思考块（delta.reasoning_content）不进入回复与 TTS；
+        // 仅累计长度，用于流结束后 content 为空时的精确诊断。
+        if (typeof delta?.reasoning_content === "string" && delta.reasoning_content) {
+          reasoningLength += delta.reasoning_content.length;
         }
 
         if (delta?.tool_calls) {
@@ -438,6 +455,11 @@ async function readOpenAiCompatibleStream(
 
   const finalContent = content.trim();
   if (!finalContent && toolCalls.length === 0) {
+    if (reasoningLength > 0) {
+      throw new Error(
+        "当前是推理模型：它把输出长度全部用于思考过程，没有产出最终回答。请在「设置 → 模型」把输出长度调到「长文/代码」（6000）或更高，或改用非推理模型。"
+      );
+    }
     throw new Error("模型没有返回有效内容。");
   }
 

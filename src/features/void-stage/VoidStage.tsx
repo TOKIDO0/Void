@@ -58,7 +58,6 @@ import type { TtsExpressionAction } from "../emotion/expression/expressionTypes"
 import { classifyTaskContext } from "../emotion/taskContextClassifier";
 import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
-import { SecurityStatusPanel } from "../agent/security/SecurityStatusPanel";
 import { resolveSkillPromptHint } from "../agent/skills/skillsBridgeClient";
 import { assessSalience } from "../memory/memorySalience";
 import { assessSensitivity, resolveWriteDecision } from "../memory/memoryPolicy";
@@ -125,7 +124,8 @@ export function VoidStage() {
   const [visualState, setVisualState] = useState<VoidVisualState>("idle");
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
   const [isMemoryPanelOpen, setIsMemoryPanelOpen] = useState(false);
-  const [isSecurityPanelOpen, setIsSecurityPanelOpen] = useState(false);
+  // 2026-08-24 信息架构调整：安全状态迁入设置模态顶部页签；该值仅在打开瞬间作为初值消费
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"model" | "security">("model");
   // L2/L3 极简确认条（辅路径）；主路径仍是对话/语音驱动工具
   const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationRequest | null>(null);
   const confirmationResolverRef = useRef<((decision: ConfirmationDecision) => void) | null>(null);
@@ -990,11 +990,14 @@ export function VoidStage() {
 
     if (command.kind === "modal") {
       if (command.target === "settings") {
+        setSettingsInitialTab("model");
         setIsModelSettingsOpen(command.open);
       } else if (command.target === "memory") {
         setIsMemoryPanelOpen(command.open);
       } else if (command.target === "security") {
-        setIsSecurityPanelOpen(command.open);
+        // 「打开安全面板」→ 设置中心的安全状态页签
+        setSettingsInitialTab("security");
+        setIsModelSettingsOpen(command.open);
       } else if (command.open) {
         openExpandedResponse();
         if (!conversationHistoryRef.current.length) {
@@ -1351,15 +1354,12 @@ export function VoidStage() {
   }, [updateVoicePreferences, voicePreferences]);
 
   const handleOpenModelConfig = useCallback(() => {
+    setSettingsInitialTab("model");
     setIsModelSettingsOpen(true);
   }, []);
 
   const handleOpenMemoryManager = useCallback(() => {
     setIsMemoryPanelOpen(true);
-  }, []);
-
-  const handleOpenSecurityPanel = useCallback(() => {
-    setIsSecurityPanelOpen(true);
   }, []);
 
   useEffect(() => {
@@ -1451,7 +1451,6 @@ export function VoidStage() {
         onOpenModelConfig={handleOpenModelConfig}
         onOpenConversationHistory={openExpandedResponse}
         onOpenMemoryManager={handleOpenMemoryManager}
-        onOpenSecurityPanel={handleOpenSecurityPanel}
       />
       <ExpandedResponseOverlay
         isOpen={isExpandedResponseOpen}
@@ -1461,9 +1460,12 @@ export function VoidStage() {
         onOpenProgressChange={setExpandedProgress}
         onRegenerateLatestUserMessage={handleRegenerateLatestUserMessage}
       />
-      <ModelSettingsModal isOpen={isModelSettingsOpen} onClose={() => setIsModelSettingsOpen(false)} />
+      <ModelSettingsModal
+        isOpen={isModelSettingsOpen}
+        onClose={() => setIsModelSettingsOpen(false)}
+        initialTab={settingsInitialTab}
+      />
       <MemoryManagerPanel isOpen={isMemoryPanelOpen} onClose={() => setIsMemoryPanelOpen(false)} />
-      <SecurityStatusPanel isOpen={isSecurityPanelOpen} onClose={() => setIsSecurityPanelOpen(false)} />
       {pendingConfirmation ? (
         <AgentConfirmBar
           request={pendingConfirmation}

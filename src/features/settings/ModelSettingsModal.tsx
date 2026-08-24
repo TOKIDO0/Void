@@ -27,18 +27,26 @@ import {
 } from "./settingsI18n";
 import { isSemanticSearchEnabled, setSemanticSearchEnabled } from "../memory/memorySemanticConfig";
 import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
+import { SecurityStatusContent } from "../agent/security/SecurityStatusContent";
+import { SETTINGS_COPY as SHARED_SETTINGS_COPY } from "./settingsI18n";
 
 /** 单厂商模型列表拉取状态。 */
 type CatalogStatus = "idle" | "loading" | "error" | "ready";
 
+/** 设置模态顶部页签：模型设置（默认）/ 安全状态等系统级不常用功能（2026-08-24 信息架构调整）。 */
+export type SettingsTab = "model" | "security";
+
 type ModelSettingsModalProps = {
   isOpen: boolean;
   onClose: () => void;
+  /** 打开时定位的页签；缺省 "model"。仅作为打开瞬间的初值，之后由用户点击切换。 */
+  initialTab?: SettingsTab;
 };
 
 const MODEL_STRENGTH_ORDER: ModelStrength[] = ["low", "middle", "high", "max"];
 
-export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps) {
+export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: ModelSettingsModalProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("model");
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
   const [voiceRuntimeConfig, setVoiceRuntimeConfig] = useState(() => loadVoiceRuntimeConfig());
   const [semanticSearchDraft, setSemanticSearchDraft] = useState(() => isSemanticSearchEnabled());
@@ -83,7 +91,8 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     );
     setIsApiKeyVisible(false);
     setIsDirty(false);
-  }, [isOpen]);
+    setActiveTab(initialTab);
+  }, [isOpen, initialTab]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -290,6 +299,71 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
     return null;
   }
 
+  // 顶部页签（用户 2026-08-24 反馈：系统级/不常用功能收进设置模态顶部条中间，操作栏只留高频入口）。
+  const settingsTabsNode = (
+    <nav className="model-settings-modal__tabs" aria-label={copy.settings}>
+      <button
+        type="button"
+        className={`model-settings-modal__tab${activeTab === "model" ? " is-active" : ""}`}
+        aria-pressed={activeTab === "model"}
+        onClick={() => setActiveTab("model")}
+      >
+        {copy.model}
+      </button>
+      <button
+        type="button"
+        className={`model-settings-modal__tab${activeTab === "security" ? " is-active" : ""}`}
+        aria-pressed={activeTab === "security"}
+        onClick={() => setActiveTab("security")}
+      >
+        {SHARED_SETTINGS_COPY[language].securityTab}
+      </button>
+    </nav>
+  );
+
+  // 安全状态页签：独立早退渲染，不进入模型设置的 form（避免大表单条件嵌套）。
+  if (activeTab === "security") {
+    return (
+      <div className="model-settings-modal" role="presentation" onMouseDown={onClose}>
+        <div
+          className="model-settings-modal__panel"
+          role="dialog"
+          aria-label={SHARED_SETTINGS_COPY[language].securityTab}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="model-settings-modal__header">
+            <div className="model-settings-modal__title-group">
+              <div className="model-settings-modal__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a5.25 5.25 0 1010.5 0v-3A5.25 5.25 0 0012 1.5z"
+                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5h15" />
+                </svg>
+              </div>
+              <div>
+                <p className="model-settings-modal__eyebrow">{copy.settings}</p>
+                <h2>{SHARED_SETTINGS_COPY[language].securityTab}</h2>
+              </div>
+            </div>
+            {settingsTabsNode}
+            <button
+              className="model-settings-modal__close"
+              type="button"
+              aria-label={copy.closeSettings}
+              onClick={onClose}
+            />
+          </div>
+          <div className="model-settings-modal__body model-settings-modal__body--single">
+            <SecurityStatusContent />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="model-settings-modal" role="presentation" onMouseDown={onClose}>
       <form
@@ -315,6 +389,7 @@ export function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps)
               <h2>{copy.model}</h2>
             </div>
           </div>
+          {settingsTabsNode}
           <button
             className="model-settings-modal__close"
             type="button"

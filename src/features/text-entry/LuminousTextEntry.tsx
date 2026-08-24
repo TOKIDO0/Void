@@ -41,7 +41,6 @@ type LuminousTextEntryProps = {
   onOpenModelConfig: () => void;
   onOpenConversationHistory: () => void;
   onOpenMemoryManager: () => void;
-  onOpenSecurityPanel: () => void;
 };
 
 type LuminousCapsuleProps = {
@@ -178,8 +177,7 @@ export function LuminousTextEntry({
   onVoiceOutputToggle,
   onOpenModelConfig,
   onOpenConversationHistory,
-  onOpenMemoryManager,
-  onOpenSecurityPanel
+  onOpenMemoryManager
 }: LuminousTextEntryProps) {
   const [inputValue, setInputValue] = useState("");
   const rootRef = useRef<HTMLFormElement | null>(null);
@@ -449,7 +447,7 @@ export function LuminousTextEntry({
     pinOpen();
   };
 
-  const handleAgentActionClick = (action: "thinking" | "voice-input" | "voice-output" | "upload" | "history" | "memory" | "security" | "settings") => {
+  const handleAgentActionClick = (action: "thinking" | "voice-input" | "voice-output" | "upload" | "history" | "memory" | "settings") => {
     pinOpen();
     if (action === "thinking") {
       onThinkingModeChange(!thinkingModeEnabled);
@@ -474,11 +472,6 @@ export function LuminousTextEntry({
     if (action === "memory") {
       setIsAgentMenuOpen(false);
       onOpenMemoryManager();
-    }
-
-    if (action === "security") {
-      setIsAgentMenuOpen(false);
-      onOpenSecurityPanel();
     }
 
     if (action === "settings") {
@@ -748,9 +741,6 @@ export function LuminousTextEntry({
             </button>
             <button type="button" onClick={() => handleAgentActionClick("memory")}>
               {menuCopy.menuMemory}
-            </button>
-            <button type="button" onClick={() => handleAgentActionClick("security")}>
-              {menuCopy.menuSecurity}
             </button>
             <button type="button" onClick={() => handleAgentActionClick("settings")}>
               {menuCopy.menuSettings}
