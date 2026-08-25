@@ -28,13 +28,14 @@ import {
 import { isSemanticSearchEnabled, setSemanticSearchEnabled } from "../memory/memorySemanticConfig";
 import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
 import { SecurityStatusContent } from "../agent/security/SecurityStatusContent";
+import { isHighPermissionMode, setHighPermissionMode } from "./highPermissionMode";
 import { SETTINGS_COPY as SHARED_SETTINGS_COPY } from "./settingsI18n";
 
 /** 单厂商模型列表拉取状态。 */
 type CatalogStatus = "idle" | "loading" | "error" | "ready";
 
-/** 设置模态顶部页签：模型设置（默认）/ 安全状态等系统级不常用功能（2026-08-24 信息架构调整）。 */
-export type SettingsTab = "model" | "security";
+/** 设置模态顶部页签：模型设置（默认）/ 安全状态 / 高级等系统级不常用功能（2026-08-24 信息架构调整）。 */
+export type SettingsTab = "model" | "security" | "advanced";
 
 type ModelSettingsModalProps = {
   isOpen: boolean;
@@ -47,6 +48,8 @@ const MODEL_STRENGTH_ORDER: ModelStrength[] = ["low", "middle", "high", "max"];
 
 export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: ModelSettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("model");
+  const [highPermissionEnabled, setHighPermissionEnabled] = useState(() => isHighPermissionMode());
+  const [showHighPermissionConfirm, setShowHighPermissionConfirm] = useState(false);
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
   const [voiceRuntimeConfig, setVoiceRuntimeConfig] = useState(() => loadVoiceRuntimeConfig());
   const [semanticSearchDraft, setSemanticSearchDraft] = useState(() => isSemanticSearchEnabled());
@@ -92,6 +95,8 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     setIsApiKeyVisible(false);
     setIsDirty(false);
     setActiveTab(initialTab);
+    setHighPermissionEnabled(isHighPermissionMode());
+    setShowHighPermissionConfirm(false);
   }, [isOpen, initialTab]);
 
   useEffect(() => {
@@ -318,6 +323,14 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
       >
         {SHARED_SETTINGS_COPY[language].securityTab}
       </button>
+      <button
+        type="button"
+        className={`model-settings-modal__tab${activeTab === "advanced" ? " is-active" : ""}`}
+        aria-pressed={activeTab === "advanced"}
+        onClick={() => setActiveTab("advanced")}
+      >
+        {language === "zh-CN" ? "高级" : "Advanced"}
+      </button>
     </nav>
   );
 
@@ -358,6 +371,101 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
           </div>
           <div className="model-settings-modal__body model-settings-modal__body--single">
             <SecurityStatusContent />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTab === "advanced") {
+    return (
+      <div className="model-settings-modal" role="presentation" onMouseDown={onClose}>
+        <div
+          className="model-settings-modal__panel"
+          role="dialog"
+          aria-label={language === "zh-CN" ? "高级设置" : "Advanced"}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="model-settings-modal__header">
+            <div className="model-settings-modal__title-group">
+              <div className="model-settings-modal__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 00-1 1.51V11a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+                </svg>
+              </div>
+              <div>
+                <p className="model-settings-modal__eyebrow">{copy.settings}</p>
+                <h2>{language === "zh-CN" ? "高级" : "Advanced"}</h2>
+              </div>
+            </div>
+            {settingsTabsNode}
+            <button
+              className="model-settings-modal__close"
+              type="button"
+              aria-label={copy.closeSettings}
+              onClick={onClose}
+            />
+          </div>
+          <div className="model-settings-modal__body model-settings-modal__body--single">
+            <div className="model-settings-modal__advanced">
+              <section className="model-settings-modal__field">
+                <label className="model-settings-modal__advanced-toggle">
+                  <span>
+                    <strong>{language === "zh-CN" ? "高权限模式" : "High permission mode"}</strong>
+                    <p>{language === "zh-CN" ? "开启后，文件写入、应用启动等操作将减少确认次数，但敏感文件读取与红线拦截保持不变。" : "When enabled, file and app operations require fewer confirmations, but sensitive file access and hard blocks remain."}</p>
+                  </span>
+                  <span className="model-settings-modal__switch">
+                    <input
+                      type="checkbox"
+                      checked={highPermissionEnabled}
+                      onChange={(event) => {
+                        if (event.target.checked) {
+                          setShowHighPermissionConfirm(true);
+                        } else {
+                          setHighPermissionMode(false);
+                          setHighPermissionEnabled(false);
+                        }
+                      }}
+                    />
+                    <span className="model-settings-modal__switch-slider" />
+                  </span>
+                </label>
+                {highPermissionEnabled ? (
+                  <p className="model-settings-modal__hint model-settings-modal__hint--warning">
+                    {language === "zh-CN"
+                      ? "高权限已开启：VOID 将更主动地执行操作。请仅在信任当前任务时保持开启。"
+                      : "High permission is on: VOID will act more autonomously. Keep it on only for trusted tasks."}
+                  </p>
+                ) : null}
+              </section>
+              {showHighPermissionConfirm ? (
+                <div className="model-settings-modal__confirm" role="alertdialog" aria-modal="true">
+                  <h4>{language === "zh-CN" ? "确认开启高权限模式？" : "Enable high permission mode?"}</h4>
+                  <p>
+                    {language === "zh-CN"
+                      ? "开启后，以下操作将从“需要确认”降为“直接执行”：应用启动、文件写入/移动、下载落盘等。敏感文件（.env、密钥等）与红线内容（身份证/密码）仍会要求确认或直接拦截。此模式仅影响本机，关闭设置即失效，可随时关闭。"
+                      : "When enabled, app launches, file writes/moves and downloads will run without extra confirmation. Sensitive files and hard-blocked secrets still require confirmation or remain blocked. This only affects this device and can be turned off anytime."}
+                  </p>
+                  <div className="model-settings-modal__confirm-actions">
+                    <button type="button" onClick={() => setShowHighPermissionConfirm(false)}>
+                      {language === "zh-CN" ? "取消" : "Cancel"}
+                    </button>
+                    <button
+                      type="button"
+                      className="is-primary"
+                      onClick={() => {
+                        setHighPermissionMode(true);
+                        setHighPermissionEnabled(true);
+                        setShowHighPermissionConfirm(false);
+                      }}
+                    >
+                      {language === "zh-CN" ? "确认开启" : "Enable"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>

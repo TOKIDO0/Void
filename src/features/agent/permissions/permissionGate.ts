@@ -6,6 +6,7 @@ import {
   type ConfirmationRequest,
   type RiskPolicy
 } from "./permissionTypes";
+import { resolveEffectiveStaticRiskLevel } from "./riskLevelPolicy";
 
 let confirmationSequence = 0;
 
@@ -56,10 +57,15 @@ export function createConfirmationRequest(params: {
 /**
  * 步骤可覆盖工具默认风险：
  * - 工具本身 L0，但 input 要求确认时，由调用方传入 effectiveRiskLevel=L2
+ * 高权限模式下静态 L2→L1，但动态安全 hook 抬升的 L2（如敏感文件读取）保持——
+ * 高权限 ≠ 放行密钥文件。
  */
 export function resolveEffectiveRiskLevel(
   toolRiskLevel: RiskLevel,
   stepRiskLevel?: RiskLevel
 ): RiskLevel {
-  return stepRiskLevel ?? toolRiskLevel;
+  if (stepRiskLevel) {
+    return stepRiskLevel;
+  }
+  return resolveEffectiveStaticRiskLevel(toolRiskLevel);
 }

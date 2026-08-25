@@ -68,11 +68,14 @@ export function VoidBlob({
       return;
     }
 
+    // 阶段 AB：rAF 在窗口后台/遮挡时暂停，恢复后首帧 delta 可达数秒——不 clamp 会把所有
+    // 插值一步拉到目标值，表现为「调出窗口瞬间流体猛流」。统一限制单帧最大步长。
+    const step = Math.min(delta, 0.1);
     const animatedValues = animatedValuesRef.current;
     const closingTarget = isExpandedResponseClosing ? 1 : 0;
     const closingEaseSpeed = isExpandedResponseClosing ? 18 : 10;
     closingSuppressionRef.current +=
-      (closingTarget - closingSuppressionRef.current) * Math.min(delta * closingEaseSpeed, 1);
+      (closingTarget - closingSuppressionRef.current) * Math.min(step * closingEaseSpeed, 1);
 
     // 阶段 2 挂账项：speaking 音频起伏优先用真实播放电平；信号过期（Blob fallback）回退模拟脉冲。
     // 统一在 useFrame 里低通逼近目标值，替代原 gsap yoyo 脉冲，两条路径视觉节奏一致。
@@ -89,7 +92,7 @@ export function VoidBlob({
       }
     }
     animatedValues.audioLevel +=
-      (targetAudioLevel - animatedValues.audioLevel) * Math.min(delta * 10, 1);
+      (targetAudioLevel - animatedValues.audioLevel) * Math.min(step * 10, 1);
 
     const speakingLift = animatedValues.audioLevel * 0.42;
     const breath = Math.sin(clock.elapsedTime * ((Math.PI * 2) / 3)) * 0.018;
@@ -103,7 +106,7 @@ export function VoidBlob({
     const pulseStrength = pulseVisibility * expandedPulseSuppression;
     pulseProgressRef.current = rawPulseProgress;
     const targetScale = animatedValues.scale + breath + animatedValues.audioLevel * 0.025 + transitionLift;
-    const nextScale = baseScaleRef.current + (targetScale - baseScaleRef.current) * Math.min(delta * 4, 1);
+    const nextScale = baseScaleRef.current + (targetScale - baseScaleRef.current) * Math.min(step * 4, 1);
 
     baseScaleRef.current = nextScale;
     mesh.scale.set(
@@ -111,7 +114,7 @@ export function VoidBlob({
       nextScale * animatedValues.shapeY,
       nextScale * animatedValues.shapeZ
     );
-    mesh.rotation.y += delta * 0.08;
+    mesh.rotation.y += step * 0.08;
     mesh.rotation.x = Math.sin(clock.elapsedTime * 0.22) * 0.04;
 
     // 情绪视觉偏移：对基础 profile 的三项形变做 clamp 后的乘性叠加（情绪是正交维度，不新增 visual state）
