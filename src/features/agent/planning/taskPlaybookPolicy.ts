@@ -165,6 +165,52 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     ]
   },
   {
+    id: "generic-media-download",
+    category: "file",
+    label: "通用媒体下载",
+    summary: "任意 https 媒体链接走 yt-dlp 下载，支持视频/音频提取，私网/本地地址拒绝。",
+    userValue: "适合下载公开视频、音乐、直播回放等；站点支持性由 yt-dlp 决定，不支持时如实报错。",
+    exampleRequests: [
+      "帮我下载这个视频 https://example.com/video/123",
+      "把这个链接的音频提取成 mp3"
+    ],
+    requiredToolNames: ["file.downloadMedia"],
+    optionalToolNames: ["file.placeDownload", "file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "仅允许公网 https URL；本地/私网/内网地址会被拒绝。",
+      "下载后需确认落盘位置；体积超限或站点不支持时如实失败。"
+    ]
+  },
+  {
+    id: "image-novel-collection",
+    category: "browser",
+    label: "图集与正文采集保存",
+    summary: "抽取页面图片列表或正文内容，整理后保存为本地文件。",
+    userValue: "适合保存图集链接清单、正文内容或小说章节到本地文本。",
+    exampleRequests: [
+      "把这个页面的图片都保存下来",
+      "把这篇小说的正文整理成 txt 保存"
+    ],
+    requiredToolNames: ["browser.extract", "file.writeText"],
+    optionalToolNames: [
+      "browser.open",
+      "file.downloadToTemp",
+      "file.inspectWriteTarget",
+      "file.listRecentArtifacts",
+      "desktop.revealPath"
+    ],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "只保存用户明确请求的页面内容，不做破解或绕付费。",
+      "批量下载前需确认目标目录；失败项如实说明。"
+    ]
+  },
+  {
     id: "text-artifact-save",
     category: "file",
     label: "文本产物保存",
