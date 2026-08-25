@@ -6,6 +6,7 @@ import { VOID_SYSTEM_PROMPT } from "./voidSystemPrompt";
 import { retrieveMemoriesAsync } from "../memory/memoryRetriever";
 import { projectMemories } from "../memory/memoryProjection";
 import { clearPendingMemoryConfirmations } from "../memory/pendingMemoryConfirmations";
+import { resolveModelContextWindow } from "./context/modelContextWindows";
 import { runAgentToolLoop } from "./loop/agentToolLoop";
 import type { ConfirmationDecision, ConfirmationRequest } from "./permissions";
 import {
@@ -34,6 +35,23 @@ import {
   saveConversationWorkingSummary
 } from "./context/conversationCompactor";
 import { estimateTokens, planTokenBudget } from "./context/tokenBudget";
+
+// 阶段 AD：上下文感知——每会话最多提醒一次，避免复读
+let contextHintReminded = false;
+export function resetContextUsageHintFlag(): void {
+  contextHintReminded = false;
+}
+
+function buildContextUsageHint(usage: number, windowTokens: number, usedTokens: number): string | null {
+  if (contextHintReminded) return null;
+  if (usage < 0.8) return null;
+  contextHintReminded = true;
+  const percent = Math.round(usage * 100);
+  if (usage >= 0.95) {
+    return `【上下文状态提示】当前对话已使用约 ${percent}% 的上下文窗口（约 ${usedTokens}/${windowTokens} tokens），已接近上限。建议用自然语气在回复末尾提醒用户：“我们聊得挺多了，上下文快满了，要不要我帮你把前面的要点整理压缩一下，或者你开个新窗口继续？” 若用户同意，可提示其使用会话清空或等待自动压缩。`;
+  }
+  return `【上下文状态提示】当前对话已使用约 ${percent}% 的上下文窗口（约 ${usedTokens}/${windowTokens} tokens）。建议用自然语气在回复末尾轻量提醒用户：“我们聊了挺久了，要不要我帮你把前面的要点整理一下，或者开个新窗口继续？” 每会话仅提醒一次。`;
+}
 
 export type VoidConversationAttachment = {
   id: string;
@@ -275,7 +293,7 @@ export async function sendVoidMessage(
   }
 
   // M2：先按无摘要拼一版 system 估 token，再裁历史；摘要段随后并入最终 system。
-  const baseSystemPrompt = buildSystemPrompt(
+  let baseSystemPrompt = buildSystemPrompt(
     effectiveModelConfig,
     emotionContext,
     affectContext,
@@ -287,6 +305,32 @@ export async function sendVoidMessage(
     forceThinkingThisTurn,
     runtimeOptions.skillPromptHint
   );
+  // 阶段 AD：上下文使用率感知（agent 自感知，用户无感；开源调研结论：内置映射表 + 阈值双档）
+  {
+    const historyTextForUsage = conversationHistory.map((m) => m.content).join("\n");
+    const totalForUsage =
+      estimateTokens(baseSystemPrompt) +
+      estimateTokens(memoryContext) +
+      estimateTokens(historyTextForUsage);
+    const windowTokens = resolveModelContextWindow(effectiveModelConfig.modelName);
+    const usage = windowTokens > 0 ? totalForUsage / windowTokens : 0;
+    const hint = buildContextUsageHint(usage, windowTokens, totalForUsage);
+    if (hint) {
+      baseSystemPrompt = buildSystemPrompt(
+        effectiveModelConfig,
+        emotionContext,
+        affectContext,
+        memoryContext,
+        enableTools,
+        turnRoute.capability,
+        normalizedUserInput,
+        taskGate,
+        forceThinkingThisTurn,
+        runtimeOptions.skillPromptHint,
+        hint
+      );
+    }
+  }
   const tokenBudget = planTokenBudget({
     systemText: baseSystemPrompt,
     memoryText: memoryContext
@@ -414,7 +458,8 @@ function buildSystemPrompt(
   latestUserInput = "",
   taskGate?: BehaviorDecision["taskGate"],
   researchIntentThisTurn = false,
-  skillPromptHint?: string
+  skillPromptHint?: string,
+  contextUsageHint?: string
 ) {
   const sections = [VOID_SYSTEM_PROMPT];
 
@@ -445,6 +490,11 @@ function buildSystemPrompt(
   // hint 文本自带「不得越过工具门禁」防线（见 skillsBridgeClient.resolveSkillPromptHint）。
   if (skillPromptHint && skillPromptHint.trim()) {
     sections.push(skillPromptHint.trim());
+  }
+
+  // 阶段 AD：上下文使用率提示（agent 自感知，用户无感）。阈值 0.8/0.95 时注入，引导自然建议。
+  if (contextUsageHint && contextUsageHint.trim()) {
+    sections.push(contextUsageHint.trim());
   }
 
   // 情绪系统的本轮情绪上下文（可选）。缺省则完全退回原有行为，零副作用。
@@ -613,6 +663,7 @@ export function clearCurrentConversationHistory() {
   clearConversationWorkingSummary();
   // 阶段 AA：对话清空时待确认记忆候选一并丢弃（询问已失去上下文）
   clearPendingMemoryConfirmations();
+  resetContextUsageHintFlag();
 }
 
 export function loadCurrentConversationHistory(): VoidConversationMessage[] {

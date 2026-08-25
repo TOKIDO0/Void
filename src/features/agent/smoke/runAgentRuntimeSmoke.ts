@@ -1486,6 +1486,20 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     pending.clearPendingMemoryConfirmations();
   }
 
+  // 阶段 AD（43 号总规划）：模型上下文窗口表
+  {
+    const { resolveModelContextWindow } = await import("../context/modelContextWindows");
+    if (resolveModelContextWindow("gpt-4o") !== 128000) {
+      failures.push("AD 窗口表 gpt-4o 应为 128k");
+    } else if (resolveModelContextWindow("unknown-model-xyz") !== 32768) {
+      failures.push("AD 未知模型应回退 32k");
+    } else if (resolveModelContextWindow("deepseek-v4-flash") !== 64000) {
+      failures.push("AD deepseek-v4-flash 应为 64k");
+    } else {
+      notes.push("AD 模型窗口表正确：已知模型精确匹配，未知回退 32k");
+    }
+  }
+
   const localTextSearchRoute = resolveTurnCapability("在 D:\\AI\\void-runtime\\downloads 目录里查找 VOID", []);
   if (
     localTextSearchRoute.capability !== "file"
