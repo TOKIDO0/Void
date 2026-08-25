@@ -31,6 +31,23 @@ export type DesktopOpenKnownLocationData = {
   openedAt: number;
 };
 
+export type DesktopInstalledApp = {
+  name: string;
+  lnkPath: string;
+};
+
+export type DesktopInstalledAppsData = {
+  apps: DesktopInstalledApp[];
+  count: number;
+  scannedAt: number;
+};
+
+export type DesktopLaunchAppData = {
+  name: string;
+  lnkPath: string;
+  launchedAt: number;
+};
+
 export type DesktopBridgeErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"
@@ -39,6 +56,8 @@ export type DesktopBridgeErrorCode =
   | "TIMEOUT"
   | "PATH_NOT_ALLOWED"
   | "PATH_NOT_FOUND"
+  | "APP_NOT_FOUND"
+  | "AMBIGUOUS_APP_NAME"
   | "REVEAL_FAILED"
   | "INTERNAL_ERROR"
   | "BRIDGE_UNREACHABLE";

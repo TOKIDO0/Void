@@ -28,6 +28,8 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.clipboard.write",
   "tool.desktop.revealPath",
   "tool.desktop.openKnownLocation",
+  "tool.desktop.listInstalledApplications",
+  "tool.desktop.launchApplication",
   "tool.file.downloadToTemp",
   "tool.file.downloadMediaPage",
   "tool.file.placeDownload",

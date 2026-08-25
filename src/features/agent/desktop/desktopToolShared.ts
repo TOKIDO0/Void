@@ -36,6 +36,15 @@ export const DESKTOP_KNOWN_LOCATION_RESOURCES: ToolResourceRequirement[] = [
   }
 ];
 
+/** 应用启动/列表：同任务串行，避免连续弹窗与扫描冲突。 */
+export const DESKTOP_APP_RESOURCES: ToolResourceRequirement[] = [
+  {
+    kind: "desktop",
+    key: "app-launch",
+    mode: "exclusive"
+  }
+];
+
 export function mapDesktopErrorToToolError(error: unknown): ToolError {
   const info = getDesktopBridgeErrorInfo(error);
   // 统一附带 desktopCode，供循环层回灌与熔断收口点名
@@ -76,6 +85,20 @@ export function mapDesktopErrorToToolError(error: unknown): ToolError {
         "EXECUTION_FAILED",
         info.message,
         withCode("path_not_found"),
+        false
+      );
+    case "APP_NOT_FOUND":
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withCode("app_not_found"),
+        false
+      );
+    case "AMBIGUOUS_APP_NAME":
+      return createToolError(
+        "SCHEMA_INVALID",
+        info.message,
+        withCode("ambiguous_app_name"),
         false
       );
     case "UNSUPPORTED_PLATFORM":

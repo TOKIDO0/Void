@@ -8,7 +8,10 @@ import type {
   ClipboardWriteData,
   DesktopBridgeErrorCode,
   DesktopBridgeResponse,
+  DesktopInstalledApp,
+  DesktopInstalledAppsData,
   DesktopKnownLocation,
+  DesktopLaunchAppData,
   DesktopOpenKnownLocationData,
   DesktopRevealPathData
 } from "./desktopBridgeTypes";
@@ -158,6 +161,27 @@ export async function openKnownLocation(
   return postDesktopApi<DesktopOpenKnownLocationData>(
     "/void-desktop/open-known-location",
     { location: input.location },
+    signal
+  );
+}
+
+export async function listInstalledApplications(
+  signal?: AbortSignal
+): Promise<DesktopInstalledAppsData> {
+  return postDesktopApi<DesktopInstalledAppsData>(
+    "/void-desktop/list-apps",
+    {},
+    signal
+  );
+}
+
+export async function launchApplication(
+  input: { name: string },
+  signal?: AbortSignal
+): Promise<DesktopLaunchAppData> {
+  return postDesktopApi<DesktopLaunchAppData>(
+    "/void-desktop/launch-app",
+    { name: input.name },
     signal
   );
 }

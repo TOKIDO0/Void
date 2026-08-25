@@ -17,6 +17,8 @@ import { clipboardReadTool } from "./builtin/clipboardReadTool";
 import { clipboardWriteTool } from "./builtin/clipboardWriteTool";
 import { desktopRevealPathTool } from "./builtin/desktopRevealPathTool";
 import { desktopOpenKnownLocationTool } from "./builtin/desktopOpenKnownLocationTool";
+import { desktopListInstalledApplicationsTool } from "./builtin/desktopListInstalledApplicationsTool";
+import { desktopLaunchApplicationTool } from "./builtin/desktopLaunchApplicationTool";
 import { echoTool } from "./builtin/echoTool";
 import { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 import { fileDownloadMediaPageTool } from "./builtin/fileDownloadMediaPageTool";
@@ -70,6 +72,8 @@ export function registerBuiltinTools() {
     clipboardWriteTool,
     desktopRevealPathTool,
     desktopOpenKnownLocationTool,
+    desktopListInstalledApplicationsTool,
+    desktopLaunchApplicationTool,
     fileDownloadToTempTool,
     fileDownloadMediaPageTool,
     filePlaceDownloadTool,

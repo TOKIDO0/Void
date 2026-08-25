@@ -239,6 +239,8 @@ export function getDesktopErrorPayload(error: unknown): {
     | "TIMEOUT"
     | "PATH_NOT_ALLOWED"
     | "PATH_NOT_FOUND"
+    | "APP_NOT_FOUND"
+    | "AMBIGUOUS_APP_NAME"
     | "REVEAL_FAILED"
     | "INTERNAL_ERROR";
   message: string;
@@ -259,6 +261,8 @@ export function getDesktopErrorPayload(error: unknown): {
         | "TIMEOUT"
         | "PATH_NOT_ALLOWED"
         | "PATH_NOT_FOUND"
+        | "APP_NOT_FOUND"
+        | "AMBIGUOUS_APP_NAME"
         | "REVEAL_FAILED"
         | "INTERNAL_ERROR";
       details?: Record<string, unknown>;

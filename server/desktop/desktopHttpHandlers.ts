@@ -16,6 +16,7 @@ import {
 } from "./clipboardManager";
 import { desktopRevealManager } from "./desktopRevealManager";
 import { desktopKnownLocationManager } from "./desktopKnownLocationManager";
+import { listInstalledApplications, launchApplicationByName } from "./desktopAppManager";
 import type {
   ClipboardReadData,
   ClipboardWriteData,
@@ -66,13 +67,15 @@ async function withDesktopHandler<T>(
         ? 400
         : payloadError.code === "PATH_NOT_ALLOWED"
           ? 403
-          : payloadError.code === "PATH_NOT_FOUND"
+          : payloadError.code === "PATH_NOT_FOUND" || payloadError.code === "APP_NOT_FOUND"
             ? 404
-            : payloadError.code === "UNSUPPORTED_PLATFORM"
-              ? 501
-              : payloadError.code === "TIMEOUT"
-                ? 504
-                : 500;
+            : payloadError.code === "AMBIGUOUS_APP_NAME"
+              ? 409
+              : payloadError.code === "UNSUPPORTED_PLATFORM"
+                ? 501
+                : payloadError.code === "TIMEOUT"
+                  ? 504
+                  : 500;
     const payload: DesktopApiResponse<never> = {
       ok: false,
       error: payloadError
@@ -166,6 +169,27 @@ export async function handleDesktopHttpRequest(
         });
       }
       return desktopKnownLocationManager.open(location);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/list-apps") {
+    await withDesktopHandler(response, async () => {
+      await readJsonBody(request);
+      const apps = listInstalledApplications();
+      return { apps, count: apps.length, scannedAt: Date.now() };
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/launch-app") {
+    await withDesktopHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const name = typeof body.name === "string" ? body.name.trim() : "";
+      if (!name) {
+        throw Object.assign(new Error("缺少 name（应用名）"), { desktopCode: "INVALID_REQUEST" });
+      }
+      return launchApplicationByName(name);
     });
     return true;
   }

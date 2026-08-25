@@ -1,7 +1,7 @@
 /**
  * M-desktop 契约（sidecar）。
- * 当前：剪贴板 read/write + 资源管理器 revealPath。
- * 不上完整 UIA / app.launch / 任意 Shell。
+ * 当前：剪贴板 read/write + 资源管理器 revealPath + 应用启动。
+ * 不上完整 UIA / 任意 Shell。
  */
 
 export type ClipboardReadData = {
@@ -34,6 +34,23 @@ export type DesktopOpenKnownLocationData = {
   openedAt: number;
 };
 
+export type DesktopInstalledApp = {
+  name: string;
+  lnkPath: string;
+};
+
+export type DesktopInstalledAppsData = {
+  apps: DesktopInstalledApp[];
+  count: number;
+  scannedAt: number;
+};
+
+export type DesktopLaunchAppData = {
+  name: string;
+  lnkPath: string;
+  launchedAt: number;
+};
+
 export type DesktopApiErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"
@@ -42,6 +59,8 @@ export type DesktopApiErrorCode =
   | "TIMEOUT"
   | "PATH_NOT_ALLOWED"
   | "PATH_NOT_FOUND"
+  | "APP_NOT_FOUND"
+  | "AMBIGUOUS_APP_NAME"
   | "REVEAL_FAILED"
   | "INTERNAL_ERROR";
 

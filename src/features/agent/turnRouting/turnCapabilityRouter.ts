@@ -78,7 +78,10 @@ const FILE_TOOL_NAMES = [
 ];
 
 const DESKTOP_TOOL_NAMES = [
-  "desktop.openKnownLocation"
+  "desktop.openKnownLocation",
+  "desktop.listInstalledApplications",
+  "desktop.launchApplication",
+  "desktop.revealPath"
 ];
 
 const CLIPBOARD_TOOL_NAMES = [
@@ -157,6 +160,7 @@ const SOFTWARE_TOOL_NAMES = [
 ];
 
 const EXPLICIT_CONTINUATION_PATTERN = /^(?:继续|接着|接着做|继续刚才|接着刚才|把刚才|刚才那个|再试一次|重试)(?:[，。,.！!？?\s]|$)/;
+const DESKTOP_APP_PATTERN = /(?:(?:打开|启动|运行|打开一下|启动一下).{0,10}(?:应用|程序|软件)|(?:应用|程序|软件).{0,8}(?:列表|有哪些|有什么))/;
 const THIS_PC_PATTERN = /(?:打开|进入|显示|启动).{0,6}(?:我的电脑|此电脑|这台电脑)/;
 const CLIPBOARD_PATTERN = /(?:(?:读取|查看|看看|写入|复制到|放到|清空).{0,6}(?:剪贴板|粘贴板)|(?:剪贴板|粘贴板).{0,6}(?:有什么|内容|读取|查看|写入|清空))/;
 const FILE_PATTERN = /(?:(?:整理|列出|查看|读取|搜索|搜一下|查找|查一下|移动|重命名|新建|创建|保存|写入|写到|打开所在位置).{0,12}(?:本地文件|文本文件|文件夹|目录|路径|文件)|(?:本地文件|文本文件|文件夹|目录|路径|文件).{0,12}(?:有什么|里面|整理|列出|查看|读取|搜索|搜一下|查找|查一下|移动|重命名|新建|创建|保存|写入|写到|打开所在位置)|(?:保存|写入|写到).{0,16}(?:txt|md|markdown|json|csv|文本)|[A-Za-z]:\\[^\n]{0,80}(?:有什么|里面|列出|查看|整理|搜索|查找|保存|写入))/;
@@ -319,6 +323,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (LOCAL_RUNTIME_SECURITY_PATTERN.test(userInput)) {
     return createRoute("security", SECURITY_TOOL_NAMES);
+  }
+
+  if (DESKTOP_APP_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_TOOL_NAMES);
   }
 
   if (THIS_PC_PATTERN.test(userInput)) {
