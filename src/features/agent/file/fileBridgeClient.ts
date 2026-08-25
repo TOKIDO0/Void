@@ -244,6 +244,19 @@ export async function downloadMediaPage(
   );
 }
 
+export async function downloadMedia(
+  input: { url: string; extractAudio?: boolean; fileName?: string },
+  signal?: AbortSignal
+): Promise<FileDownloadMediaPageData> {
+  const taskId = crypto.randomUUID();
+  return postFileApiWithTimeout<FileDownloadMediaPageData>(
+    "/void-file/download-media",
+    { taskId, pageUrl: input.url, extractAudio: input.extractAudio ?? false, suggestedFileName: input.fileName },
+    15 * 60_000,
+    signal
+  );
+}
+
 
 export async function placeDownload(
   input: {

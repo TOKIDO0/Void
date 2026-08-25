@@ -30,6 +30,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.desktop.openKnownLocation",
   "tool.desktop.listInstalledApplications",
   "tool.desktop.launchApplication",
+  "tool.file.downloadMedia",
   "tool.file.downloadToTemp",
   "tool.file.downloadMediaPage",
   "tool.file.placeDownload",

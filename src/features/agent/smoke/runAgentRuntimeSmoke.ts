@@ -79,11 +79,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   bootstrapAgentRuntime();
 
   const productionTools = listToolMetadata();
-  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 = 46
-  if (productionTools.length !== 46 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 46 个工具，实际 ${productionTools.length}`);
+  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 = 47
+  if (productionTools.length !== 47 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 47 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("46 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检与桌面应用列表/启动）");
+    notes.push("47 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检与桌面应用列表/启动）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -355,11 +355,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     ? validateAgainstSchema(agentCapabilityTool.outputSchema, {
         status: "ok",
         inspectedAt: Date.now(),
-        toolCount: 43,
+        toolCount: 44,
         capabilityCount: 7,
         registryAudit: {
-          registeredToolCount: 46,
-          userVisibleToolCount: 43,
+          registeredToolCount: 47,
+          userVisibleToolCount: 44,
           internalHiddenToolCount: 3,
           disabledToolCount: 0,
           missingPermissionToolCount: 0,

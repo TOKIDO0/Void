@@ -39,6 +39,7 @@ const BROWSER_TOOL_NAMES = [
   "browser.switchTab",
   "file.downloadToTemp",
   "file.downloadMediaPage",
+  "file.downloadMedia",
   "file.placeDownload",
   "file.verify",
   "file.inspectPath",

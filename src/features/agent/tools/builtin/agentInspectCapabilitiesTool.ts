@@ -129,6 +129,7 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
       "file.verify",
       "file.downloadToTemp",
       "file.downloadMediaPage",
+      "file.downloadMedia",
       "file.placeDownload"
     ]
   },

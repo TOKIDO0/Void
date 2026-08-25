@@ -22,6 +22,7 @@ import { desktopLaunchApplicationTool } from "./builtin/desktopLaunchApplication
 import { echoTool } from "./builtin/echoTool";
 import { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 import { fileDownloadMediaPageTool } from "./builtin/fileDownloadMediaPageTool";
+import { fileDownloadMediaTool } from "./builtin/fileDownloadMediaTool";
 import { filePlaceDownloadTool } from "./builtin/filePlaceDownloadTool";
 import { fileVerifyTool } from "./builtin/fileVerifyTool";
 import { fileListDirectoryTool } from "./builtin/fileListDirectoryTool";
@@ -76,6 +77,7 @@ export function registerBuiltinTools() {
     desktopLaunchApplicationTool,
     fileDownloadToTempTool,
     fileDownloadMediaPageTool,
+    fileDownloadMediaTool,
     filePlaceDownloadTool,
     fileVerifyTool,
     fileListDirectoryTool,

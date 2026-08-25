@@ -11,6 +11,7 @@ import {
 } from "../http/httpRequest";
 import { fileDownloadManager } from "./fileDownloadManager";
 import { mediaPageDownloadManager } from "./mediaPageDownloadManager";
+import { genericMediaDownloadManager } from "./genericMediaDownloadManager";
 import { fileAccessManager } from "./fileAccessManager";
 import { fileMutationManager } from "./fileMutationManager";
 import { getFileErrorPayload, resolveDownloadFinalRoot } from "./fileRuntimePaths";
@@ -309,6 +310,25 @@ export async function handleFileHttpRequest(
       return mediaPageDownloadManager.downloadMediaPage({
         taskId,
         pageUrl,
+        suggestedFileName: readString(body, "suggestedFileName")
+      });
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/download-media") {
+    await withFileHandler<FileDownloadMediaPageData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const taskId = readString(body, "taskId");
+      const pageUrl = readString(body, "pageUrl");
+      const extractAudio = body.extractAudio === true;
+      if (!taskId || !pageUrl) {
+        throw Object.assign(new Error("缺少 taskId 或 pageUrl"), { fileCode: "INVALID_REQUEST" });
+      }
+      return genericMediaDownloadManager.downloadGenericMedia({
+        taskId,
+        pageUrl,
+        extractAudio,
         suggestedFileName: readString(body, "suggestedFileName")
       });
     });
