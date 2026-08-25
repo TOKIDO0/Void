@@ -5,6 +5,7 @@ import { getModelProvider } from "../../lib/model-providers/providerRegistry";
 import { VOID_SYSTEM_PROMPT } from "./voidSystemPrompt";
 import { retrieveMemoriesAsync } from "../memory/memoryRetriever";
 import { projectMemories } from "../memory/memoryProjection";
+import { clearPendingMemoryConfirmations } from "../memory/pendingMemoryConfirmations";
 import { runAgentToolLoop } from "./loop/agentToolLoop";
 import type { ConfirmationDecision, ConfirmationRequest } from "./permissions";
 import {
@@ -610,6 +611,8 @@ export function clearCurrentConversationHistory() {
   window.localStorage.removeItem(CURRENT_CONVERSATION_STORAGE_KEY);
   // 对话清空时工作摘要一并丢弃，避免旧约束串台到新会话
   clearConversationWorkingSummary();
+  // 阶段 AA：对话清空时待确认记忆候选一并丢弃（询问已失去上下文）
+  clearPendingMemoryConfirmations();
 }
 
 export function loadCurrentConversationHistory(): VoidConversationMessage[] {

@@ -1,3 +1,10 @@
+// 阶段 AA 辅助：pending 模块动态导入后的 hasPendingMemoryConfirmations 访问器
+function hasPendingMemoryConfirmationsFlag(pending: {
+  hasPendingMemoryConfirmations: () => boolean;
+}): boolean {
+  return pending.hasPendingMemoryConfirmations();
+}
+
 // 阶段 B 验收冒烟：不挂正式 UI，不写测试框架，直接走生产结构 API。
 // 覆盖：合法调用 / Schema 拦截 / 未注册拒绝 / 取消释放锁 / L2 确认 / 日志脱敏。
 // 注意：本文件属 src 编译图，禁止 import server/**（Node 代码）；服务端函数级验收放 scripts/*-smoke.mjs。
@@ -1396,6 +1403,87 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } finally {
       existingWindow.window = previousWindow;
     }
+  }
+
+  // 阶段 AA（42 号文档）：敏感记忆写入确认——队列行为、结算词表、红线拦截。
+  {
+    const pending = await import("../../memory/pendingMemoryConfirmations");
+    const policy = await import("../../memory/memoryPolicy");
+
+    // R1 队列上限：第 4 条入队丢最旧
+    pending.clearPendingMemoryConfirmations();
+    const baseCandidate = {
+      memoryType: "healthRecord" as const,
+      subjectType: "relative" as const,
+      subjectName: "母亲",
+      content: "母亲血压偏高",
+      sensitivity: "sensitive" as const
+    };
+    pending.enqueuePendingMemoryConfirmation({ ...baseCandidate, content: "候选一" });
+    pending.enqueuePendingMemoryConfirmation({ ...baseCandidate, content: "候选二" });
+    pending.enqueuePendingMemoryConfirmation({ ...baseCandidate, content: "候选三" });
+    pending.enqueuePendingMemoryConfirmation({ ...baseCandidate, content: "候选四" });
+    const firstCandidate = pending.peekPendingMemoryConfirmation();
+    if (
+      !hasPendingMemoryConfirmationsFlag(pending)
+      || firstCandidate?.content !== "候选二"
+    ) {
+      failures.push("AA R1：待确认队列应保持上限 3 并丢弃最旧候选（队首应为候选二）");
+    } else {
+      notes.push("AA 待确认队列上限正确：3 条封顶、FIFO 丢弃最旧");
+    }
+
+    // R2/R3 结算词表
+    const approveSamples = ["记下来", "记着吧", "保存", "好", "可以", "嗯"];
+    const rejectSamples = ["不用", "别记了", "算了", "不用记", "不要"];
+    const approveAll = approveSamples.every((sample) => pending.parseMemoryConfirmationIntent(sample) === "approve");
+    const rejectAll = rejectSamples.every((sample) => pending.parseMemoryConfirmationIntent(sample) === "reject");
+    if (!approveAll || !rejectAll) {
+      failures.push("AA R2/R3：记忆确认词表正例应分别解析为 approve/reject");
+    } else {
+      notes.push("AA 结算词表正确：肯定/否定短语分别解析为 approve/reject");
+    }
+
+    // R4 词表负例：普通对话不结算
+    const negativeSamples = ["今天天气怎么样", "我妈血压高怎么办", "帮我搜一下新闻"];
+    const negativeAll = negativeSamples.every((sample) => pending.parseMemoryConfirmationIntent(sample) === null);
+    if (!negativeAll) {
+      failures.push("AA R4：普通对话语句不应被解析为记忆确认意图");
+    } else {
+      notes.push("AA 词表负例正确：普通对话不触发记忆确认结算");
+    }
+
+    // R5 红线：身份证/密码永不进队列（policy blocked），敏感健康候选进队列
+    pending.clearPendingMemoryConfirmations();
+    const idCardDecision = policy.resolveWriteDecision({
+      memoryType: "userProfile",
+      subjectType: "self",
+      content: "我的身份证号是110101199001011234",
+      sensitivity: "normal"
+    });
+    const passwordDecision = policy.resolveWriteDecision({
+      memoryType: "userProfile",
+      subjectType: "self",
+      content: "我的密码是 abc123456",
+      sensitivity: "normal"
+    });
+    const healthDecision = policy.resolveWriteDecision({
+      memoryType: "healthRecord",
+      subjectType: "relative",
+      content: "母亲血压偏高",
+      sensitivity: "sensitive"
+    });
+    if (
+      idCardDecision.action !== "blocked"
+      || passwordDecision.action !== "blocked"
+      || healthDecision.action !== "confirm"
+    ) {
+      failures.push(`AA R5：红线应 blocked（身份证=${idCardDecision.action}，密码=${passwordDecision.action}），敏感健康应 confirm（实际=${healthDecision.action}）`);
+    } else {
+      notes.push("AA 红线正确：身份证/密码直接 blocked 不给确认机会，敏感健康候选走 confirm 队列");
+    }
+
+    pending.clearPendingMemoryConfirmations();
   }
 
   const localTextSearchRoute = resolveTurnCapability("在 D:\\AI\\void-runtime\\downloads 目录里查找 VOID", []);

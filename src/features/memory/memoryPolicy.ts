@@ -20,10 +20,10 @@ const NEVER_RECORD_PATTERNS: readonly RegExp[] = [
   /\b\d{17}[\dXx]\b/,
   // 银行卡 / 信用卡号：13–19 位连续数字（允许 4 位一组的空格 / 短横分隔）
   /\b(?:\d[ -]?){13,19}\b/,
-  // 密码：关键词后跟随赋值内容
-  /(?:密码|password|passwd|pwd)\s*[:：=]\s*\S+/i,
+  // 密码：关键词后跟随赋值内容（「是」是中文口语最自然的分隔，必须拦截）
+  /(?:密码|password|passwd|pwd)\s*[:：=是]\s*\S+/i,
   // 密钥 / 令牌 / 凭证：关键词后跟随赋值内容
-  /(?:密钥|api[\s_-]?key|secret|token|access[\s_-]?key)\s*[:：=]\s*\S+/i,
+  /(?:密钥|令牌|api[\s_-]?key|secret|token|access[\s_-]?key)\s*[:：=是]\s*\S+/i,
   // 常见密钥前缀（OpenAI sk- / Bearer 令牌等）
   /\bsk-[A-Za-z0-9]{16,}\b/,
   /\bBearer\s+[A-Za-z0-9._-]{16,}\b/

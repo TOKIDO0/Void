@@ -59,6 +59,14 @@ import { classifyTaskContext } from "../emotion/taskContextClassifier";
 import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
 import { resolveSkillPromptHint } from "../agent/skills/skillsBridgeClient";
+import {
+  clearPendingMemoryConfirmations,
+  enqueuePendingMemoryConfirmation,
+  hasPendingMemoryConfirmations,
+  parseMemoryConfirmationIntent,
+  peekPendingMemoryConfirmation,
+  dequeuePendingMemoryConfirmation
+} from "../memory/pendingMemoryConfirmations";
 import { assessSalience } from "../memory/memorySalience";
 import { assessSensitivity, resolveWriteDecision } from "../memory/memoryPolicy";
 import { upsertMemoryDeduped } from "../memory/memoryStore";
@@ -441,7 +449,22 @@ export function VoidStage() {
       content: candidate.content,
       sensitivity: candidate.sensitivity
     });
-    if (decision.action !== "auto") {
+    if (decision.action === "blocked") {
+      return;
+    }
+    // 阶段 AA（42 号文档）：confirm 候选进入对话式确认队列（不弹窗），
+    // 由回复收尾询问 + 用户下一句话结算；auto 候选维持原直写路径。
+    if (decision.action === "confirm") {
+      enqueuePendingMemoryConfirmation({
+        memoryType: candidate.memoryType,
+        subjectType: candidate.subjectType,
+        subjectName: candidate.subjectName,
+        content: candidate.content,
+        sensitivity: candidate.sensitivity,
+        mergeWindowMs: candidate.mergeWindowMs,
+        source: candidate.source,
+        confidence: candidate.confidence
+      });
       return;
     }
 
@@ -462,6 +485,46 @@ export function VoidStage() {
       },
       { mergeWindowMs: candidate.mergeWindowMs }
     );
+  }, []);
+
+  /**
+   * 阶段 AA：把队首待确认记忆写成正式条目（approve）或丢弃（reject）。
+   * 结算后若队列仍有候选，返回 true 提示调用方继续追加下一条询问。
+   */
+  const settlePendingMemoryConfirmation = useCallback((approved: boolean) => {
+    const candidate = dequeuePendingMemoryConfirmation();
+    if (!candidate) {
+      return false;
+    }
+    if (approved) {
+      const now = Date.now();
+      upsertMemoryDeduped(
+        {
+          id: crypto.randomUUID(),
+          memoryType: candidate.memoryType,
+          subjectType: candidate.subjectType,
+          subjectName: candidate.subjectName,
+          content: candidate.content,
+          confidence: candidate.confidence ?? 0.7,
+          source: candidate.source ?? "conversation",
+          sensitivity: candidate.sensitivity,
+          createdAt: now,
+          updatedAt: now
+        },
+        { mergeWindowMs: candidate.mergeWindowMs }
+      );
+    }
+    return hasPendingMemoryConfirmations();
+  }, []);
+
+  /** 回复收尾询问话术：队首候选的人话确认句（进文字层与 TTS，不进对话历史）。 */
+  const buildPendingMemoryAskMessage = useCallback(() => {
+    const candidate = peekPendingMemoryConfirmation();
+    if (!candidate) {
+      return null;
+    }
+    const subjectPrefix = candidate.subjectName ? `${candidate.subjectName}的` : "";
+    return `对了，你刚才提到「${subjectPrefix}${candidate.content}」。要把这条记进长期记忆吗？说「记下来」或「不用」就行。`;
   }, []);
 
   // D2 用户输入自动写入：本地 salience 准入后，后台 LLM 拆条提炼再落库。
@@ -1047,6 +1110,25 @@ export function VoidStage() {
       return;
     }
 
+    // 阶段 AA：待确认记忆挂起时，「记下来/不用」结算写入或丢弃；解析不了走正常对话。
+    if (attachments.length === 0 && hasPendingMemoryConfirmations()) {
+      const memoryIntent = parseMemoryConfirmationIntent(message);
+      if (memoryIntent) {
+        const hasMoreCandidates = settlePendingMemoryConfirmation(memoryIntent === "approve");
+        const followUpAsk = hasMoreCandidates ? buildPendingMemoryAskMessage() : null;
+        showResponseLayer({
+          text: memoryIntent === "approve"
+            ? (followUpAsk ?? "好，已经记进长期记忆了。")
+            : (followUpAsk ?? "好，这条就不记了。"),
+          tone: "quiet",
+          source: "text",
+          pulseKey: memoryIntent === "approve" ? "memory-confirm-approve" : "memory-confirm-reject"
+        });
+        scheduleResponseLayerHide();
+        return;
+      }
+    }
+
     // 本地 UI 指令（打开设置/历史/记忆、开关麦克风/语音/思考模式）先于对话链路识别。
     if (attachments.length === 0) {
       const localCommand = parseLocalUiCommand(message);
@@ -1103,17 +1185,26 @@ export function VoidStage() {
       if (activeExchangeIdRef.current !== exchangeId) {
         return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）
       }
-      const finalConversationHistory = finalizeAssistantStreamContent(streamState, assistantResponse.content);
-      commitConversationHistory(finalConversationHistory);
       // 本回合成功结束（未被打断）：用户事实、情绪趋势、显著关系事件分别建档。
       // 重新生成路径不调用本段，避免同一社会事件重复累计到 agentRelationship。
       captureMemoryFromUserMessage(message);
       captureEmotionTrendMemory();
       captureAgentRelationshipMemory();
+      // 阶段 AA：建档可能产生待确认候选（健康/敏感）——拼进回复末尾做对话式询问。
+      // 询问句随回复进对话历史（用户答「记下来/不用」时模型有上下文）。
+      const memoryAskMessage = buildPendingMemoryAskMessage();
+      const finalReplyContent = memoryAskMessage
+        ? `${assistantResponse.content}\n\n${memoryAskMessage}`
+        : assistantResponse.content;
+      const finalConversationHistory = finalizeAssistantStreamContent(streamState, finalReplyContent);
+      commitConversationHistory(finalConversationHistory);
       if (streamingVoiceBatcher) {
-        await streamingVoiceBatcher.complete(assistantResponse.content);
+        if (memoryAskMessage) {
+          streamingVoiceBatcher.push(`\n\n${memoryAskMessage}`);
+        }
+        await streamingVoiceBatcher.complete(finalReplyContent);
         showResponseLayer({
-          text: stripStageDirections(assistantResponse.content),
+          text: stripStageDirections(finalReplyContent),
           tone: "quiet",
           source: "text",
           pulseKey: "complete"
@@ -1122,14 +1213,14 @@ export function VoidStage() {
         textExchangeActiveRef.current = false;
         return;
       }
-      await completeTextResponseWithErrorHandling(assistantResponse.content, "complete");
+      await completeTextResponseWithErrorHandling(finalReplyContent, "complete");
     } catch (error) {
       if (activeExchangeIdRef.current !== exchangeId) {
         return; // 已被打断：忽略本回合的错误
       }
       failTextResponse(error, "error", latestConversationHistory, streamState.assistantMessageIndex);
     }
-  }, [beginExchange, captureAgentRelationshipMemory, captureEmotionTrendMemory, captureMemoryFromUserMessage, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled, tryExecuteLocalUiCommand, trySettlePendingConfirmationByUtterance]);
+  }, [beginExchange, captureAgentRelationshipMemory, captureEmotionTrendMemory, captureMemoryFromUserMessage, commitConversationHistory, completeTextResponseWithErrorHandling, createStreamingVoiceBatcher, settlePendingMemoryConfirmation, buildPendingMemoryAskMessage, failTextResponse, requestVoidResponse, resolveTurnEmotion, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, syncConversationHistory, thinkingModeEnabled, tryExecuteLocalUiCommand, trySettlePendingConfirmationByUtterance]);
 
   const handleRegenerateLatestUserMessage = useCallback(async (messageIndex: number, content: string) => {
     const currentHistory = conversationHistoryRef.current;

@@ -13,6 +13,7 @@ import {
   syncMemorySearchIndexAfterUpsert
 } from "./memorySearchIndex";
 import { resolveMemoryConflict } from "./memoryConflictResolver";
+import { clearPendingMemoryConfirmations } from "./pendingMemoryConfirmations";
 
 /** 存储键：v1 版本号预留迁移空间，结构不兼容升级时改版本号并写迁移。 */
 const MEMORY_STORAGE_KEY = "void.memory.v1";
@@ -180,6 +181,8 @@ export function removeMemory(id: string): boolean {
 export function clearMemories(): void {
   window.localStorage.removeItem(MEMORY_STORAGE_KEY);
   clearMemorySearchIndex();
+  // 阶段 AA：记忆全清时，待确认候选一并丢弃（避免询问已不存在上下文的候选）。
+  clearPendingMemoryConfirmations();
 }
 
 /**
