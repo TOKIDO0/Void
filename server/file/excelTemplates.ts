@@ -41,14 +41,14 @@ const TEMPLATES: Record<ExcelTemplateId, ExcelTemplate> = {
   "void-vivid": {
     id: "void-vivid",
     name: "VOID 活力",
-    headerBg: "FFF97316",
+    headerBg: "FF1E2761",
     headerFontColor: "FFFFFFFF",
     headerFontBold: true,
-    stripeEvenBg: "FFFFF7ED",
-    stripeOddBg: "FFFFEED5",
-    borderColor: "FFFDBA74",
-    titleFontSize: 14,
-    chartPalette: ["FFF97316", "FF06B6D4", "FF8B5CF6", "FFF59E0B"]
+    stripeEvenBg: "FFF8FAFC",
+    stripeOddBg: "FFEEF2FF",
+    borderColor: "FFCBD5E1",
+    titleFontSize: 16,
+    chartPalette: ["FFF96167", "FFF9E795", "FF2F3C7E", "FF38BDF8"]
   }
 };
 
