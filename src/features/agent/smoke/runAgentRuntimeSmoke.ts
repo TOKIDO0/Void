@@ -1527,6 +1527,21 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       notes.push("健康二期回复边界：systemPrompt 已覆盖不诊断/不用药/高风险就医提醒");
     }
 
+    // Stage 6 人格与安全边界（02/03/11 自验）
+    const { VOID_SYSTEM_PROMPT: stage6Prompt } = await import("../voidSystemPrompt");
+    const stage6Checks = [
+      stage6Prompt.includes("开心或兴奋") && stage6Prompt.includes("压力或焦虑"),
+      stage6Prompt.includes("善意的小谎") && stage6Prompt.includes("身体不适") && stage6Prompt.includes("自我伤害"),
+      stage6Prompt.includes("不想活了") || stage6Prompt.includes("撑不下去了"),
+      stage6Prompt.includes("伤害他人") && stage6Prompt.includes("必须拒绝"),
+      stage6Prompt.includes("不能做诊断") && stage6Prompt.includes("不能给用药方案")
+    ];
+    if (stage6Checks.some((ok) => !ok)) {
+      failures.push("Stage6 人格安全边界：systemPrompt 未完整覆盖情绪策略/善意谎言/自伤关怀/伤害拒绝/医疗边界");
+    } else {
+      notes.push("Stage6 人格安全：情绪五类/善意谎言七类实话/自伤关怀/伤害拒绝/医疗边界均已覆盖");
+    }
+
     // P3 语音：默认关监听 + 唤醒词 + 无效过滤
     const { loadVoicePreferences } = await import("../../voice/voicePreferences");
     const { isWakeWordDetected, isJudgmentWakeDetected } = await import("../../voice/wakeWordDetector");
