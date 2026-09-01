@@ -59,6 +59,7 @@ import { classifyTaskContext } from "../emotion/taskContextClassifier";
 import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
 import { resolveSkillPromptHint } from "../agent/skills/skillsBridgeClient";
+import { filterInvalidVoice } from "../voice/invalidVoiceFilter";
 import {
   clearPendingMemoryConfirmations,
   enqueuePendingMemoryConfirmation,
@@ -1354,10 +1355,26 @@ export function VoidStage() {
     setVoiceTranscriptPreview("");
     const normalized = normalizeVoiceFinal(text);
     if (normalized && normalized === sentVoiceUtteranceNormalizedRef.current) return;
+    // 06 §3/§5 无效语音过滤：短、纯语气词、无唤醒且无请求的背景音不上屏、不进对话、不写记忆
+    const invalidCheck = filterInvalidVoice(text, {
+      hasRecentConversation: conversationHistoryRef.current.length > 0,
+      activityLevel: voiceActivityLevelRef.current
+    });
+    if (!invalidCheck.valid) {
+      // 保持 listening 态，不触发模型请求与记忆落库
+      showResponseLayer({
+        text: "",
+        tone: "quiet",
+        source: "voice-transcript",
+        pulseKey: "voice-ignored"
+      });
+      scheduleResponseLayerHide(1800);
+      return;
+    }
     sentVoiceUtteranceNormalizedRef.current = normalized;
     lastVoiceCommitAtRef.current = Date.now();
     void handleTextMessage(text, []);
-  }, [handleTextMessage]);
+  }, [handleTextMessage, scheduleResponseLayerHide, showResponseLayer]);
 
   voiceInputCallbacksRef.current = {
     onInterimTranscript: handleVoiceInterimTranscript,

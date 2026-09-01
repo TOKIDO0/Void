@@ -1,5 +1,3 @@
-import { isTauriRuntime } from "../../lib/runtime/voidBridgeRuntime";
-
 export type VoicePreferences = {
   voiceInputEnabled: boolean;
   voiceOutputEnabled: boolean;
@@ -13,30 +11,23 @@ const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
 };
 
 export function loadVoicePreferences(): VoicePreferences {
-  // 桌面端每次启动都默认开麦；用户在当前会话中仍可手动关闭。
-  // Web 端保留持久化选择，避免页面加载时未经用户操作主动请求麦克风权限。
-  const desktopVoiceInputDefault = isTauriRuntime();
+  // 06 号文档 §1：默认不开启主动监听，软件启动后麦克风默认关闭，需用户明确授权后才可保持监听。
+  // 桌面/Web 一致为 false，避免启动即请求麦克风权限或误录背景音。
   const rawValue = window.localStorage.getItem(VOICE_PREFERENCES_STORAGE_KEY);
   if (!rawValue) {
-    return {
-      ...DEFAULT_VOICE_PREFERENCES,
-      voiceInputEnabled: desktopVoiceInputDefault
-    };
+    return { ...DEFAULT_VOICE_PREFERENCES };
   }
 
   try {
     const parsedValue = JSON.parse(rawValue) as Partial<VoicePreferences>;
     return {
-      voiceInputEnabled: desktopVoiceInputDefault || Boolean(parsedValue.voiceInputEnabled),
+      voiceInputEnabled: Boolean(parsedValue.voiceInputEnabled),
       voiceOutputEnabled: parsedValue.voiceOutputEnabled === undefined
         ? DEFAULT_VOICE_PREFERENCES.voiceOutputEnabled
         : Boolean(parsedValue.voiceOutputEnabled)
     };
   } catch {
-    return {
-      ...DEFAULT_VOICE_PREFERENCES,
-      voiceInputEnabled: desktopVoiceInputDefault
-    };
+    return { ...DEFAULT_VOICE_PREFERENCES };
   }
 }
 

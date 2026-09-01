@@ -1526,6 +1526,53 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("健康二期回复边界：systemPrompt 已覆盖不诊断/不用药/高风险就医提醒");
     }
+
+    // P3 语音：默认关监听 + 唤醒词 + 无效过滤
+    const { loadVoicePreferences } = await import("../../voice/voicePreferences");
+    const { isWakeWordDetected, isJudgmentWakeDetected } = await import("../../voice/wakeWordDetector");
+    const { filterInvalidVoice } = await import("../../voice/invalidVoiceFilter");
+    // 默认关：无存储时应为 false（06 §1）—— Node 烟雾环境需 mock window.localStorage
+    const globalScope = globalThis as unknown as { window?: { localStorage?: Storage } } & { localStorage?: Storage };
+    const win = (globalScope.window ?? globalScope) as unknown as { localStorage?: Storage };
+    if (!win.localStorage) {
+      const map = new Map<string, string>();
+      win.localStorage = {
+        getItem: (k: string) => map.get(k) ?? null,
+        setItem: (k: string, v: string) => { map.set(k, String(v)); },
+        removeItem: (k: string) => { map.delete(k); },
+        clear: () => { map.clear(); },
+        key: (i: number) => Array.from(map.keys())[i] ?? null,
+        length: 0
+      } as unknown as Storage;
+      (globalThis as unknown as { window?: unknown }).window = win as unknown as Window & typeof globalThis;
+    }
+    const originalVoicePref = win.localStorage!.getItem("void.voicePreferences");
+    win.localStorage!.removeItem("void.voicePreferences");
+    const freshPref = loadVoicePreferences();
+    if (originalVoicePref !== null) win.localStorage!.setItem("void.voicePreferences", originalVoicePref);
+    else win.localStorage!.removeItem("void.voicePreferences");
+    if (freshPref.voiceInputEnabled !== false) {
+      failures.push(`P3 默认监听应为关闭，实际 voiceInputEnabled=${freshPref.voiceInputEnabled}`);
+    } else {
+      notes.push("P3 默认监听关闭：voiceInputEnabled=false，符合 06 §1");
+    }
+    if (!isWakeWordDetected("hello void") || !isWakeWordDetected("你好 void 帮我记一下") || isWakeWordDetected("你好")) {
+      failures.push("P3 唤醒词检测异常：hello void/你好 void 应命中，单你好不应命中");
+    } else if (!isJudgmentWakeDetected("帮我记一下明天提醒")) {
+      failures.push("P3 判断唤醒异常：帮我记一下应命中");
+    } else {
+      notes.push("P3 唤醒检测：唤醒词与判断唤醒均正确");
+    }
+    const invalidShort = filterInvalidVoice("嗯", { hasRecentConversation: false, activityLevel: "active" });
+    const invalidFiller = filterInvalidVoice("啊啊", { hasRecentConversation: false, activityLevel: "active" });
+    const invalidBg = filterInvalidVoice("电视声音", { hasRecentConversation: false, activityLevel: "silent" });
+    const validWake = filterInvalidVoice("hello void 帮我查一下", { hasRecentConversation: false, activityLevel: "active" });
+    const validContinue = filterInvalidVoice("刚才那个继续说", { hasRecentConversation: true, activityLevel: "active" });
+    if (invalidShort.valid || invalidFiller.valid || invalidBg.valid || !validWake.valid || !validContinue.valid) {
+      failures.push(`P3 无效过滤异常：short=${invalidShort.valid} filler=${invalidFiller.valid} bg=${invalidBg.valid} wake=${validWake.valid} continue=${validContinue.valid}`);
+    } else {
+      notes.push("P3 无效过滤：短/语气词/背景音被拦，唤醒与追问放行，不写记忆");
+    }
   }
 
   // 阶段 AD（43 号总规划）：模型上下文窗口表
