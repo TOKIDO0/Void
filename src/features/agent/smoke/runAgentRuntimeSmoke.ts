@@ -1484,6 +1484,48 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     }
 
     pending.clearPendingMemoryConfirmations();
+
+    // 健康二期（05 号真源 + AA 增量）：住址/医保号红线 + 按人物隔离 + 回复边界
+    const addressDecision = policy.resolveWriteDecision({
+      memoryType: "userProfile",
+      subjectType: "self",
+      content: "我的住址是北京市朝阳区某小区3号楼",
+      sensitivity: "normal"
+    });
+    const medicalDecision = policy.resolveWriteDecision({
+      memoryType: "userProfile",
+      subjectType: "self",
+      content: "我的医保号是1234567890",
+      sensitivity: "normal"
+    });
+    if (addressDecision.action !== "blocked" || medicalDecision.action !== "blocked") {
+      failures.push(`健康二期红线：住址=${addressDecision.action} 医保号=${medicalDecision.action}，均应 blocked`);
+    } else {
+      notes.push("健康二期红线：住址/医保号均 blocked，不会进队列");
+    }
+    // 按人物隔离：本人 vs 母亲健康不混
+    const { classifyMemory } = await import("../../memory/memoryClassifier");
+    const selfHealth = classifyMemory("我最近血压有点高");
+    const relativeHealth = classifyMemory("我妈妈血压有点高");
+    if (
+      selfHealth.memoryType !== "healthRecord" || selfHealth.subjectType !== "self"
+      || relativeHealth.memoryType !== "healthRecord" || relativeHealth.subjectType !== "relative"
+      || relativeHealth.subjectName !== "妈妈"
+    ) {
+      failures.push(`健康二期人物隔离失败：self=${selfHealth.subjectType}/${selfHealth.subjectName} relative=${relativeHealth.subjectType}/${relativeHealth.subjectName}`);
+    } else {
+      notes.push("健康二期人物隔离：本人/母亲健康分别落 healthRecord self/relative，不混淆");
+    }
+    const { VOID_SYSTEM_PROMPT } = await import("../voidSystemPrompt");
+    const healthBoundaryOk =
+      VOID_SYSTEM_PROMPT.includes("不能做诊断") &&
+      VOID_SYSTEM_PROMPT.includes("不能给用药方案") &&
+      VOID_SYSTEM_PROMPT.includes("尽快就医");
+    if (!healthBoundaryOk) {
+      failures.push("健康二期回复边界：systemPrompt 未完整覆盖不诊断/不用药/高风险就医提醒");
+    } else {
+      notes.push("健康二期回复边界：systemPrompt 已覆盖不诊断/不用药/高风险就医提醒");
+    }
   }
 
   // 阶段 AD（43 号总规划）：模型上下文窗口表

@@ -24,6 +24,10 @@ const NEVER_RECORD_PATTERNS: readonly RegExp[] = [
   /(?:密码|password|passwd|pwd)\s*[:：=是]\s*\S+/i,
   // 密钥 / 令牌 / 凭证：关键词后跟随赋值内容
   /(?:密钥|令牌|api[\s_-]?key|secret|token|access[\s_-]?key)\s*[:：=是]\s*\S+/i,
+  // 医保号 / 社保号：关键词后跟随赋值内容（05 号 §5 禁止记录）
+  /(?:医保号|医保卡号|社保号|社保卡号)\s*[:：=是]\s*\S+/i,
+  // 具体住址：关键词后跟随赋值内容（05 号 §5 禁止记录完整住址原文）
+  /(?:住址|家庭住址|现住址|居住地址|家庭地址|收货地址)\s*[:：=是]\s*\S+/i,
   // 常见密钥前缀（OpenAI sk- / Bearer 令牌等）
   /\bsk-[A-Za-z0-9]{16,}\b/,
   /\bBearer\s+[A-Za-z0-9._-]{16,}\b/
