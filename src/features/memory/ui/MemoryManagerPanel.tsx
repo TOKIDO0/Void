@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MemoryEntry, MemoryType } from "../memoryTypes";
 import { MEMORY_TYPES } from "../memoryTypes";
 import { listMemories, removeMemory, clearMemories } from "../memoryStore";
+import { buildHealthTimeline, formatHealthTimelineDate } from "../healthTimeline";
 import {
   loadSettingsLanguage,
   saveSettingsLanguage,
@@ -112,6 +113,11 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
 
   const activeSectionLabel =
     selectedCategory === ALL_CATEGORY ? copy.all : copy.typeLabels[selectedCategory];
+
+  const healthTimelineGroups = useMemo(() => {
+    if (selectedCategory !== "healthRecord") return [];
+    return buildHealthTimeline();
+  }, [selectedCategory, entries]);
 
   const handleLanguageChange = (nextLanguage: SettingsLanguage) => {
     setLanguage(nextLanguage);
@@ -273,7 +279,23 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
               ) : null}
             </div>
 
-            {hasVisibleEntries ? (
+            {selectedCategory === "healthRecord" && healthTimelineGroups.length > 0 ? (
+              <div className="memory-manager__timeline">
+                {healthTimelineGroups.map((group) => (
+                  <div key={`${group.subjectType}:${group.subjectName}`} className="memory-manager__timeline-group">
+                    <h4 className="memory-manager__timeline-title">{group.subjectName}</h4>
+                    <div className="memory-manager__timeline-list">
+                      {group.entries.map((entry) => (
+                        <div key={entry.id} className="memory-manager__timeline-item">
+                          <span className="memory-manager__timeline-date">{formatHealthTimelineDate(entry.createdAt, language)}</span>
+                          <MemoryCard entry={entry} language={language} copy={copy} onDelete={() => handleRemoveOne(entry.id)} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : hasVisibleEntries ? (
               <div className="memory-manager__list">
                 {filteredEntries.map((entry) => (
                   <MemoryCard

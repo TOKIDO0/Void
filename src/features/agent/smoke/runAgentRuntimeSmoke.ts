@@ -1644,6 +1644,23 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       notes.push("Stage7 面板自验：查看3条→删除1条→清空分区→清空全部均正确");
     }
 
+    // 健康时间线：按人物分组时序
+    const { buildHealthTimeline } = await import("../../memory/healthTimeline");
+    memStore.clearMemories();
+    const t0 = Date.now() - 10000;
+    memStore.upsertMemoryDeduped({ id: "ht-1", memoryType: "healthRecord", subjectType: "self", subjectName: "用户本人", content: "用户血压正常", confidence: 0.8, sensitivity: "sensitive", source: "smoke", createdAt: t0, updatedAt: t0 });
+    memStore.upsertMemoryDeduped({ id: "ht-2", memoryType: "healthRecord", subjectType: "relative", subjectName: "母亲", content: "母亲血压偏高", confidence: 0.8, sensitivity: "sensitive", source: "smoke", createdAt: t0+1, updatedAt: t0+1 });
+    memStore.upsertMemoryDeduped({ id: "ht-3", memoryType: "healthRecord", subjectType: "relative", subjectName: "母亲", content: "母亲血糖正常", confidence: 0.8, sensitivity: "sensitive", source: "smoke", createdAt: t0+2, updatedAt: t0+2 });
+    const timeline = buildHealthTimeline();
+    const selfGroup = timeline.find((g) => g.subjectName === "用户本人");
+    const motherGroup = timeline.find((g) => g.subjectName === "母亲");
+    memStore.clearMemories();
+    if (timeline.length !== 2 || !selfGroup || selfGroup.entries.length !== 1 || !motherGroup || motherGroup.entries.length !== 2 || motherGroup.entries[0].content !== "母亲血压偏高") {
+      failures.push(`健康时间线异常：groups=${timeline.length} self=${selfGroup?.entries.length} mother=${motherGroup?.entries.length}`);
+    } else {
+      notes.push("健康时间线：按人物分组时序正确（本人1/母亲2按时间排序）");
+    }
+
     // N3 软件目录自验：catalog 2 例可匹配由 tool 侧已覆盖，此处验工具存在性与白名单不扩展
     const hasSoftwareTools = productionTools.some((t) => t.name === "software.resolveInstaller") && productionTools.some((t) => t.name === "software.downloadInstaller");
     if (!hasSoftwareTools) {
