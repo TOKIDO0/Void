@@ -23,7 +23,10 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "clipboard.write": "正在写入剪贴板…",
   "desktop.revealPath": "正在资源管理器中展示路径…",
   "desktop.openKnownLocation": "正在打开此电脑…",
+  "desktop.listInstalledApplications": "正在扫描已安装应用…",
+  "desktop.launchApplication": "正在启动应用…",
   "file.downloadToTemp": "正在下载到临时目录…",
+  "file.downloadMedia": "正在下载媒体…",
   "file.downloadMediaPage": "正在从媒体页下载视频…",
   "file.placeDownload": "正在保存到下载目录…",
   "file.verify": "正在校验文件…",
@@ -48,12 +51,15 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "agent.inspectSafetyHooks": "正在检查动态安全确认规则…",
   "agent.inspectPrivacyBoundaries": "正在检查隐私与数据边界…",
   "agent.inspectTaskPlaybooks": "正在整理可用任务范式…",
+  "agent.inspectSkills": "正在查看技能目录…",
+  "agent.inspectMemoryVerification": "正在检查记忆自验…",
   echo: "正在执行内部校验…"
 };
 
 const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "browser.selectTarget": "请确认要打开的目标",
   "file.downloadToTemp": "请确认是否下载该文件",
+  "file.downloadMedia": "请确认是否下载该媒体",
   "file.downloadMediaPage": "请确认是否从该媒体页下载视频",
   "file.placeDownload": "请确认是否保存到下载目录",
   "clipboard.write": "请确认是否写入剪贴板",
@@ -61,6 +67,7 @@ const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "browser.revealInSystemBrowser": "请确认是否用系统浏览器打开",
   "desktop.revealPath": "请确认是否在资源管理器中展示",
   "desktop.openKnownLocation": "请确认是否打开此电脑",
+  "desktop.launchApplication": "请确认是否启动该应用",
   "file.createDirectory": "请确认是否创建目录",
   "file.move": "请确认是否移动或重命名",
   "file.writeText": "请确认是否写入文本文件",

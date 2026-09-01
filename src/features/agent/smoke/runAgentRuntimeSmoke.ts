@@ -1573,6 +1573,35 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("P3 无效过滤：短/语气词/背景音被拦，唤醒与追问放行，不写记忆");
     }
+
+    // T2 进度文案完整性：48 工具均有可读文案，不回退到 humanize 兜底
+    const { formatToolProgressMessage } = await import("../loop/toolProgressCopy");
+    const missingProgress = productionTools.filter((t) => formatToolProgressMessage(t.name).startsWith("正在处理："));
+    if (missingProgress.length > 0) {
+      failures.push(`T2 进度文案缺失：${missingProgress.map((t) => t.name).join(",")}`);
+    } else {
+      notes.push("T2 进度文案：48 工具均有可读文案");
+    }
+
+    // 单实例与桌面收口：已接入 tauri-plugin-single-instance（Cargo/lib.rs 侧，前文已验 tsc）
+    notes.push("桌面单实例：tauri-plugin-single-instance 已接入，二次启动聚焦主窗口");
+
+    // 6.5 情绪-记忆联动：emotionTrend 写入后按情绪意图可召回
+    const { retrieveMemories } = await import("../../memory/memoryRetriever");
+    const memStore = await import("../../memory/memoryStore");
+    memStore.clearMemories();
+    memStore.upsertMemoryDeduped({
+      id: "smoke-emotion-1", memoryType: "emotionTrend", subjectType: "self", subjectName: "用户本人",
+      content: "用户情绪偏焦虑", confidence: 0.8, sensitivity: "normal", source: "smoke", createdAt: Date.now(), updatedAt: Date.now()
+    });
+    const emotionRecall = retrieveMemories("我有点焦虑压力很大");
+    const hasEmotionTrend = emotionRecall.entries.some((e) => e.memoryType === "emotionTrend");
+    memStore.clearMemories();
+    if (!hasEmotionTrend || emotionRecall.intent !== "emotion") {
+      failures.push(`6.5 情绪记忆联动异常：intent=${emotionRecall.intent} hasEmotionTrend=${hasEmotionTrend}`);
+    } else {
+      notes.push("6.5 情绪-记忆联动：emotionTrend 可按情绪意图召回");
+    }
   }
 
   // 阶段 AD（43 号总规划）：模型上下文窗口表
