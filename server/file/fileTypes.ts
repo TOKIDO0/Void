@@ -332,6 +332,23 @@ export type FileCreatePptxData = {
   writtenAt: number;
 };
 
+export type FileCreateDocxRequest = {
+  fileName: string;
+  title?: string;
+  subtitle?: string;
+  sections: Array<{ heading: string; paragraphs?: string[]; bullets?: string[]; table?: { headers: string[]; rows: (string | number)[][]; caption?: string }; quote?: string }>;
+  templateId?: string;
+};
+
+export type FileCreateDocxData = {
+  path: string;
+  fileName: string;
+  bytes: number;
+  sections: number;
+  templateId: string;
+  writtenAt: number;
+};
+
 export type FileApiSuccess<T> = { ok: true; data: T };
 export type FileApiFailure = {
   ok: false;

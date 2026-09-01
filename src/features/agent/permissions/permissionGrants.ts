@@ -49,6 +49,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.file.organizeDirectory",
   "tool.file.createExcel",
   "tool.file.createPptx",
+  "tool.file.createDocx",
   "tool.security.inspectLocalRuntime",
   "tool.software.listSupported",
   "tool.software.resolveInstaller",

@@ -23,6 +23,7 @@
     "@react-three/postprocessing": "^3.0.4",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-sql": "^2.4.1",
+    "docx": "^9.7.1",
     "exceljs": "^4.4.0",
     "gsap": "^3.13.0",
     "mammoth": "1.11.0",

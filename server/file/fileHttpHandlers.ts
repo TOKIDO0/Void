@@ -17,6 +17,7 @@ import { fileMutationManager } from "./fileMutationManager";
 import { fileOrganizeManager } from "./fileOrganizeManager";
 import { createExcelFile } from "./fileExcelManager";
 import { createPptxFile } from "./filePptManager";
+import { createDocxFile } from "./fileDocxManager";
 import { getFileErrorPayload, resolveDownloadFinalRoot } from "./fileRuntimePaths";
 import type {
   FileApiResponse,
@@ -33,6 +34,7 @@ import type {
   FileOrganizeDirectoryData,
   FileCreateExcelData,
   FileCreatePptxData,
+  FileCreateDocxData,
   FilePlaceDownloadData,
   FileReadTextData,
   FileSearchTextData,
@@ -573,6 +575,24 @@ export async function handleFileHttpRequest(
         fileName,
         title: readString(body, "title"),
         slides: slidesRaw as never,
+        templateId: readString(body, "templateId")
+      });
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/create-docx") {
+    await withFileHandler<FileCreateDocxData>(response, async () => {
+      const body = asRecord(await readJsonBody(request, 2 * 1024 * 1024));
+      const fileName = readString(body, "fileName");
+      if (!fileName) throw createInvalidFileRequest("缺少 fileName");
+      const sectionsRaw = body.sections;
+      if (!Array.isArray(sectionsRaw)) throw createInvalidFileRequest("sections 必须是数组");
+      return createDocxFile({
+        fileName,
+        title: readString(body, "title"),
+        subtitle: readString(body, "subtitle"),
+        sections: sectionsRaw as never,
         templateId: readString(body, "templateId")
       });
     });

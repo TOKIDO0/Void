@@ -79,11 +79,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   bootstrapAgentRuntime();
 
   const productionTools = listToolMetadata();
-  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 = 51
-  if (productionTools.length !== 51 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 51 个工具，实际 ${productionTools.length}`);
+  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 = 52
+  if (productionTools.length !== 52 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 52 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("51 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("52 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -1027,7 +1027,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const excelResearch = data.playbooks?.find((playbook) => playbook.id === "excel-research-generate");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount < 18
+      || data.playbookCount < 19
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1750,6 +1750,33 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       failures.push("Excel 生成应路由到 file.createExcel");
     } else {
       notes.push("Excel 路由正确：做成 Excel→file.createExcel");
+    }
+
+    // 精美 Word：file.createDocx 模板渲染
+    const createDocxTool = productionTools.find((t) => t.name === "file.createDocx");
+    const createDocxInputOk = createDocxTool ? validateAgainstSchema(createDocxTool.inputSchema, {
+      fileName: "test.docx",
+      sections: [{ heading: "Intro", paragraphs: ["hello"] }],
+      templateId: "void-light"
+    }).valid : false;
+    const createDocxOutputOk = createDocxTool ? validateAgainstSchema(createDocxTool.outputSchema, {
+      path: "D:\\AI\\void-runtime\\downloads\\test.docx",
+      fileName: "test.docx",
+      bytes: 1234,
+      sections: 1,
+      templateId: "void-light",
+      writtenAt: Date.now()
+    }).valid : false;
+    if (!createDocxTool || !createDocxInputOk || !createDocxOutputOk) {
+      failures.push("file.createDocx 契约应支持 fileName/sections/templateId 与落盘输出");
+    } else {
+      notes.push("file.createDocx 契约：支持多章节模板渲染与落盘");
+    }
+    const docxRoute = resolveTurnCapability("把这份报告做成 Word 文档", []);
+    if (docxRoute.capability !== "file" || !docxRoute.allowedToolNames.includes("file.createDocx")) {
+      failures.push("Word 生成应路由到 file.createDocx");
+    } else {
+      notes.push("Word 路由正确：做成 Word→file.createDocx");
     }
   }
 

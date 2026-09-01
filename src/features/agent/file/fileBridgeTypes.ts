@@ -274,6 +274,15 @@ export type FileCreatePptxData = {
   writtenAt: number;
 };
 
+export type FileCreateDocxData = {
+  path: string;
+  fileName: string;
+  bytes: number;
+  sections: number;
+  templateId: string;
+  writtenAt: number;
+};
+
 export type FileBridgeResponse<T> =
   | { ok: true; data: T }
   | {

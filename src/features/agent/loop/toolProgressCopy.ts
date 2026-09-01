@@ -43,6 +43,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "file.organizeDirectory": "正在整理目录…",
   "file.createExcel": "正在生成 Excel…",
   "file.createPptx": "正在生成 PPT…",
+  "file.createDocx": "正在生成 Word 文档…",
   "software.listSupported": "正在查看已支持的官方软件…",
   "software.resolveInstaller": "正在解析官方安装包信息…",
   "software.downloadInstaller": "正在下载并校验官方安装包…",
@@ -77,6 +78,7 @@ const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "file.organizeDirectory": "请确认是否整理该目录",
   "file.createExcel": "请确认是否生成该 Excel",
   "file.createPptx": "请确认是否生成该 PPT",
+  "file.createDocx": "请确认是否生成该 Word 文档",
   "software.resolveInstaller": "请确认要解析的软件",
   "software.downloadInstaller": "请确认是否下载该官方安装包"
 };

@@ -371,6 +371,26 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     ]
   },
   {
+    id: "docx-research-generate",
+    category: "file",
+    label: "调研并生成 Word 文档",
+    summary: "搜索并查证资料，生成大纲后按模板渲染为带封面、章节、表格与引用的精美 Word 文档，落盘到下载目录。",
+    userValue: "适合用户只给大纲，Agent 自行搜索查证后生成可打印、带目录页的 Word 报告，含多章节、要点、表格与引用块，可在 WPS/Word 编辑。",
+    exampleRequests: [
+      "把《世界游戏玩家对于游戏类型的趋向》做成 Word 报告",
+      "调研后生成带表格的文档"
+    ],
+    requiredToolNames: ["browser.search", "browser.extract", "file.createDocx"],
+    optionalToolNames: ["file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "搜索结果仅作证据，需交叉查证后生成大纲，不编造来源。",
+      "落盘前需确认文件名与模板，不覆盖已有文件。"
+    ]
+  },
+  {
     id: "local-runtime-security-review",
     category: "security",
     label: "本地运行时安全自检",

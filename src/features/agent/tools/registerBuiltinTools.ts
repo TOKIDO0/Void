@@ -38,6 +38,7 @@ import { fileWriteTextTool } from "./builtin/fileWriteTextTool";
 import { fileOrganizeDirectoryTool } from "./builtin/fileOrganizeDirectoryTool";
 import { fileCreateExcelTool } from "./builtin/fileCreateExcelTool";
 import { fileCreatePptxTool } from "./builtin/fileCreatePptxTool";
+import { fileCreateDocxTool } from "./builtin/fileCreateDocxTool";
 import { securityInspectLocalRuntimeTool } from "./builtin/securityInspectLocalRuntimeTool";
 import { softwareListSupportedTool } from "./builtin/softwareListSupportedTool";
 import { softwareResolveInstallerTool } from "./builtin/softwareResolveInstallerTool";
@@ -97,6 +98,7 @@ export function registerBuiltinTools() {
     fileOrganizeDirectoryTool,
     fileCreateExcelTool,
     fileCreatePptxTool,
+    fileCreateDocxTool,
     securityInspectLocalRuntimeTool,
     softwareListSupportedTool,
     softwareResolveInstallerTool,

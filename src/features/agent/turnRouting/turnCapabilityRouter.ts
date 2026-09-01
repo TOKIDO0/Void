@@ -131,6 +131,12 @@ const FILE_CREATE_PPTX_TOOL_NAMES = [
   "desktop.revealPath"
 ];
 
+const FILE_CREATE_DOCX_TOOL_NAMES = [
+  "file.createDocx",
+  "file.verify",
+  "desktop.revealPath"
+];
+
 const AGENT_TOOL_NAMES = [
   "agent.inspectCapabilities",
   "agent.inspectSkills"
@@ -202,6 +208,8 @@ const FILE_CREATE_EXCEL_PATTERN =
   /(?:生成|做成|创建|导出).{0,12}excel|excel.{0,12}(?:生成|做成|创建|导出)|(?:世界游戏玩家|游戏类型趋向).{0,12}excel/i;
 const FILE_CREATE_PPTX_PATTERN =
   /(?:生成|做成|创建|导出).{0,12}(?:ppt|pptx|演示文稿|幻灯片|演示稿)|(?:ppt|pptx|演示文稿|幻灯片).{0,12}(?:生成|做成|创建|导出)/i;
+const FILE_CREATE_DOCX_PATTERN =
+  /(?:生成|做成|创建|导出).{0,12}(?:word|docx|文档|报告|方案|合同|说明书)|(?:word|docx|文档|报告).{0,12}(?:生成|做成|创建|导出)/i;
 const WEB_TEXT_ARTIFACT_SOURCE_PATTERN =
   /(?:网页|网站|网址|链接|URL|http:\/\/|https:\/\/|搜索结果|检索结果|查到的|搜到的|新闻|报道|来源|官网|页面摘要|网页摘要)/i;
 const EXPLICIT_WEB_SOURCE_PATTERN =
@@ -409,6 +417,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (FILE_CREATE_PPTX_PATTERN.test(userInput)) {
     return createRoute("file", FILE_CREATE_PPTX_TOOL_NAMES);
+  }
+
+  if (FILE_CREATE_DOCX_PATTERN.test(userInput)) {
+    return createRoute("file", FILE_CREATE_DOCX_TOOL_NAMES);
   }
 
   // 本地资料/文档检索闭环：让「在本地资料里搜并整理成报告」稳定进入 file 工具组。

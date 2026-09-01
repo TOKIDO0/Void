@@ -14,6 +14,7 @@ import type {
   FileOrganizeDirectoryData,
   FileCreateExcelData,
   FileCreatePptxData,
+  FileCreateDocxData,
   FilePlaceDownloadData,
   FileReadTextData,
   FileSearchTextData,
@@ -395,4 +396,11 @@ export async function createPptx(
   signal?: AbortSignal
 ): Promise<FileCreatePptxData> {
   return postFileApi<FileCreatePptxData>("/void-file/create-pptx", input, signal);
+}
+
+export async function createDocx(
+  input: { fileName: string; title?: string; subtitle?: string; sections: Array<{ heading: string; paragraphs?: string[]; bullets?: string[]; table?: { headers: string[]; rows: (string | number)[][]; caption?: string }; quote?: string }>; templateId?: string },
+  signal?: AbortSignal
+): Promise<FileCreateDocxData> {
+  return postFileApi<FileCreateDocxData>("/void-file/create-docx", input, signal);
 }
