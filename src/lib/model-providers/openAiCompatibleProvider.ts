@@ -43,7 +43,8 @@ export const openAiCompatibleProvider: ModelProvider = {
   supportsTools: true,
 
   validateConfig(config: ModelConfig): ProviderValidationResult {
-    if (!config.apiKey.trim()) {
+    const isOllamaLocal = isOllamaLocalConfig(config);
+    if (!config.apiKey.trim() && !isOllamaLocal) {
       return { valid: false, message: "需要先填写 API Key。" };
     }
 
@@ -73,12 +74,13 @@ export const openAiCompatibleProvider: ModelProvider = {
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
     const fetchTarget = buildFetchTarget(endpointUrl);
     logOpenAiCompatibleRequest("send", endpointUrl, config);
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (config.apiKey.trim()) {
+      headers.Authorization = buildBearerToken(config.apiKey);
+    }
     const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: buildBearerToken(config.apiKey)
-      },
+      headers,
       body: JSON.stringify(buildOpenAiCompatibleBody(request, config, false)),
       signal: request.signal
     });
@@ -109,12 +111,13 @@ export const openAiCompatibleProvider: ModelProvider = {
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
     const fetchTarget = buildFetchTarget(endpointUrl);
     logOpenAiCompatibleRequest("stream", endpointUrl, config);
+    const streamHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    if (config.apiKey.trim()) {
+      streamHeaders.Authorization = buildBearerToken(config.apiKey);
+    }
     const response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: buildBearerToken(config.apiKey)
-      },
+      headers: streamHeaders,
       body: JSON.stringify(buildOpenAiCompatibleBody(request, config, true)),
       signal: request.signal
     });
@@ -272,6 +275,15 @@ function buildOpenAiCompatibleReasoningOptions(config: ModelConfig) {
 function isOpenAiConfig(config: ModelConfig) {
   try {
     return new URL(config.baseUrl).hostname.endsWith("openai.com");
+  } catch {
+    return false;
+  }
+}
+
+function isOllamaLocalConfig(config: ModelConfig) {
+  try {
+    const hostname = new URL(config.baseUrl).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1";
   } catch {
     return false;
   }

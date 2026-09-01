@@ -116,6 +116,13 @@ export const MODEL_PRESETS: ModelPreset[] = [
     modelName: "glm-5.2"
   },
   {
+    id: "ollama",
+    label: "Ollama (本地)",
+    provider: "openai-compatible",
+    baseUrl: "http://localhost:11434/v1",
+    modelName: "llama3.1"
+  },
+  {
     id: "anthropic",
     label: "Anthropic Claude",
     provider: "anthropic",
@@ -149,6 +156,12 @@ export const MODEL_OPTIONS_BY_PRESET: Record<string, ModelOption[]> = {
   ],
   zhipu: [
     { label: "GLM-5.2", modelName: "glm-5.2", strength: "max" }
+  ],
+  ollama: [
+    { label: "Llama 3.1 8B", modelName: "llama3.1", strength: "middle" },
+    { label: "Qwen2.5 7B", modelName: "qwen2.5:7b", strength: "middle" },
+    { label: "Mistral 7B", modelName: "mistral", strength: "middle" },
+    { label: "Gemma 2 9B", modelName: "gemma2:9b", strength: "middle" }
   ],
   anthropic: [
     { label: "Claude Haiku 4.5", modelName: "claude-haiku-4-5", strength: "low" },
