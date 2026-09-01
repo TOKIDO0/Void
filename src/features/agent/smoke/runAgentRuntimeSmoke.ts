@@ -79,11 +79,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   bootstrapAgentRuntime();
 
   const productionTools = listToolMetadata();
-  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 = 48
-  if (productionTools.length !== 48 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 48 个工具，实际 ${productionTools.length}`);
+  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 = 49
+  if (productionTools.length !== 49 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 49 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("48 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("49 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -355,11 +355,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     ? validateAgainstSchema(agentCapabilityTool.outputSchema, {
         status: "ok",
         inspectedAt: Date.now(),
-        toolCount: 45,
+        toolCount: 46,
         capabilityCount: 7,
         registryAudit: {
-          registeredToolCount: 48,
-          userVisibleToolCount: 45,
+          registeredToolCount: 49,
+          userVisibleToolCount: 46,
           internalHiddenToolCount: 3,
           disabledToolCount: 0,
           missingPermissionToolCount: 0,
@@ -524,7 +524,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
         status: "ok",
         inspectedAt: Date.now(),
         executableExtensionRuntime: "disabled",
-        productionToolCount: 43,
+        productionToolCount: 49,
         detectedExtensionToolNames: [],
         mcpToolExposure: "none",
         pluginToolExposure: "none",
@@ -1022,9 +1022,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const fileNameLookup = data.playbooks?.find((playbook) => playbook.id === "file-name-lookup");
     const recentArtifactLookup = data.playbooks?.find((playbook) => playbook.id === "recent-artifact-lookup");
     const pathMetadataPreflight = data.playbooks?.find((playbook) => playbook.id === "path-metadata-preflight");
+    const downloadsOrganize = data.playbooks?.find((playbook) => playbook.id === "downloads-auto-organize");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount < 14
+      || data.playbookCount < 15
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1054,6 +1055,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || pathMetadataPreflight.maxRiskLevel !== "L2"
       || pathMetadataPreflight.outputTrust !== "mixed"
       || !pathMetadataPreflight.untrustedOutputToolNames?.includes("file.inspectPath")
+      || !downloadsOrganize?.requiredToolNames?.includes("file.organizeDirectory")
+      || downloadsOrganize.requiresConfirmation !== true
+      || downloadsOrganize.maxRiskLevel !== "L2"
+      || downloadsOrganize.outputTrust !== "mixed"
+      || !downloadsOrganize.untrustedOutputToolNames?.includes("file.organizeDirectory")
       || !data.safetyBoundaries?.some((item) => typeof item === "string" && item.includes("不是插件执行器"))
     ) {
       failures.push("agent.inspectTaskPlaybooks 应列出可用组合任务范式，并标记工具、风险、确认、输出来源与非插件执行边界");
@@ -1644,6 +1650,33 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       failures.push("N3 软件工具缺失：software.resolveInstaller/downloadInstaller 不在生产注册表");
     } else {
       notes.push("N3 软件目录：2 例官方软件白名单完整，工具已注册，不扩展新软件");
+    }
+
+    // 智能整理：file.organizeDirectory 干跑与分类、敏感跳过、越权拒绝
+    const organizeTool = productionTools.find((t) => t.name === "file.organizeDirectory");
+    const organizeInputOk = organizeTool ? validateAgainstSchema(organizeTool.inputSchema, { path: "D:\\AI\\void-runtime\\downloads", dryRun: true }).valid : false;
+    const organizeOutputOk = organizeTool ? validateAgainstSchema(organizeTool.outputSchema, {
+      path: "D:\\AI\\void-runtime\\downloads",
+      strategy: "byExtension",
+      dryRun: true,
+      totalFiles: 1,
+      movedCount: 1,
+      skippedCount: 0,
+      categories: [{ category: "Images", count: 1, targetDir: "D:\\AI\\void-runtime\\downloads\\Images" }],
+      moves: [{ from: "D:\\AI\\void-runtime\\downloads\\a.jpg", to: "D:\\AI\\void-runtime\\downloads\\Images\\a.jpg", category: "Images" }],
+      skipped: [],
+      organizedAt: Date.now()
+    }).valid : false;
+    if (!organizeTool || !organizeInputOk || !organizeOutputOk) {
+      failures.push("file.organizeDirectory 契约应支持 path/dryRun 入参与分类归档输出");
+    } else {
+      notes.push("file.organizeDirectory 契约：支持 dryRun 预览与按扩展名分类归档");
+    }
+    const organizeRoute = resolveTurnCapability("帮我整理下载文件夹", []);
+    if (organizeRoute.capability !== "file" || !organizeRoute.allowedToolNames.includes("file.organizeDirectory")) {
+      failures.push("整理下载文件夹应路由到 file.organizeDirectory");
+    } else {
+      notes.push("整理路由正确：下载整理→file.organizeDirectory");
     }
   }
 

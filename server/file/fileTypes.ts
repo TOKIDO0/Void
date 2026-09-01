@@ -281,6 +281,25 @@ export type FileWriteTextData = {
   writtenAt: number;
 };
 
+export type FileOrganizeDirectoryRequest = {
+  path?: string;
+  dryRun?: boolean;
+  strategy?: "byExtension";
+};
+
+export type FileOrganizeDirectoryData = {
+  path: string;
+  strategy: "byExtension";
+  dryRun: boolean;
+  totalFiles: number;
+  movedCount: number;
+  skippedCount: number;
+  categories: Array<{ category: string; count: number; targetDir: string }>;
+  moves: Array<{ from: string; to: string; category: string }>;
+  skipped: Array<{ path: string; reason: string }>;
+  organizedAt: number;
+};
+
 export type FileApiSuccess<T> = { ok: true; data: T };
 export type FileApiFailure = {
   ok: false;

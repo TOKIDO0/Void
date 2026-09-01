@@ -14,6 +14,7 @@ import { mediaPageDownloadManager } from "./mediaPageDownloadManager";
 import { genericMediaDownloadManager } from "./genericMediaDownloadManager";
 import { fileAccessManager } from "./fileAccessManager";
 import { fileMutationManager } from "./fileMutationManager";
+import { fileOrganizeManager } from "./fileOrganizeManager";
 import { getFileErrorPayload, resolveDownloadFinalRoot } from "./fileRuntimePaths";
 import type {
   FileApiResponse,
@@ -27,6 +28,7 @@ import type {
   FileListRecentArtifactsData,
   FileCreateDirectoryData,
   FileMoveData,
+  FileOrganizeDirectoryData,
   FilePlaceDownloadData,
   FileReadTextData,
   FileSearchTextData,
@@ -516,6 +518,17 @@ export async function handleFileHttpRequest(
           ? "refuse"
           : parseTextWriteConflictPolicy(body.conflictPolicy)
       );
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/organize-directory") {
+    await withFileHandler<FileOrganizeDirectoryData>(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      return fileOrganizeManager.organizeDirectory({
+        path: readString(body, "path"),
+        dryRun: readOptionalBoolean(body, "dryRun")
+      });
     });
     return true;
   }

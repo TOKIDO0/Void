@@ -11,6 +11,7 @@ import type {
   FileFindByNameRequest,
   FileInspectPathData,
   FileListDirectoryData,
+  FileOrganizeDirectoryData,
   FilePlaceDownloadData,
   FileReadTextData,
   FileSearchTextData,
@@ -371,4 +372,11 @@ export async function inspectWriteTarget(
     input,
     signal
   );
+}
+
+export async function organizeDirectory(
+  input: { path?: string; dryRun?: boolean },
+  signal?: AbortSignal
+): Promise<FileOrganizeDirectoryData> {
+  return postFileApi<FileOrganizeDirectoryData>("/void-file/organize-directory", input, signal);
 }

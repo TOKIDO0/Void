@@ -46,6 +46,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.file.createDirectory",
   "tool.file.move",
   "tool.file.writeText",
+  "tool.file.organizeDirectory",
   "tool.security.inspectLocalRuntime",
   "tool.software.listSupported",
   "tool.software.resolveInstaller",

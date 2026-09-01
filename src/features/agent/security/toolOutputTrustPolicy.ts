@@ -19,6 +19,7 @@ const UNTRUSTED_OUTPUT_TOOL_RULES = new Map<string, ToolOutputTrustDescription>(
   ["file.inspectPath", createUntrustedRule("本地路径元数据")],
   ["file.findByName", createUntrustedRule("本地文件名与路径元数据")],
   ["file.listRecentArtifacts", createUntrustedRule("本地最近产物文件名与路径元数据")],
+  ["file.organizeDirectory", createUntrustedRule("本地文件整理结果与路径元数据")],
   ["file.readText", createUntrustedRule("本地文件正文")],
   ["file.searchText", createUntrustedRule("本地文件搜索片段")],
   ["agent.inspectSkills", createUntrustedRule("本地技能 manifest 内容")],

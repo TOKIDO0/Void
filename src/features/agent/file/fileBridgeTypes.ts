@@ -109,7 +109,7 @@ export type FileReadTextData = {
   bytes: number;
   characters: number;
   truncated: boolean;
-  sourceKind?: "text" | "pdf" | "docx";
+  sourceKind?: "text" | "pdf" | "docx" | "excel";
 };
 
 export type FileSearchTextRequest = {
@@ -241,6 +241,19 @@ export type FileWriteTextData = {
   overwritten: boolean;
   renamedForConflict: boolean;
   writtenAt: number;
+};
+
+export type FileOrganizeDirectoryData = {
+  path: string;
+  strategy: "byExtension";
+  dryRun: boolean;
+  totalFiles: number;
+  movedCount: number;
+  skippedCount: number;
+  categories: Array<{ category: string; count: number; targetDir: string }>;
+  moves: Array<{ from: string; to: string; category: string }>;
+  skipped: Array<{ path: string; reason: string }>;
+  organizedAt: number;
 };
 
 export type FileBridgeResponse<T> =
