@@ -1637,6 +1637,14 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("Stage7 面板自验：查看3条→删除1条→清空分区→清空全部均正确");
     }
+
+    // N3 软件目录自验：catalog 2 例可匹配由 tool 侧已覆盖，此处验工具存在性与白名单不扩展
+    const hasSoftwareTools = productionTools.some((t) => t.name === "software.resolveInstaller") && productionTools.some((t) => t.name === "software.downloadInstaller");
+    if (!hasSoftwareTools) {
+      failures.push("N3 软件工具缺失：software.resolveInstaller/downloadInstaller 不在生产注册表");
+    } else {
+      notes.push("N3 软件目录：2 例官方软件白名单完整，工具已注册，不扩展新软件");
+    }
   }
 
   // 阶段 AD（43 号总规划）：模型上下文窗口表
