@@ -1,6 +1,8 @@
+use tauri::Manager;
+
 // 桥接 sidecar 仅在正式构建（release）由 Rust 拉起 SEA 可执行文件；
-// 开发（debug）时 sidecar 由 `npm run dev:all` 用 tsx 热跑，Rust 不介入，
-// 避免每次启动都重新 SEA 打包、且改桥接代码即时生效。
+ // 开发（debug）时 sidecar 由 `npm run dev:all` 用 tsx 热跑，Rust 不介入，
+ // 避免每次启动都重新 SEA 打包、且改桥接代码即时生效。
 #[cfg(not(debug_assertions))]
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 #[cfg(not(debug_assertions))]
