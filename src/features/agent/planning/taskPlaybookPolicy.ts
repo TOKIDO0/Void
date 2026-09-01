@@ -293,11 +293,12 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     id: "downloads-auto-organize",
     category: "file",
     label: "下载目录智能整理",
-    summary: "按扩展名把下载目录散落文件归档到 Images/Documents/Spreadsheets 等子文件夹，支持 dryRun 预览与冲突改名，敏感文件/符号链接不移动。",
-    userValue: "适合下载文件夹一键整理，预览后确认再执行，自动跳过敏感与链接文件。",
+    summary: "按扩展名或按修改时间(YYYY-MM)把下载目录散落文件归档，支持 dryRun 预览与冲突改名，敏感文件/符号链接不移动。",
+    userValue: "适合下载文件夹一键整理，预览后确认再执行，自动跳过敏感与链接文件；byDate 可按月份归档。",
     exampleRequests: [
       "帮我整理下载文件夹",
-      "把下载目录按类型归档，预览一下"
+      "把下载目录按类型归档，预览一下",
+      "把下载按时间归档"
     ],
     requiredToolNames: ["file.organizeDirectory"],
     optionalToolNames: ["desktop.revealPath", "file.listDirectory"],

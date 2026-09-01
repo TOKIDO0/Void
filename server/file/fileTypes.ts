@@ -284,12 +284,12 @@ export type FileWriteTextData = {
 export type FileOrganizeDirectoryRequest = {
   path?: string;
   dryRun?: boolean;
-  strategy?: "byExtension";
+  strategy?: "byExtension" | "byDate";
 };
 
 export type FileOrganizeDirectoryData = {
   path: string;
-  strategy: "byExtension";
+  strategy: "byExtension" | "byDate";
   dryRun: boolean;
   totalFiles: number;
   movedCount: number;

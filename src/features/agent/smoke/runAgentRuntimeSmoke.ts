@@ -1652,9 +1652,9 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       notes.push("N3 软件目录：2 例官方软件白名单完整，工具已注册，不扩展新软件");
     }
 
-    // 智能整理：file.organizeDirectory 干跑与分类、敏感跳过、越权拒绝
+    // 智能整理：file.organizeDirectory 干跑与分类、敏感跳过、越权拒绝（支持 byExtension/byDate）
     const organizeTool = productionTools.find((t) => t.name === "file.organizeDirectory");
-    const organizeInputOk = organizeTool ? validateAgainstSchema(organizeTool.inputSchema, { path: "D:\\AI\\void-runtime\\downloads", dryRun: true }).valid : false;
+    const organizeInputOk = organizeTool ? validateAgainstSchema(organizeTool.inputSchema, { path: "D:\\AI\\void-runtime\\downloads", dryRun: true, strategy: "byDate" }).valid : false;
     const organizeOutputOk = organizeTool ? validateAgainstSchema(organizeTool.outputSchema, {
       path: "D:\\AI\\void-runtime\\downloads",
       strategy: "byExtension",
@@ -1667,10 +1667,22 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       skipped: [],
       organizedAt: Date.now()
     }).valid : false;
-    if (!organizeTool || !organizeInputOk || !organizeOutputOk) {
-      failures.push("file.organizeDirectory 契约应支持 path/dryRun 入参与分类归档输出");
+    const organizeByDateOk = organizeTool ? validateAgainstSchema(organizeTool.outputSchema, {
+      path: "D:\\AI\\void-runtime\\downloads",
+      strategy: "byDate",
+      dryRun: true,
+      totalFiles: 1,
+      movedCount: 1,
+      skippedCount: 0,
+      categories: [{ category: "2026-01", count: 1, targetDir: "D:\\AI\\void-runtime\\downloads\\2026-01" }],
+      moves: [{ from: "D:\\AI\\void-runtime\\downloads\\a.jpg", to: "D:\\AI\\void-runtime\\downloads\\2026-01\\a.jpg", category: "2026-01" }],
+      skipped: [],
+      organizedAt: Date.now()
+    }).valid : false;
+    if (!organizeTool || !organizeInputOk || !organizeOutputOk || !organizeByDateOk) {
+      failures.push("file.organizeDirectory 契约应支持 path/dryRun/strategy(byExtension/byDate) 与分类归档输出");
     } else {
-      notes.push("file.organizeDirectory 契约：支持 dryRun 预览与按扩展名分类归档");
+      notes.push("file.organizeDirectory 契约：支持 dryRun 预览与按扩展名/按日期分类归档");
     }
     const organizeRoute = resolveTurnCapability("帮我整理下载文件夹", []);
     if (organizeRoute.capability !== "file" || !organizeRoute.allowedToolNames.includes("file.organizeDirectory")) {

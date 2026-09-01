@@ -6,13 +6,14 @@ import type { ToolDefinition } from "../toolTypes";
 export type FileOrganizeDirectoryToolInput = {
   path?: string;
   dryRun?: boolean;
+  strategy?: "byExtension" | "byDate";
 };
 
 export type FileOrganizeDirectoryToolOutput = FileOrganizeDirectoryData;
 
 export const fileOrganizeDirectoryTool: ToolDefinition<FileOrganizeDirectoryToolInput, FileOrganizeDirectoryToolOutput> = {
   name: "file.organizeDirectory",
-  description: "整理指定目录内的散落文件，按扩展名分类归档到 Images/Documents/Spreadsheets 等子文件夹；dryRun=true 时仅预览不移动，敏感文件/符号链接/目录不移动。",
+  description: "整理指定目录内的散落文件，byExtension 按扩展名分类到 Images/Documents 等，byDate 按修改时间归档到 YYYY-MM；dryRun=true 时仅预览不移动，敏感文件/符号链接/目录不移动。",
   version: "1.0.0",
   riskLevel: "L2",
   inputSchema: {
@@ -20,7 +21,8 @@ export const fileOrganizeDirectoryTool: ToolDefinition<FileOrganizeDirectoryTool
     additionalProperties: false,
     properties: {
       path: { type: "string", minLength: 1, maxLength: 1000 },
-      dryRun: { type: "boolean" }
+      dryRun: { type: "boolean" },
+      strategy: { type: "string", enum: ["byExtension", "byDate"] }
     }
   },
   outputSchema: {
@@ -29,7 +31,7 @@ export const fileOrganizeDirectoryTool: ToolDefinition<FileOrganizeDirectoryTool
     required: ["path", "strategy", "dryRun", "totalFiles", "movedCount", "skippedCount", "categories", "moves", "skipped", "organizedAt"],
     properties: {
       path: { type: "string" },
-      strategy: { type: "string", enum: ["byExtension"] },
+      strategy: { type: "string", enum: ["byExtension", "byDate"] },
       dryRun: { type: "boolean" },
       totalFiles: { type: "number", minimum: 0 },
       movedCount: { type: "number", minimum: 0 },
@@ -85,7 +87,7 @@ export const fileOrganizeDirectoryTool: ToolDefinition<FileOrganizeDirectoryTool
   maxRetries: 0,
   async execute(input, context) {
     try {
-      return await organizeDirectory({ path: input.path?.trim(), dryRun: input.dryRun === true }, context.signal);
+      return await organizeDirectory({ path: input.path?.trim(), dryRun: input.dryRun === true, strategy: input.strategy }, context.signal);
     } catch (error) {
       throwAsFileToolError(error);
     }

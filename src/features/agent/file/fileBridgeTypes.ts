@@ -245,7 +245,7 @@ export type FileWriteTextData = {
 
 export type FileOrganizeDirectoryData = {
   path: string;
-  strategy: "byExtension";
+  strategy: "byExtension" | "byDate";
   dryRun: boolean;
   totalFiles: number;
   movedCount: number;

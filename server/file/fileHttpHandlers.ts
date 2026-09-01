@@ -525,9 +525,15 @@ export async function handleFileHttpRequest(
   if (pathname === "/void-file/organize-directory") {
     await withFileHandler<FileOrganizeDirectoryData>(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      const strategyRaw = readString(body, "strategy");
+      const strategy = strategyRaw === "byDate" ? "byDate" : strategyRaw === "byExtension" || !strategyRaw ? "byExtension" : undefined;
+      if (strategyRaw && !strategy) {
+        throw createInvalidFileRequest("strategy 必须是 byExtension | byDate");
+      }
       return fileOrganizeManager.organizeDirectory({
         path: readString(body, "path"),
-        dryRun: readOptionalBoolean(body, "dryRun")
+        dryRun: readOptionalBoolean(body, "dryRun"),
+        strategy: strategy as "byExtension" | "byDate" | undefined
       });
     });
     return true;

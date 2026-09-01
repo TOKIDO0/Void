@@ -375,7 +375,7 @@ export async function inspectWriteTarget(
 }
 
 export async function organizeDirectory(
-  input: { path?: string; dryRun?: boolean },
+  input: { path?: string; dryRun?: boolean; strategy?: "byExtension" | "byDate" },
   signal?: AbortSignal
 ): Promise<FileOrganizeDirectoryData> {
   return postFileApi<FileOrganizeDirectoryData>("/void-file/organize-directory", input, signal);

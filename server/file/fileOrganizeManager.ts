@@ -50,9 +50,10 @@ function uniqueTargetPath(targetDir: string, fileName: string): string {
 }
 
 export class FileOrganizeManager {
-  organizeDirectory(input: { path?: string; dryRun?: boolean }): FileOrganizeDirectoryData {
+  organizeDirectory(input: { path?: string; dryRun?: boolean; strategy?: "byExtension" | "byDate" }): FileOrganizeDirectoryData {
     const rawPath = input.path?.trim() ? input.path.trim() : resolveDownloadFinalRoot();
     const dryRun = input.dryRun === true;
+    const strategy = input.strategy === "byDate" ? "byDate" : "byExtension";
     const basePath = assertAllowedFilePath(rawPath);
     const baseStat = statSync(basePath);
     if (!baseStat.isDirectory()) {
@@ -90,8 +91,19 @@ export class FileOrganizeManager {
         continue;
       }
 
-      const category = categorizeFile(entry.name);
-      const targetDir = join(basePath, category);
+      let category: string;
+      let targetDir: string;
+      if (strategy === "byDate") {
+        const fileStat = statSync(entryPath);
+        const date = new Date(fileStat.mtimeMs);
+        const yyyy = String(date.getFullYear());
+        const mm = String(date.getMonth() + 1).padStart(2, "0");
+        category = `${yyyy}-${mm}`;
+        targetDir = join(basePath, category);
+      } else {
+        category = categorizeFile(entry.name);
+        targetDir = join(basePath, category);
+      }
       const targetPath = uniqueTargetPath(targetDir, entry.name);
 
       categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1);
@@ -122,7 +134,7 @@ export class FileOrganizeManager {
 
     return {
       path: basePath,
-      strategy: "byExtension",
+      strategy,
       dryRun,
       totalFiles: entries.filter((e) => e.isFile()).length,
       movedCount: moves.length,
