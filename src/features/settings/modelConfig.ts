@@ -123,6 +123,13 @@ export const MODEL_PRESETS: ModelPreset[] = [
     modelName: "llama3.1"
   },
   {
+    id: "minimax",
+    label: "MiniMax",
+    provider: "openai-compatible",
+    baseUrl: "https://api.minimax.chat/v1",
+    modelName: "abab6.5s-chat"
+  },
+  {
     id: "anthropic",
     label: "Anthropic Claude",
     provider: "anthropic",
@@ -162,6 +169,10 @@ export const MODEL_OPTIONS_BY_PRESET: Record<string, ModelOption[]> = {
     { label: "Qwen2.5 7B", modelName: "qwen2.5:7b", strength: "middle" },
     { label: "Mistral 7B", modelName: "mistral", strength: "middle" },
     { label: "Gemma 2 9B", modelName: "gemma2:9b", strength: "middle" }
+  ],
+  minimax: [
+    { label: "abab6.5s", modelName: "abab6.5s-chat", strength: "middle" },
+    { label: "abab6.5g", modelName: "abab6.5g-chat", strength: "high" }
   ],
   anthropic: [
     { label: "Claude Haiku 4.5", modelName: "claude-haiku-4-5", strength: "low" },
