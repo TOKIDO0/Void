@@ -311,6 +311,26 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     ]
   },
   {
+    id: "health-export",
+    category: "file",
+    label: "健康档案导出",
+    summary: "把健康时间线按人物分组导出为 Markdown 文件，便于就医时携带或备份。",
+    userValue: "适合导出健康档案为 markdown，含人物、日期、内容与免责声明，可落盘到下载目录。",
+    exampleRequests: [
+      "把健康档案导出成文件",
+      "帮我把健康记录保存成 markdown"
+    ],
+    requiredToolNames: ["file.writeText"],
+    optionalToolNames: ["file.inspectWriteTarget", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "仅导出健康档案分区，不含身份证/医保号/住址等永不记录内容。",
+      "导出前需确认文件名与落盘位置，不覆盖已有文件除非用户明确要求。"
+    ]
+  },
+  {
     id: "local-runtime-security-review",
     category: "security",
     label: "本地运行时安全自检",

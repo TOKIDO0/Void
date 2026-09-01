@@ -1023,9 +1023,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const recentArtifactLookup = data.playbooks?.find((playbook) => playbook.id === "recent-artifact-lookup");
     const pathMetadataPreflight = data.playbooks?.find((playbook) => playbook.id === "path-metadata-preflight");
     const downloadsOrganize = data.playbooks?.find((playbook) => playbook.id === "downloads-auto-organize");
+    const healthExport = data.playbooks?.find((playbook) => playbook.id === "health-export");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount < 15
+      || data.playbookCount < 16
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1060,6 +1061,9 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || downloadsOrganize.maxRiskLevel !== "L2"
       || downloadsOrganize.outputTrust !== "mixed"
       || !downloadsOrganize.untrustedOutputToolNames?.includes("file.organizeDirectory")
+      || !healthExport?.requiredToolNames?.includes("file.writeText")
+      || healthExport.requiresConfirmation !== true
+      || healthExport.maxRiskLevel !== "L2"
       || !data.safetyBoundaries?.some((item) => typeof item === "string" && item.includes("不是插件执行器"))
     ) {
       failures.push("agent.inspectTaskPlaybooks 应列出可用组合任务范式，并标记工具、风险、确认、输出来源与非插件执行边界");
@@ -1659,6 +1663,14 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       failures.push(`健康时间线异常：groups=${timeline.length} self=${selfGroup?.entries.length} mother=${motherGroup?.entries.length}`);
     } else {
       notes.push("健康时间线：按人物分组时序正确（本人1/母亲2按时间排序）");
+    }
+    // 健康导出：markdown 包含人物与免责声明
+    const { renderHealthTimelineMarkdown } = await import("../../memory/healthTimeline");
+    const markdown = renderHealthTimelineMarkdown(timeline);
+    if (!markdown.includes("健康档案") || !markdown.includes("母亲") || !markdown.includes("不作诊断")) {
+      failures.push("健康导出异常：markdown 未含标题/人物/免责声明");
+    } else {
+      notes.push("健康导出：markdown 含标题人物与免责声明");
     }
 
     // N3 软件目录自验：catalog 2 例可匹配由 tool 侧已覆盖，此处验工具存在性与白名单不扩展

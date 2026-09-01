@@ -30,3 +30,18 @@ export function formatHealthTimelineDate(timestamp: number, lang: "zh-CN" | "en-
   if (lang === "en-US") return d.toLocaleDateString("en-US");
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+export function renderHealthTimelineMarkdown(groups: HealthTimelineGroup[] = buildHealthTimeline()): string {
+  if (groups.length === 0) return "# 健康档案\n\n暂无健康记录\n";
+  const lines: string[] = ["# 健康档案", "", `共 ${groups.length} 人，${groups.reduce((s, g) => s + g.entries.length, 0)} 条记录`, ""];
+  for (const group of groups) {
+    lines.push(`## ${group.subjectName}（${group.subjectType}）`, "");
+    for (const entry of group.entries) {
+      const date = formatHealthTimelineDate(entry.createdAt);
+      lines.push(`- ${date}：${entry.content}`);
+    }
+    lines.push("");
+  }
+  lines.push("---", "本档案仅作记录与整理，不作诊断；如有不适请咨询专业医生。");
+  return lines.join("\n");
+}
