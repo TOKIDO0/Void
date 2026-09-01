@@ -265,6 +265,15 @@ export type FileCreateExcelData = {
   writtenAt: number;
 };
 
+export type FileCreatePptxData = {
+  path: string;
+  fileName: string;
+  bytes: number;
+  slides: number;
+  templateId: string;
+  writtenAt: number;
+};
+
 export type FileBridgeResponse<T> =
   | { ok: true; data: T }
   | {

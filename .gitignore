@@ -28,6 +28,7 @@ src-tauri/binaries/
 # 本地工具缓存与私有配置（不入库）
 .codex/
 .npm-cache/
+.agents/
 
 # 调研抓取 / 临时验证产物（firecrawl、开源记忆调研、手测缓存）
 .firecrawl/

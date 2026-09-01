@@ -13,6 +13,7 @@ import type {
   FileListDirectoryData,
   FileOrganizeDirectoryData,
   FileCreateExcelData,
+  FileCreatePptxData,
   FilePlaceDownloadData,
   FileReadTextData,
   FileSearchTextData,
@@ -387,4 +388,11 @@ export async function createExcel(
   signal?: AbortSignal
 ): Promise<FileCreateExcelData> {
   return postFileApi<FileCreateExcelData>("/void-file/create-excel", input, signal);
+}
+
+export async function createPptx(
+  input: { fileName: string; title?: string; slides: Array<{ title: string; bullets?: string[]; body?: string; chart?: { type: "bar" | "pie"; title: string; labels: string[]; values: number[] }; layout?: string }>; templateId?: string },
+  signal?: AbortSignal
+): Promise<FileCreatePptxData> {
+  return postFileApi<FileCreatePptxData>("/void-file/create-pptx", input, signal);
 }

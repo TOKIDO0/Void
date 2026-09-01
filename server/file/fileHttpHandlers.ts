@@ -16,6 +16,7 @@ import { fileAccessManager } from "./fileAccessManager";
 import { fileMutationManager } from "./fileMutationManager";
 import { fileOrganizeManager } from "./fileOrganizeManager";
 import { createExcelFile } from "./fileExcelManager";
+import { createPptxFile } from "./filePptManager";
 import { getFileErrorPayload, resolveDownloadFinalRoot } from "./fileRuntimePaths";
 import type {
   FileApiResponse,
@@ -31,6 +32,7 @@ import type {
   FileMoveData,
   FileOrganizeDirectoryData,
   FileCreateExcelData,
+  FileCreatePptxData,
   FilePlaceDownloadData,
   FileReadTextData,
   FileSearchTextData,
@@ -555,6 +557,23 @@ export async function handleFileHttpRequest(
         sheets: sheets as never,
         templateId: readString(body, "templateId"),
         title: readString(body, "title")
+      });
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/create-pptx") {
+    await withFileHandler<FileCreatePptxData>(response, async () => {
+      const body = asRecord(await readJsonBody(request, 2 * 1024 * 1024));
+      const fileName = readString(body, "fileName");
+      if (!fileName) throw createInvalidFileRequest("缺少 fileName");
+      const slidesRaw = body.slides;
+      if (!Array.isArray(slidesRaw)) throw createInvalidFileRequest("slides 必须是数组");
+      return createPptxFile({
+        fileName,
+        title: readString(body, "title"),
+        slides: slidesRaw as never,
+        templateId: readString(body, "templateId")
       });
     });
     return true;

@@ -316,6 +316,22 @@ export type FileCreateExcelData = {
   writtenAt: number;
 };
 
+export type FileCreatePptxRequest = {
+  fileName: string;
+  title?: string;
+  slides: Array<{ title: string; bullets?: string[]; body?: string; chart?: { type: "bar" | "pie"; title: string; labels: string[]; values: number[] }; layout?: string }>;
+  templateId?: string;
+};
+
+export type FileCreatePptxData = {
+  path: string;
+  fileName: string;
+  bytes: number;
+  slides: number;
+  templateId: string;
+  writtenAt: number;
+};
+
 export type FileApiSuccess<T> = { ok: true; data: T };
 export type FileApiFailure = {
   ok: false;

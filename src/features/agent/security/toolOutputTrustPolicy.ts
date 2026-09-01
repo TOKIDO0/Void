@@ -21,6 +21,7 @@ const UNTRUSTED_OUTPUT_TOOL_RULES = new Map<string, ToolOutputTrustDescription>(
   ["file.listRecentArtifacts", createUntrustedRule("本地最近产物文件名与路径元数据")],
   ["file.organizeDirectory", createUntrustedRule("本地文件整理结果与路径元数据")],
   ["file.createExcel", createUntrustedRule("本地 Excel 生成结果与路径")],
+  ["file.createPptx", createUntrustedRule("本地 PPT 生成结果与路径")],
   ["file.readText", createUntrustedRule("本地文件正文")],
   ["file.searchText", createUntrustedRule("本地文件搜索片段")],
   ["agent.inspectSkills", createUntrustedRule("本地技能 manifest 内容")],
