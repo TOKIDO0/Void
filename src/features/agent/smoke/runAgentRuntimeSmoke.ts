@@ -1617,6 +1617,26 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("6.5 情绪-记忆联动：emotionTrend 可按情绪意图召回");
     }
+
+    // Stage7 记忆面板自验：查看/删除单条/清空分区/清空全部（面板仅消费 memoryStore）
+    memStore.clearMemories();
+    const now = Date.now();
+    memStore.upsertMemoryDeduped({ id: "panel-1", memoryType: "userProfile", subjectType: "self", subjectName: "用户本人", content: "面板测试1", confidence: 0.8, sensitivity: "normal", source: "smoke", createdAt: now, updatedAt: now });
+    memStore.upsertMemoryDeduped({ id: "panel-2", memoryType: "preference", subjectType: "self", subjectName: "用户本人", content: "面板测试2", confidence: 0.8, sensitivity: "normal", source: "smoke", createdAt: now+1, updatedAt: now+1 });
+    memStore.upsertMemoryDeduped({ id: "panel-3", memoryType: "healthRecord", subjectType: "relative", subjectName: "母亲", content: "面板测试3", confidence: 0.8, sensitivity: "sensitive", source: "smoke", createdAt: now+2, updatedAt: now+2 });
+    const panelList = memStore.listMemories();
+    const panelRemoveOk = memStore.removeMemory("panel-2");
+    const afterRemove = memStore.listMemories();
+    // 清空单分区（healthRecord）
+    afterRemove.filter((e) => e.memoryType === "healthRecord").forEach((e) => memStore.removeMemory(e.id));
+    const afterSectionClear = memStore.listMemories();
+    memStore.clearMemories();
+    const afterAllClear = memStore.listMemories();
+    if (panelList.length !== 3 || !panelRemoveOk || afterRemove.length !== 2 || afterSectionClear.length !== 1 || afterAllClear.length !== 0) {
+      failures.push(`Stage7 面板自验异常：list=${panelList.length} afterRemove=${afterRemove.length} afterSection=${afterSectionClear.length} afterAll=${afterAllClear.length}`);
+    } else {
+      notes.push("Stage7 面板自验：查看3条→删除1条→清空分区→清空全部均正确");
+    }
   }
 
   // 阶段 AD（43 号总规划）：模型上下文窗口表
