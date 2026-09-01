@@ -1024,7 +1024,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const pathMetadataPreflight = data.playbooks?.find((playbook) => playbook.id === "path-metadata-preflight");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount < 12
+      || data.playbookCount < 14
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1034,7 +1034,8 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || !webResearch.untrustedOutputToolNames?.includes("browser.search")
       || !localDigest?.requiredToolNames?.includes("file.searchText")
       || !localDigest.requiredToolNames.includes("file.readText")
-      || !installer?.requiredToolNames?.includes("software.downloadInstaller")
+      || !installer?.requiredToolNames?.includes("browser.search")
+      || !installer.requiredToolNames.includes("browser.open")
       || dryRun?.requiresBridge !== false
       || dryRun.maxRiskLevel !== "L0"
       || !boundaryReview?.requiredToolNames?.includes("agent.inspectPrivacyBoundaries")
@@ -1084,16 +1085,15 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       untrustedOutputToolNames?: unknown[];
     };
     if (
-      data.capability !== "software"
+      data.capability !== "browser"
       || data.preflightOnly !== true
       || data.requiresBridge !== true
       || data.requiresConfirmation !== true
-      || data.outputTrust !== "trusted"
-      || !data.availableToolNames?.includes("software.resolveInstaller")
+      || !data.availableToolNames?.includes("browser.search")
     ) {
-      failures.push("agent.planTaskRoute 应把官方软件安装包任务预演为 software 路由，且不得执行");
+      failures.push("agent.planTaskRoute 应把下载客户端类请求预演为 browser 路由（已降级为打开官网下载页），且不得执行");
     } else {
-      notes.push("agent.planTaskRoute 可执行预演：下载客户端会进入 software 路由，且标记未执行");
+      notes.push("agent.planTaskRoute 可执行预演：下载客户端会进入 browser 路由（已降级），且标记未执行");
     }
   }
 
