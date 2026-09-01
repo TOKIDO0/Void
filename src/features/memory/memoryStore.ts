@@ -14,6 +14,7 @@ import {
 } from "./memorySearchIndex";
 import { resolveMemoryConflict } from "./memoryConflictResolver";
 import { clearPendingMemoryConfirmations } from "./pendingMemoryConfirmations";
+import { recordMemoryVerification } from "./memoryVerificationHook";
 
 /** 存储键：v1 版本号预留迁移空间，结构不兼容升级时改版本号并写迁移。 */
 const MEMORY_STORAGE_KEY = "void.memory.v1";
@@ -75,12 +76,14 @@ export function upsertMemory(entry: MemoryEntry): MemoryEntry {
     persist(entries);
     // 索引与落库同步，供召回侧全文排序使用
     syncMemorySearchIndexAfterUpsert(merged);
+    recordMemoryVerification(merged.content, merged.memoryType, merged.subjectType);
     return merged;
   }
 
   entries.push(clean);
   persist(entries);
   syncMemorySearchIndexAfterUpsert(clean);
+  recordMemoryVerification(clean.content, clean.memoryType, clean.subjectType);
   return clean;
 }
 
@@ -135,6 +138,7 @@ export function upsertMemoryDeduped(entry: MemoryEntry, options: DedupeOptions =
     entries[duplicateIndex] = merged;
     persist(entries);
     syncMemorySearchIndexAfterUpsert(merged);
+    recordMemoryVerification(merged.content, merged.memoryType, merged.subjectType);
     return merged;
   }
 
@@ -155,6 +159,7 @@ export function upsertMemoryDeduped(entry: MemoryEntry, options: DedupeOptions =
       entries[targetIndex] = merged;
       persist(entries);
       syncMemorySearchIndexAfterUpsert(merged);
+      recordMemoryVerification(merged.content, merged.memoryType, merged.subjectType);
       return merged;
     }
   }
@@ -162,6 +167,7 @@ export function upsertMemoryDeduped(entry: MemoryEntry, options: DedupeOptions =
   entries.push(clean);
   persist(entries);
   syncMemorySearchIndexAfterUpsert(clean);
+  recordMemoryVerification(clean.content, clean.memoryType, clean.subjectType);
   return clean;
 }
 

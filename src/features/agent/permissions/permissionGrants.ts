@@ -11,6 +11,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.agent.inspectPrivacyBoundaries",
   "tool.agent.inspectTaskPlaybooks",
   "tool.agent.inspectSkills",
+  "tool.agent.inspectMemoryVerification",
   "tool.browser.open",
   "tool.browser.search",
   "tool.browser.readResult",
