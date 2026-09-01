@@ -1102,6 +1102,21 @@ body {
   color: #fff;
 }
 
+.model-settings-modal__test-connection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.model-settings-modal__test-success {
+  color: #10b981;
+}
+
+.model-settings-modal__test-error {
+  color: #ef4444;
+}
+
 .model-settings-modal__advanced-model {
   display: grid;
   gap: 10px;

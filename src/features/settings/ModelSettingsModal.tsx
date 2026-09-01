@@ -62,6 +62,8 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
   const [fetchedModelsByPreset, setFetchedModelsByPreset] = useState<Record<string, ModelOption[]>>({});
   const [catalogStatus, setCatalogStatus] = useState<CatalogStatus>("idle");
   const [catalogMessage, setCatalogMessage] = useState("");
+  const [testConnectionStatus, setTestConnectionStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [testConnectionMessage, setTestConnectionMessage] = useState("");
 
   const copy = SETTINGS_COPY[language];
   // 优先展示自动拉取的模型；拉取失败或未拉取时回退内置列表，保证下拉框不空白。
@@ -236,6 +238,35 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
   const handleProviderFieldBlur = () => {
     if (draftConfig.baseUrl.trim() && draftConfig.apiKey.trim()) {
       void refreshModelCatalog();
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!draftConfig.baseUrl.trim() || !draftConfig.apiKey.trim()) {
+      setTestConnectionStatus("error");
+      setTestConnectionMessage(language === "zh-CN" ? "请先填写 Base URL 和 API Key" : "Please fill Base URL and API Key");
+      return;
+    }
+    setTestConnectionStatus("loading");
+    setTestConnectionMessage("");
+    const result = await fetchModelCatalog(draftConfig.provider, draftConfig.baseUrl, draftConfig.apiKey);
+    if (result.ok) {
+      setTestConnectionStatus("success");
+      setTestConnectionMessage(
+        language === "zh-CN"
+          ? `连接成功，发现 ${result.models.length} 个可用模型`
+          : `Connected, found ${result.models.length} models`
+      );
+    } else {
+      setTestConnectionStatus("error");
+      // 针对推理模型额度耗尽等常见情况，给出更具体的提示已在 provider 层处理，这里直接展示原始信息并追加 Base URL 检查提示
+      const extraHint =
+        result.message.includes("no_available_channel") || result.message.includes("503")
+          ? language === "zh-CN"
+            ? "（提示：请确认 Base URL 是否包含 /v1，如 https://api.a6api.com/v1）"
+            : " (hint: ensure Base URL includes /v1)"
+          : "";
+      setTestConnectionMessage(`${result.message}${extraHint}`);
     }
   };
 
@@ -610,6 +641,36 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                       onBlur={handleProviderFieldBlur}
                     />
                   </label>
+                </div>
+
+                <div className="model-settings-modal__test-connection">
+                  <button
+                    type="button"
+                    className="model-settings-modal__input-action"
+                    onClick={() => void handleTestConnection()}
+                    disabled={testConnectionStatus === "loading"}
+                  >
+                    {testConnectionStatus === "loading"
+                      ? language === "zh-CN"
+                        ? "测试中..."
+                        : "Testing..."
+                      : language === "zh-CN"
+                        ? "测试连接"
+                        : "Test connection"}
+                  </button>
+                  {testConnectionStatus !== "idle" ? (
+                    <small
+                      className={
+                        testConnectionStatus === "success"
+                          ? "model-settings-modal__test-success"
+                          : testConnectionStatus === "error"
+                            ? "model-settings-modal__test-error"
+                            : ""
+                      }
+                    >
+                      {testConnectionMessage}
+                    </small>
+                  ) : null}
                 </div>
 
                 <div className="model-settings-modal__advanced-model">
