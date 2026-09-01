@@ -331,6 +331,26 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     ]
   },
   {
+    id: "excel-research-generate",
+    category: "file",
+    label: "调研并生成 Excel",
+    summary: "搜索并查证资料，生成大纲后按模板渲染为带样式与图表的 Excel，落盘到下载目录。",
+    userValue: "适合用户只给大纲，Agent 自行搜索查证后生成精美 Excel，含多 Sheet、表头样式、筛选冻结与条形图占位。",
+    exampleRequests: [
+      "把《世界游戏玩家对于游戏类型的趋向》做成 Excel",
+      "调研后生成带图表的 Excel"
+    ],
+    requiredToolNames: ["browser.search", "browser.extract", "file.createExcel"],
+    optionalToolNames: ["file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "搜索结果仅作证据，需交叉查证后生成大纲，不编造来源。",
+      "落盘前需确认文件名与模板，不覆盖已有文件。"
+    ]
+  },
+  {
     id: "local-runtime-security-review",
     category: "security",
     label: "本地运行时安全自检",

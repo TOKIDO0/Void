@@ -300,6 +300,22 @@ export type FileOrganizeDirectoryData = {
   organizedAt: number;
 };
 
+export type FileCreateExcelRequest = {
+  fileName: string;
+  sheets: Array<{ name: string; headers: string[]; rows: (string | number)[][]; chart?: { type: "bar" | "pie"; title: string; xColumn: number; yColumn: number } }>;
+  templateId?: string;
+  title?: string;
+};
+
+export type FileCreateExcelData = {
+  path: string;
+  fileName: string;
+  bytes: number;
+  sheets: number;
+  templateId: string;
+  writtenAt: number;
+};
+
 export type FileApiSuccess<T> = { ok: true; data: T };
 export type FileApiFailure = {
   ok: false;

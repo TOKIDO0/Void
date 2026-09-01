@@ -30,6 +30,7 @@ export default defineConfig({
           // 重型按需库：仅部分工具/文档链路触达，拆出避免常驻首包
           if (id.includes("node_modules/pdfjs-dist/")) return "pdfjs";
           if (id.includes("node_modules/xlsx/")) return "xlsx";
+          if (id.includes("node_modules/exceljs/")) return "exceljs";
           if (id.includes("node_modules/@huggingface/")) return "transformers";
           if (id.includes("node_modules/mammoth/")) return "mammoth";
           // 其余第三方（含框架）归一，避免框架/vendor 循环依赖

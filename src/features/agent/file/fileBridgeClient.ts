@@ -12,6 +12,7 @@ import type {
   FileInspectPathData,
   FileListDirectoryData,
   FileOrganizeDirectoryData,
+  FileCreateExcelData,
   FilePlaceDownloadData,
   FileReadTextData,
   FileSearchTextData,
@@ -379,4 +380,11 @@ export async function organizeDirectory(
   signal?: AbortSignal
 ): Promise<FileOrganizeDirectoryData> {
   return postFileApi<FileOrganizeDirectoryData>("/void-file/organize-directory", input, signal);
+}
+
+export async function createExcel(
+  input: { fileName: string; sheets: Array<{ name: string; headers: string[]; rows: (string | number)[][]; chart?: { type: "bar" | "pie"; title: string; xColumn: number; yColumn: number } }>; templateId?: string; title?: string },
+  signal?: AbortSignal
+): Promise<FileCreateExcelData> {
+  return postFileApi<FileCreateExcelData>("/void-file/create-excel", input, signal);
 }

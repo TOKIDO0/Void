@@ -119,6 +119,12 @@ const FILE_ORGANIZE_TOOL_NAMES = [
   "desktop.revealPath"
 ];
 
+const FILE_CREATE_EXCEL_TOOL_NAMES = [
+  "file.createExcel",
+  "file.verify",
+  "desktop.revealPath"
+];
+
 const AGENT_TOOL_NAMES = [
   "agent.inspectCapabilities",
   "agent.inspectSkills"
@@ -186,6 +192,8 @@ const FILE_RECENT_ARTIFACT_PATTERN =
   /(?:(?:刚才|最近|最新|上次).{0,16}(?:保存|下载|写入|导出|生成).{0,20}(?:文件|产物|报告|结果|位置|在哪|哪里)|(?:保存|下载|写入|导出|生成).{0,16}(?:的文件|的产物|的报告|的结果).{0,20}(?:在哪|哪里|位置|列表|列出|查看|看看|打开所在位置|显示)|(?:列出|查看|看看|显示).{0,16}(?:最近|最新).{0,16}(?:文件|下载|保存|产物|报告|结果))/i;
 const FILE_ORGANIZE_PATTERN =
   /(?:整理|归档|分类).{0,12}下载(?:文件夹|目录|文件)?|下载(?:文件夹|目录|文件)?.{0,12}(?:整理|归档|分类)|(?:把|将).{0,12}下载.{0,12}(?:整理|归档|分类)/i;
+const FILE_CREATE_EXCEL_PATTERN =
+  /(?:生成|做成|创建|导出).{0,12}excel|excel.{0,12}(?:生成|做成|创建|导出)|(?:世界游戏玩家|游戏类型趋向).{0,12}excel/i;
 const WEB_TEXT_ARTIFACT_SOURCE_PATTERN =
   /(?:网页|网站|网址|链接|URL|http:\/\/|https:\/\/|搜索结果|检索结果|查到的|搜到的|新闻|报道|来源|官网|页面摘要|网页摘要)/i;
 const EXPLICIT_WEB_SOURCE_PATTERN =
@@ -385,6 +393,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (FILE_ORGANIZE_PATTERN.test(userInput)) {
     return createRoute("file", FILE_ORGANIZE_TOOL_NAMES);
+  }
+
+  if (FILE_CREATE_EXCEL_PATTERN.test(userInput)) {
+    return createRoute("file", FILE_CREATE_EXCEL_TOOL_NAMES);
   }
 
   // 本地资料/文档检索闭环：让「在本地资料里搜并整理成报告」稳定进入 file 工具组。

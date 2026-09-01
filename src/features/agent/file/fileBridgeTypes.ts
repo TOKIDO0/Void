@@ -256,6 +256,15 @@ export type FileOrganizeDirectoryData = {
   organizedAt: number;
 };
 
+export type FileCreateExcelData = {
+  path: string;
+  fileName: string;
+  bytes: number;
+  sheets: number;
+  templateId: string;
+  writtenAt: number;
+};
+
 export type FileBridgeResponse<T> =
   | { ok: true; data: T }
   | {

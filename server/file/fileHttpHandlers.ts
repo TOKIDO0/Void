@@ -15,6 +15,7 @@ import { genericMediaDownloadManager } from "./genericMediaDownloadManager";
 import { fileAccessManager } from "./fileAccessManager";
 import { fileMutationManager } from "./fileMutationManager";
 import { fileOrganizeManager } from "./fileOrganizeManager";
+import { createExcelFile } from "./fileExcelManager";
 import { getFileErrorPayload, resolveDownloadFinalRoot } from "./fileRuntimePaths";
 import type {
   FileApiResponse,
@@ -29,6 +30,7 @@ import type {
   FileCreateDirectoryData,
   FileMoveData,
   FileOrganizeDirectoryData,
+  FileCreateExcelData,
   FilePlaceDownloadData,
   FileReadTextData,
   FileSearchTextData,
@@ -534,6 +536,25 @@ export async function handleFileHttpRequest(
         path: readString(body, "path"),
         dryRun: readOptionalBoolean(body, "dryRun"),
         strategy: strategy as "byExtension" | "byDate" | undefined
+      });
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/create-excel") {
+    await withFileHandler<FileCreateExcelData>(response, async () => {
+      const body = asRecord(await readJsonBody(request, 2 * 1024 * 1024));
+      const fileName = readString(body, "fileName");
+      if (!fileName) throw createInvalidFileRequest("缺少 fileName");
+      const sheetsRaw = body.sheets;
+      if (!Array.isArray(sheetsRaw)) throw createInvalidFileRequest("sheets 必须是数组");
+      const sheets = sheetsRaw as FileCreateExcelData["sheets"] extends Array<infer T> ? T[] : never;
+      // 简化校验：sheets 结构由 fileExcelManager 深度校验
+      return createExcelFile({
+        fileName,
+        sheets: sheets as never,
+        templateId: readString(body, "templateId"),
+        title: readString(body, "title")
       });
     });
     return true;

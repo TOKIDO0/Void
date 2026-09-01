@@ -79,11 +79,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   bootstrapAgentRuntime();
 
   const productionTools = listToolMetadata();
-  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 = 49
-  if (productionTools.length !== 49 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 49 个工具，实际 ${productionTools.length}`);
+  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 = 50
+  if (productionTools.length !== 50 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 50 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("49 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("50 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -355,11 +355,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     ? validateAgainstSchema(agentCapabilityTool.outputSchema, {
         status: "ok",
         inspectedAt: Date.now(),
-        toolCount: 46,
+        toolCount: 47,
         capabilityCount: 7,
         registryAudit: {
-          registeredToolCount: 49,
-          userVisibleToolCount: 46,
+          registeredToolCount: 50,
+          userVisibleToolCount: 47,
           internalHiddenToolCount: 3,
           disabledToolCount: 0,
           missingPermissionToolCount: 0,
@@ -524,7 +524,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
         status: "ok",
         inspectedAt: Date.now(),
         executableExtensionRuntime: "disabled",
-        productionToolCount: 49,
+        productionToolCount: 50,
         detectedExtensionToolNames: [],
         mcpToolExposure: "none",
         pluginToolExposure: "none",
@@ -1024,9 +1024,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const pathMetadataPreflight = data.playbooks?.find((playbook) => playbook.id === "path-metadata-preflight");
     const downloadsOrganize = data.playbooks?.find((playbook) => playbook.id === "downloads-auto-organize");
     const healthExport = data.playbooks?.find((playbook) => playbook.id === "health-export");
+    const excelResearch = data.playbooks?.find((playbook) => playbook.id === "excel-research-generate");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount < 16
+      || data.playbookCount < 17
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1064,6 +1065,9 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || !healthExport?.requiredToolNames?.includes("file.writeText")
       || healthExport.requiresConfirmation !== true
       || healthExport.maxRiskLevel !== "L2"
+      || !excelResearch?.requiredToolNames?.includes("file.createExcel")
+      || excelResearch.requiresConfirmation !== true
+      || excelResearch.maxRiskLevel !== "L2"
       || !data.safetyBoundaries?.some((item) => typeof item === "string" && item.includes("不是插件执行器"))
     ) {
       failures.push("agent.inspectTaskPlaybooks 应列出可用组合任务范式，并标记工具、风险、确认、输出来源与非插件执行边界");
@@ -1599,13 +1603,13 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       notes.push("P3 无效过滤：短/语气词/背景音被拦，唤醒与追问放行，不写记忆");
     }
 
-    // T2 进度文案完整性：48 工具均有可读文案，不回退到 humanize 兜底
+    // T2 进度文案完整性：50 工具均有可读文案，不回退到 humanize 兜底
     const { formatToolProgressMessage } = await import("../loop/toolProgressCopy");
     const missingProgress = productionTools.filter((t) => formatToolProgressMessage(t.name).startsWith("正在处理："));
     if (missingProgress.length > 0) {
       failures.push(`T2 进度文案缺失：${missingProgress.map((t) => t.name).join(",")}`);
     } else {
-      notes.push("T2 进度文案：48 工具均有可读文案");
+      notes.push("T2 进度文案：50 工具均有可读文案");
     }
 
     // 单实例与桌面收口：已接入 tauri-plugin-single-instance（Cargo/lib.rs 侧，前文已验 tsc）
@@ -1718,6 +1722,33 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       failures.push("整理下载文件夹应路由到 file.organizeDirectory");
     } else {
       notes.push("整理路由正确：下载整理→file.organizeDirectory");
+    }
+
+    // 精美 Excel：file.createExcel 模板渲染
+    const createExcelTool = productionTools.find((t) => t.name === "file.createExcel");
+    const createExcelInputOk = createExcelTool ? validateAgainstSchema(createExcelTool.inputSchema, {
+      fileName: "test.xlsx",
+      sheets: [{ name: "Sheet1", headers: ["A", "B"], rows: [["1", 2]] }],
+      templateId: "void-vivid"
+    }).valid : false;
+    const createExcelOutputOk = createExcelTool ? validateAgainstSchema(createExcelTool.outputSchema, {
+      path: "D:\\AI\\void-runtime\\downloads\\test.xlsx",
+      fileName: "test.xlsx",
+      bytes: 1234,
+      sheets: 1,
+      templateId: "void-vivid",
+      writtenAt: Date.now()
+    }).valid : false;
+    if (!createExcelTool || !createExcelInputOk || !createExcelOutputOk) {
+      failures.push("file.createExcel 契约应支持 fileName/sheets/templateId 与落盘输出");
+    } else {
+      notes.push("file.createExcel 契约：支持多 Sheet 模板渲染与落盘");
+    }
+    const excelRoute = resolveTurnCapability("把世界游戏玩家趋向做成 Excel", []);
+    if (excelRoute.capability !== "file" || !excelRoute.allowedToolNames.includes("file.createExcel")) {
+      failures.push("Excel 生成应路由到 file.createExcel");
+    } else {
+      notes.push("Excel 路由正确：做成 Excel→file.createExcel");
     }
   }
 
