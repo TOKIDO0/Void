@@ -83,27 +83,26 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
   {
     id: "official-installer-download",
     category: "software",
-    label: "官方软件安装包下载",
-    summary: "从已登记的官方目录解析安装包，确认后下载、校验签名和落盘位置。",
-    userValue: "适合下载可信客户端或安装包，避免第三方下载站和来路不明文件。",
+    label: "官方软件安装包下载（已改为打开下载页）",
+    summary: "白名单自动下载已降级：统一搜索并打开官方下载页由用户自行下载，原校验链路保留作兼容。",
+    userValue: "适合任意软件的通用下载：打开官网下载页，无白名单限制。",
     exampleRequests: [
-      "帮我下载 B 站客户端，确认后放到默认目录",
-      "查看当前支持哪些官方软件安装包下载"
+      "帮我打开 B 站客户端的下载页",
+      "帮我下载微信电脑版（打开官网下载页）"
     ],
-    requiredToolNames: [
-      "software.resolveInstaller",
-      "software.downloadInstaller"
-    ],
+    requiredToolNames: ["browser.search", "browser.open"],
     optionalToolNames: [
+      "browser.revealInSystemBrowser",
       "software.listSupported",
+      "software.resolveInstaller",
       "desktop.revealPath"
     ],
-    expectedMaxRiskLevel: "L2",
+    expectedMaxRiskLevel: "L1",
     requiresBridge: true,
-    requiresConfirmation: true,
+    requiresConfirmation: false,
     safetyBoundaries: [
-      "只处理已登记官方来源；不去第三方下载站碰运气。",
-      "下载安装包前需要用户确认，签名或来源异常必须如实失败。"
+      "统一打开官方下载页由用户自行点击下载，不再依赖白名单自动拉取。",
+      "原白名单校验链路保留作兼容，不再扩展新软件。"
     ]
   },
   {

@@ -135,8 +135,8 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
   },
   {
     id: "software",
-    label: "官方软件安装包",
-    summary: "从已登记的官方软件目录解析安装包，确认后下载并校验，拒绝第三方下载站和未登记来源。",
+    label: "官方软件安装包（已降级为打开下载页）",
+    summary: "白名单自动下载已降级为通用方案：搜索并打开官方下载页由用户自行下载；原目录校验链路保留作兼容，不再扩展。",
     requiresBridge: true,
     toolNames: [
       "software.listSupported",

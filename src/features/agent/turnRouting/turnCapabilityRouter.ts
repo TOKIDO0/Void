@@ -334,9 +334,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
     return createRoute("desktop", DESKTOP_TOOL_NAMES);
   }
 
-  // 官方软件安装包意图优先于 browser/media，避免「客户端」被当成视频或乱点官网。
+  // 已废弃：白名单自动下载改为通用“打开官网下载页”；software 能力保留作兼容，不再作为主路径。
+  // 客户端/安装包类请求统一走 browser（搜索官网→打开页面让用户自行下载），避免白名单的普遍性缺陷。
   if (isSoftwareInstallerIntent(userInput)) {
-    return createRoute("software", SOFTWARE_TOOL_NAMES);
+    return createRoute("browser", BROWSER_TOOL_NAMES);
   }
 
   // T3.b：剪贴板 URL 下载优先于纯剪贴板；capability 仍为 browser（下载主路径 + 整理）
