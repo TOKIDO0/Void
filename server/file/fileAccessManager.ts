@@ -319,6 +319,16 @@ export class FileAccessManager {
       throw createFileError("INVALID_REQUEST", `路径不是文件：${path}`);
     }
 
+    // 图片类不做本地 OCR（tesseract.js 需 WASM+语言包，体积大且中文效果差），复用视觉模型附件路径
+    const imageExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tiff", ".heic"]);
+    const lowerExt = extname(path).toLowerCase();
+    if (imageExtensions.has(lowerExt)) {
+      throw createFileError(
+        "UNSUPPORTED_DOCUMENT",
+        "图片文本请作为附件上传，VOID 会通过视觉模型识别（本地不做 OCR）"
+      );
+    }
+
     if (isSupportedDocumentTextPath(path)) {
       if (fileStat.size > MAX_DOCUMENT_BYTES) {
         throw createFileError("FILE_TOO_LARGE", `文档文件超过 ${MAX_DOCUMENT_BYTES} 字节上限`, {
