@@ -1,10 +1,9 @@
 // VOID 记忆系统 —— 本地存储读写
 // 职责单一：只负责记忆条目的持久化读写与脏数据隔离，不做分类 / 召回 / 策略判断。
-// 存储载体：localStorage，键 void.memory.v1（带版本号，Tauri 期可平滑迁 SQLite）。
+// 存储载体：经 memoryStorage 抽象，当前为 localStorage（键 void.memory.v1），P1-b 将平滑迁 SQLite。
 // 数据保存在本地、不上传服务器（04 号第 3 节前提）。
 
 import type { MemoryEntry } from "./memoryTypes";
-import { isMemoryType, isSubjectType, isSensitivity } from "./memoryTypes";
 import {
   clearMemorySearchIndex,
   isMemorySearchIndexReady,
@@ -15,15 +14,12 @@ import {
 import { resolveMemoryConflict } from "./memoryConflictResolver";
 import { clearPendingMemoryConfirmations } from "./pendingMemoryConfirmations";
 import { recordMemoryVerification } from "./memoryVerificationHook";
-
-/** 存储键：v1 版本号预留迁移空间，结构不兼容升级时改版本号并写迁移。 */
-const MEMORY_STORAGE_KEY = "void.memory.v1";
-
-/** 磁盘上的信封结构：外层带版本，便于后续迁移判定。 */
-type MemoryEnvelope = {
-  version: 1;
-  entries: MemoryEntry[];
-};
+import {
+  clearLocalStorage,
+  loadFromLocalStorage,
+  sanitizeEntry,
+  saveToLocalStorage
+} from "./memoryStorage";
 
 /**
  * 读取全部记忆条目。
@@ -31,18 +27,7 @@ type MemoryEnvelope = {
  * 逐条做字段校验，丢弃脏条目，只返回合法条目。
  */
 export function listMemories(): MemoryEntry[] {
-  const raw = window.localStorage.getItem(MEMORY_STORAGE_KEY);
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    const rawEntries = extractRawEntries(parsed);
-    return rawEntries.map(sanitizeEntry).filter((entry): entry is MemoryEntry => entry !== null);
-  } catch {
-    return [];
-  }
+  return loadFromLocalStorage();
 }
 
 /** 按 id 取单条，不存在返回 null。 */
@@ -185,7 +170,7 @@ export function removeMemory(id: string): boolean {
 
 /** 清空全部记忆。 */
 export function clearMemories(): void {
-  window.localStorage.removeItem(MEMORY_STORAGE_KEY);
+  clearLocalStorage();
   clearMemorySearchIndex();
   // 阶段 AA：记忆全清时，待确认候选一并丢弃（避免询问已不存在上下文的候选）。
   clearPendingMemoryConfirmations();
@@ -214,78 +199,9 @@ function normalizeContent(text: string): string {
   return text.replace(/[\s\p{P}]/gu, "");
 }
 
-/** 写盘：统一封装信封并序列化。 */
+/** 写盘：经抽象层落盘，当前为 localStorage 信封。 */
 function persist(entries: MemoryEntry[]): void {
-  const envelope: MemoryEnvelope = { version: 1, entries };
-  window.localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(envelope));
+  saveToLocalStorage(entries);
 }
 
-/** 从解析后的原始值里取出条目数组，兼容信封结构与裸数组两种形态。 */
-function extractRawEntries(parsed: unknown): unknown[] {
-  if (Array.isArray(parsed)) {
-    return parsed;
-  }
-  if (parsed && typeof parsed === "object" && Array.isArray((parsed as MemoryEnvelope).entries)) {
-    return (parsed as MemoryEnvelope).entries;
-  }
-  return [];
-}
-
-/**
- * 逐字段校验并规整单条记忆。任一必填字段缺失或类型不符 → 返回 null（丢弃该条）。
- * 这是脏数据的唯一入口关卡，保证内存中流转的条目一定合法。
- */
-function sanitizeEntry(value: unknown): MemoryEntry | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const raw = value as Record<string, unknown>;
-
-  if (typeof raw.id !== "string" || !raw.id.trim()) {
-    return null;
-  }
-  if (!isMemoryType(raw.memoryType)) {
-    return null;
-  }
-  if (!isSubjectType(raw.subjectType)) {
-    return null;
-  }
-  if (!isSensitivity(raw.sensitivity)) {
-    return null;
-  }
-  if (typeof raw.subjectName !== "string") {
-    return null;
-  }
-  if (typeof raw.content !== "string" || !raw.content.trim()) {
-    return null;
-  }
-  if (typeof raw.source !== "string") {
-    return null;
-  }
-  if (typeof raw.confidence !== "number" || Number.isNaN(raw.confidence)) {
-    return null;
-  }
-  if (typeof raw.createdAt !== "number" || typeof raw.updatedAt !== "number") {
-    return null;
-  }
-
-  const entry: MemoryEntry = {
-    id: raw.id,
-    memoryType: raw.memoryType,
-    subjectType: raw.subjectType,
-    subjectName: raw.subjectName,
-    content: raw.content,
-    confidence: Math.min(Math.max(raw.confidence, 0), 1),
-    source: raw.source,
-    sensitivity: raw.sensitivity,
-    createdAt: raw.createdAt,
-    updatedAt: raw.updatedAt
-  };
-
-  if (typeof raw.expiresAt === "number" && !Number.isNaN(raw.expiresAt)) {
-    entry.expiresAt = raw.expiresAt;
-  }
-
-  return entry;
-}
+// sanitize/extract 已下沉至 memoryStorage，本文件不再重复，保留 normalizeContent 仅供 dedupe 使用。

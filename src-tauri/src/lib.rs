@@ -85,6 +85,7 @@ pub fn run() {
     let bridge_token = resolve_bridge_token();
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .manage(BridgeTokenState(bridge_token.clone()))
         .invoke_handler(tauri::generate_handler![get_bridge_token])
         .setup(move |app| {
