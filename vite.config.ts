@@ -7,7 +7,7 @@ export default defineConfig({
   // 1) clearScreen:false —— 保留 cargo/桥接编译日志，报错不被清屏冲掉，便于排查。
   // 2) strictPort —— 固定 5173，端口被占直接报错而非漂移，避免 Tauri devUrl 连到空窗口。
   // 3) watch.ignored src-tauri/ —— cargo 编译会在 target/ 高频生成并独占锁定大量 .dll，
-  //    若 vite 文件监听器去 watch 这些文件会触发 EBUSY 崩溃、连带拖垮整个 tauri dev。
+  //    若 vite 文件监听器去 watch 这些文件会触发 EBUSY 崩溃、连带拖垮整个 tauri dev.
   clearScreen: false,
   server: {
     strictPort: true,
@@ -19,6 +19,23 @@ export default defineConfig({
     },
     watch: {
       ignored: ["**/src-tauri/**"]
+    }
+  },
+  build: {
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          // 重型按需库：仅部分工具/文档链路触达，拆出避免常驻首包
+          if (id.includes("node_modules/pdfjs-dist/")) return "pdfjs";
+          if (id.includes("node_modules/xlsx/")) return "xlsx";
+          if (id.includes("node_modules/@huggingface/")) return "transformers";
+          if (id.includes("node_modules/mammoth/")) return "mammoth";
+          // 其余第三方（含框架）归一，避免框架/vendor 循环依赖
+          return "vendor";
+        }
+      }
     }
   },
   plugins: [
