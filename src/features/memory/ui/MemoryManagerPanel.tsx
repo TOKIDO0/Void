@@ -38,12 +38,20 @@ type ConfirmState =
 
 const ALL_CATEGORY = "all" as const;
 type CategoryId = typeof ALL_CATEGORY | MemoryType;
+const ALL_SUBJECT = "all" as const;
+type SubjectFilterId = typeof ALL_SUBJECT | "self" | "relative";
+const ALL_SENSITIVITY = "all" as const;
+type SensitivityFilterId = typeof ALL_SENSITIVITY | "normal" | "sensitive" | "high";
+type SortMode = "newest" | "oldest" | "confidence";
 
 export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps) {
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
   const [selectedCategory, setSelectedCategory] = useState<CategoryId>(ALL_CATEGORY);
   const [searchQuery, setSearchQuery] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState<SubjectFilterId>(ALL_SUBJECT);
+  const [sensitivityFilter, setSensitivityFilter] = useState<SensitivityFilterId>(ALL_SENSITIVITY);
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [confirmState, setConfirmState] = useState<ConfirmState>({ kind: "none" });
   const [semanticEnabled, setSemanticEnabled] = useState(() => isSemanticSearchEnabled());
   const [semanticWarming, setSemanticWarming] = useState(false);
@@ -63,6 +71,9 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
     setLanguage(loadSettingsLanguage());
     setSelectedCategory(ALL_CATEGORY);
     setSearchQuery("");
+    setSubjectFilter(ALL_SUBJECT);
+    setSensitivityFilter(ALL_SENSITIVITY);
+    setSortMode("newest");
     setConfirmState({ kind: "none" });
     setSemanticEnabled(isSemanticSearchEnabled());
     setSemanticWarming(false);
@@ -110,15 +121,18 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
   const filteredEntries = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
-    return entries.filter((entry) => {
+    const base = entries.filter((entry) => {
       if (selectedCategory !== ALL_CATEGORY && entry.memoryType !== selectedCategory) {
         return false;
       }
-
-      if (!normalizedQuery) {
-        return true;
+      if (subjectFilter !== ALL_SUBJECT) {
+        if (subjectFilter === "self" && entry.subjectType !== "self") return false;
+        if (subjectFilter === "relative" && entry.subjectType === "self") return false;
       }
-
+      if (sensitivityFilter !== ALL_SENSITIVITY && entry.sensitivity !== sensitivityFilter) {
+        return false;
+      }
+      if (!normalizedQuery) return true;
       const haystack = [
         entry.content,
         entry.subjectName,
@@ -128,10 +142,16 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
       ]
         .join(" ")
         .toLowerCase();
-
       return haystack.includes(normalizedQuery);
     });
-  }, [copy.subjectLabels, copy.typeLabels, entries, searchQuery, selectedCategory]);
+
+    const sorted = [...base].sort((a, b) => {
+      if (sortMode === "confidence") return b.confidence - a.confidence || b.createdAt - a.createdAt;
+      if (sortMode === "oldest") return a.createdAt - b.createdAt;
+      return b.createdAt - a.createdAt;
+    });
+    return sorted;
+  }, [copy.subjectLabels, copy.typeLabels, entries, searchQuery, selectedCategory, subjectFilter, sensitivityFilter, sortMode]);
 
   const activeSectionLabel =
     selectedCategory === ALL_CATEGORY ? copy.all : copy.typeLabels[selectedCategory];
@@ -326,6 +346,40 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
 
           <div className="memory-manager__content">
             <ContextBudgetBar compact />
+            <div className="memory-manager__filters" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              {(["all", "self", "relative"] as SubjectFilterId[]).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`memory-manager__category-card${subjectFilter === id ? " is-active" : ""}`}
+                  style={{ padding: "6px 10px", fontSize: 12 }}
+                  onClick={() => setSubjectFilter(id)}
+                >
+                  {id === "all" ? (language === "zh-CN" ? "全部主体" : "All subjects") : id === "self" ? (language === "zh-CN" ? "本人" : "Self") : (language === "zh-CN" ? "亲属" : "Relative")}
+                </button>
+              ))}
+              {(["all", "high", "sensitive", "normal"] as SensitivityFilterId[]).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`memory-manager__category-card${sensitivityFilter === id ? " is-active" : ""}`}
+                  style={{ padding: "6px 10px", fontSize: 12 }}
+                  onClick={() => setSensitivityFilter(id)}
+                >
+                  {id === "all" ? (language === "zh-CN" ? "全部敏感度" : "All") : id === "high" ? (language === "zh-CN" ? "高敏感" : "High") : id === "sensitive" ? (language === "zh-CN" ? "敏感" : "Sensitive") : (language === "zh-CN" ? "普通" : "Normal")}
+                </button>
+              ))}
+              <select
+                value={sortMode}
+                onChange={(e) => setSortMode(e.target.value as SortMode)}
+                style={{ marginLeft: "auto", background: "rgba(15,23,42,0.9)", color: "#E2E8F0", border: "1px solid rgba(148,163,184,0.18)", borderRadius: 8, padding: "6px 8px", fontSize: 12 }}
+                aria-label={language === "zh-CN" ? "排序" : "Sort"}
+              >
+                <option value="newest">{language === "zh-CN" ? "最新" : "Newest"}</option>
+                <option value="oldest">{language === "zh-CN" ? "最早" : "Oldest"}</option>
+                <option value="confidence">{language === "zh-CN" ? "置信度" : "Confidence"}</option>
+              </select>
+            </div>
             <div className="memory-manager__list-header">
               <div className="memory-manager__list-heading">
                 <h3 className="memory-manager__list-title">{activeSectionLabel}</h3>
