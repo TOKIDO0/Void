@@ -18,7 +18,8 @@ import type {
   DesktopFocusWindowData,
   DesktopCloseWindowData,
   DesktopSystemInfoData,
-  DesktopScreenshotData
+  DesktopScreenshotData,
+  DesktopSetWindowBoundsData
 } from "./desktopBridgeTypes";
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 
@@ -215,6 +216,13 @@ export async function getSystemInfo(signal?: AbortSignal): Promise<DesktopSystem
 
 export async function takeScreenshot(signal?: AbortSignal): Promise<DesktopScreenshotData> {
   return postDesktopApi<DesktopScreenshotData>("/void-desktop/screenshot", {}, signal);
+}
+
+export async function setWindowBounds(
+  input: { hwnd?: string; pid?: number; title?: string; x?: number; y?: number; width?: number; height?: number; action?: string },
+  signal?: AbortSignal
+): Promise<DesktopSetWindowBoundsData> {
+  return postDesktopApi<DesktopSetWindowBoundsData>("/void-desktop/set-window-bounds", input as Record<string, unknown>, signal);
 }
 
 export function getDesktopBridgeErrorInfo(error: unknown): {

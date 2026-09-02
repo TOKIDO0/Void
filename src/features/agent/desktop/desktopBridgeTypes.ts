@@ -93,6 +93,16 @@ export type DesktopScreenshotData = {
   capturedAt: number;
 };
 
+export type DesktopSetWindowBoundsData = {
+  hwnd: string;
+  pid: number;
+  processName: string;
+  title: string;
+  action: string;
+  bounds?: { x: number; y: number; width: number; height: number };
+  appliedAt: number;
+};
+
 export type DesktopBridgeErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"

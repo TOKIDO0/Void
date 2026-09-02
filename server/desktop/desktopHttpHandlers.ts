@@ -17,7 +17,7 @@ import {
 import { desktopRevealManager } from "./desktopRevealManager";
 import { desktopKnownLocationManager } from "./desktopKnownLocationManager";
 import { listInstalledApplications, launchApplicationByName } from "./desktopAppManager";
-import { listWindows, focusWindow, closeWindow, getSystemInfo } from "./desktopWindowManager";
+import { listWindows, focusWindow, closeWindow, getSystemInfo, setWindowBounds } from "./desktopWindowManager";
 import { takeDesktopScreenshot } from "./desktopScreenshotManager";
 import type {
   ClipboardReadData,
@@ -248,6 +248,24 @@ export async function handleDesktopHttpRequest(
     await withDesktopHandler(response, async () => {
       await readJsonBody(request);
       return takeDesktopScreenshot();
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/set-window-bounds") {
+    await withDesktopHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const hwnd = typeof body.hwnd === "string" ? body.hwnd.trim() : undefined;
+      const pid = typeof body.pid === "number" ? body.pid : typeof body.pid === "string" ? Number(body.pid) : undefined;
+      const title = typeof body.title === "string" ? body.title.trim() : undefined;
+      const x = typeof body.x === "number" ? body.x : undefined;
+      const y = typeof body.y === "number" ? body.y : undefined;
+      const width = typeof body.width === "number" ? body.width : undefined;
+      const height = typeof body.height === "number" ? body.height : undefined;
+      const action = typeof body.action === "string" ? body.action.trim().toLowerCase() : undefined;
+      if (!hwnd && !pid && !title) throw Object.assign(new Error("需提供 hwnd/pid/title"), { desktopCode: "INVALID_REQUEST" });
+      const res = await setWindowBounds({ hwnd, pid, title, x, y, width, height, action: action as never });
+      return { ...res, appliedAt: Date.now() };
     });
     return true;
   }

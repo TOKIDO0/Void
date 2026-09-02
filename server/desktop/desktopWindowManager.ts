@@ -141,3 +141,70 @@ export async function getSystemInfo(): Promise<{ platform: string; arch: string;
     screen
   };
 }
+
+export async function setWindowBounds(input: {
+  hwnd?: string;
+  pid?: number;
+  title?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  action?: "maximize" | "minimize" | "restore" | "moveResize";
+}): Promise<DesktopWindowInfo & { bounds?: { x: number; y: number; width: number; height: number }; action: string }> {
+  ensureWindows();
+  const windows = await listWindows();
+  let target: DesktopWindowInfo | undefined;
+  if (input.hwnd) target = windows.find((w) => w.hwnd === String(input.hwnd).trim());
+  else if (input.pid) target = windows.find((w) => w.pid === Number(input.pid));
+  else if (input.title) {
+    const q = input.title.trim().toLowerCase();
+    target = windows.find((w) => w.title.toLowerCase() === q) ?? windows.find((w) => w.title.toLowerCase().includes(q));
+  }
+  if (!target) throw Object.assign(new Error("未找到匹配窗口"), { desktopCode: "PATH_NOT_FOUND" });
+
+  const action = (input.action ?? (input.width || input.height || input.x !== undefined || input.y !== undefined ? "moveResize" : "restore")).toLowerCase();
+  const info = await getSystemInfo();
+  const screenW = info.screen?.width ?? 1920;
+  const screenH = info.screen?.height ?? 1080;
+
+  if (action === "maximize" || action === "minimize" || action === "restore") {
+    const cmd = action === "maximize" ? 3 : action === "minimize" ? 6 : 9;
+    const script = `
+      Add-Type @"
+using System; using System.Runtime.InteropServices;
+public class WinAPI2 { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd,int nCmdShow); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }
+"@
+      $hwnd=[IntPtr]${target.hwnd}
+      [void][WinAPI2]::ShowWindow($hwnd, ${cmd})
+      if (${cmd} -ne 6) { [void][WinAPI2]::SetForegroundWindow($hwnd) }
+      "ok"
+    `;
+    await runPowerShell(script);
+    return { ...target, action, bounds: undefined };
+  }
+
+  // moveResize
+  let x = typeof input.x === "number" && Number.isFinite(input.x) ? Math.round(input.x) : 0;
+  let y = typeof input.y === "number" && Number.isFinite(input.y) ? Math.round(input.y) : 0;
+  let w = typeof input.width === "number" && Number.isFinite(input.width) ? Math.round(input.width) : 800;
+  let h = typeof input.height === "number" && Number.isFinite(input.height) ? Math.round(input.height) : 600;
+  // clamp
+  w = Math.max(200, Math.min(w, screenW));
+  h = Math.max(120, Math.min(h, screenH));
+  x = Math.max(0, Math.min(x, screenW - 50));
+  y = Math.max(0, Math.min(y, screenH - 50));
+
+  const script = `
+    Add-Type @"
+using System; using System.Runtime.InteropServices;
+public class WinAPI3 { [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X,int Y,int cx,int cy, uint uFlags); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd,int nCmdShow); }
+"@
+    $hwnd=[IntPtr]${target.hwnd}
+    [void][WinAPI3]::ShowWindow($hwnd, 9)
+    [void][WinAPI3]::SetWindowPos($hwnd, [IntPtr]::Zero, ${x}, ${y}, ${w}, ${h}, 0x0040)
+    "ok"
+  `;
+  await runPowerShell(script);
+  return { ...target, action: "moveResize", bounds: { x, y, width: w, height: h } };
+}
