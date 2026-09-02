@@ -531,6 +531,26 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     ]
   },
   {
+    id: "code-result-to-office",
+    category: "agent",
+    label: "计算结果一键生成办公文档",
+    summary: "在受限沙箱内跑 JS/Python 计算或数据清洗，再把结果渲染为带样式的 Excel/Word 并落盘。",
+    userValue: "适合算完平均值/统计后直接生成报表，或 CSV/JSON 清洗后转表格分享。",
+    exampleRequests: [
+      "用 JS 算一下平均值并生成 Excel 报表",
+      "用 python 清洗这段 CSV 并导出成表格"
+    ],
+    requiredToolNames: ["agent.runCode", "file.createExcel"],
+    optionalToolNames: ["file.createDocx", "file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "沙箱内无文件/网络权限，计算超时与输出均有上限。",
+      "落盘前需确认文件名与模板，不覆盖已有文件。"
+    ]
+  },
+  {
     id: "clipboard-table-to-office",
     category: "clipboard",
     label: "剪贴板表格整理为办公文档",

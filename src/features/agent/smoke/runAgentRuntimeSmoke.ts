@@ -1054,7 +1054,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const codeTransform = data.playbooks?.find((playbook) => playbook.id === "code-data-transform");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount !== 25
+      || data.playbookCount !== 26
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1098,6 +1098,8 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || !data.playbooks?.find((p) => p.id === "ppt-research-generate")?.requiredToolNames?.includes("file.createPptx")
       || !data.playbooks?.find((p) => p.id === "clipboard-table-to-office")?.requiredToolNames?.includes("clipboard.read")
       || !data.playbooks?.find((p) => p.id === "clipboard-table-to-office")?.requiredToolNames?.includes("file.createExcel")
+      || !data.playbooks?.find((p) => p.id === "code-result-to-office")?.requiredToolNames?.includes("agent.runCode")
+      || !data.playbooks?.find((p) => p.id === "code-result-to-office")?.requiredToolNames?.includes("file.createExcel")
       || !codeCalc?.requiredToolNames?.includes("agent.runCode")
       || codeCalc.requiresConfirmation !== true
       || codeCalc.maxRiskLevel !== "L2"
@@ -1892,6 +1894,18 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       failures.push("纯剪贴板查看不应误触发办公生成，应保持 clipboard 能力");
     } else {
       notes.push("剪贴板查看负例正确：查看剪贴板不进办公生成");
+    }
+    const codeOfficeExcelRoute = resolveTurnCapability("用 JS 算一下平均值并生成 Excel 报表", []);
+    if (codeOfficeExcelRoute.capability !== "file" || !codeOfficeExcelRoute.allowedToolNames.includes("agent.runCode") || !codeOfficeExcelRoute.allowedToolNames.includes("file.createExcel")) {
+      failures.push("代码计算+办公生成应为 file 能力且同轮可用 agent.runCode + file.createExcel");
+    } else {
+      notes.push("代码结果直达办公路由正确：JS 计算+Excel 同轮可用");
+    }
+    const codePureRoute = resolveTurnCapability("帮我用 JS 算一下平均值", []);
+    if (codePureRoute.capability !== "agent" || !codePureRoute.allowedToolNames.includes("agent.runCode") || codePureRoute.allowedToolNames.includes("file.createExcel")) {
+      failures.push("纯代码计算应保持 agent 能力，不暴露办公生成");
+    } else {
+      notes.push("纯代码计算负例正确：仅计算不进办公生成");
     }
     const codeCalcRoute = resolveTurnCapability("帮我用 JS 算一下这组数据的平均值", []);
     if (codeCalcRoute.capability !== "agent" || !codeCalcRoute.allowedToolNames.includes("agent.runCode")) {

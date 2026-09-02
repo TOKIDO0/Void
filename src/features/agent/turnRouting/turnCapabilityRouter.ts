@@ -212,6 +212,20 @@ const CLIPBOARD_DOCX_TOOL_NAMES = [
   "desktop.revealPath"
 ];
 
+const CODE_OFFICE_EXCEL_TOOL_NAMES = [
+  "agent.runCode",
+  "file.createExcel",
+  "file.verify",
+  "desktop.revealPath"
+];
+
+const CODE_OFFICE_DOCX_TOOL_NAMES = [
+  "agent.runCode",
+  "file.createDocx",
+  "file.verify",
+  "desktop.revealPath"
+];
+
 const AGENT_TOOL_NAMES = [
   "agent.inspectCapabilities",
   "agent.inspectSkills"
@@ -423,6 +437,14 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (AGENT_PRIVACY_BOUNDARY_PATTERN.test(userInput)) {
     return createRoute("agent", AGENT_PRIVACY_BOUNDARY_TOOL_NAMES);
+  }
+
+  // 代码结果一键落盘为办公文档：算完直接生成表格/报告
+  if (isCodeOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
+    return createRoute("file", CODE_OFFICE_EXCEL_TOOL_NAMES);
+  }
+  if (isCodeOfficeIntent(userInput, LOCAL_OFFICE_DOCX_PATTERN)) {
+    return createRoute("file", CODE_OFFICE_DOCX_TOOL_NAMES);
   }
 
   if (CODE_RUN_PATTERN.test(userInput)) {
@@ -642,6 +664,13 @@ function isClipboardOfficeIntent(userInput: string, officePattern: RegExp): bool
   const hasClipboard = /(?:剪贴板|粘贴板)/i.test(userInput);
   const hasAction = /(?:整理|生成|做成|转换|导出|汇总|做一下|做个)/i.test(userInput);
   if (!hasClipboard || !hasAction) return false;
+  return officePattern.test(userInput);
+}
+
+function isCodeOfficeIntent(userInput: string, officePattern: RegExp): boolean {
+  const hasCodeHint = /(?:js|javascript|python|代码|沙箱|计算|统计|平均值|求和|清洗|转换)/i.test(userInput);
+  const hasOfficeAction = /(?:生成|做成|导出|整理|转换|做一下|做个)/i.test(userInput);
+  if (!hasCodeHint || !hasOfficeAction) return false;
   return officePattern.test(userInput);
 }
 
