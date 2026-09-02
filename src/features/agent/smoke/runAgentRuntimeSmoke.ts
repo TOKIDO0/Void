@@ -1771,10 +1771,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       notes.push("file.createExcel 契约：支持多 Sheet 模板渲染与落盘");
     }
     const excelRoute = resolveTurnCapability("把世界游戏玩家趋向做成 Excel", []);
-    if (excelRoute.capability !== "file" || !excelRoute.allowedToolNames.includes("file.createExcel")) {
-      failures.push("Excel 生成应路由到 file.createExcel");
+    if (excelRoute.capability !== "file" || !excelRoute.allowedToolNames.includes("file.createExcel") || !excelRoute.allowedToolNames.includes("browser.search") || !excelRoute.allowedToolNames.includes("browser.extract")) {
+      failures.push("Excel 生成应路由到 file.createExcel 且同轮可用 browser.search/extract 完成调研");
     } else {
-      notes.push("Excel 路由正确：做成 Excel→file.createExcel");
+      notes.push("Excel 路由正确：做成 Excel→file.createExcel + browser.search/extract 同轮可用");
     }
 
     // 精美 Word：file.createDocx 模板渲染
