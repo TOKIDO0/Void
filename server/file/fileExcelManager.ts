@@ -41,7 +41,7 @@ export async function createExcelFile(input: CreateExcelRequest): Promise<Create
     if (sheet.rows.length > 5000) throw createFileError("INVALID_REQUEST", "每个 sheet rows 最多 5000 行");
   }
 
-  const template = input.templateId ? getExcelTemplate(input.templateId as never) : resolveExcelTemplate(undefined, input.sheets[0]?.name);
+  const template = input.templateId ? getExcelTemplate(input.templateId as never) : resolveExcelTemplate(undefined, input.title ?? input.sheets[0]?.name);
   const buffer = await generateExcelBuffer({ sheets: input.sheets, template, title: input.title });
 
   const finalRoot = resolveDownloadFinalRoot();

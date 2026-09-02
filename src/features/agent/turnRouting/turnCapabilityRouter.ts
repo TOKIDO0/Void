@@ -120,18 +120,24 @@ const FILE_ORGANIZE_TOOL_NAMES = [
 ];
 
 const FILE_CREATE_EXCEL_TOOL_NAMES = [
+  "browser.search",
+  "browser.extract",
   "file.createExcel",
   "file.verify",
   "desktop.revealPath"
 ];
 
 const FILE_CREATE_PPTX_TOOL_NAMES = [
+  "browser.search",
+  "browser.extract",
   "file.createPptx",
   "file.verify",
   "desktop.revealPath"
 ];
 
 const FILE_CREATE_DOCX_TOOL_NAMES = [
+  "browser.search",
+  "browser.extract",
   "file.createDocx",
   "file.verify",
   "desktop.revealPath"

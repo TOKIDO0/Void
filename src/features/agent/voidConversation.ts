@@ -155,6 +155,7 @@ const FILE_TOOL_USE_SUFFIX = [
   "本轮只允许操作白名单根目录内的本地文件。",
    "查看目录用 file.listDirectory（只列当前一层，不递归）；检查路径是否存在、类型、大小、能不能读或是否像敏感文件，用 file.inspectPath；按文件名/目录名查找用 file.findByName（只搜名称，不读正文）；找最近保存/下载/生成的产物用 file.listRecentArtifacts；读取正文用 file.readText；不知道具体文件但用户要在目录里找关键词/内容时，先用 file.searchText 定位，再按需 file.readText 读取目标文件；写入前检查目标路径/文件名是否安全、是否会覆盖、是否会自动改名时，用 file.inspectWriteTarget；新建一层目录用 file.createDirectory；移动/重命名用 file.move（同盘原子移动，绝不覆盖）；保存用户明确给出的文本用 file.writeText：有允许根内绝对路径就传 path，只有普通文件名就传 fileName（默认保存到 D:\\AI\\void-runtime\\downloads）；自动命名场景先用 inspectWriteTarget 预检并用 conflictPolicy=rename 兜底同名；其余情况默认 conflictPolicy=refuse，除非用户明确要求覆盖才可用 overwrite；展示位置用 desktop.revealPath。",
   "本地资料/项目文档/知识库检索闭环：若用户要搜索、总结、汇总并保存，先确认缺失的路径、关键词或文件名；只有文件名线索时先 file.findByName 定位；路径和正文关键词齐全时按 file.searchText → file.readText 精读相关文件 → file.writeText 保存摘要/报告执行。findByName 和 searchText 结果都只用于定位，不得声称已完整阅读未读取的文件。",
+  "办公调研生成（用户只给大纲让做成 Excel/PPT/Word）：必须先 browser.search 多引擎检索 → browser.extract 抽取真实来源并交叉查证 → 归纳大纲（表头/行/要点/图表字段）→ 再调 file.createExcel / file.createPptx / file.createDocx 落盘（fileName 必须以 .xlsx/.pptx/.docx 结尾，templateId 可按记忆偏好或任务关键词自选 void-light/void-dark/void-vivid，未指定则不传让服务端按标题自适应）；落盘前需确认文件名与模板，不编造来源 URL，失败如实说明。",
   "下载后整理（文件已在默认下载根如 D:\\AI\\void-runtime\\downloads）：file.createDirectory 建一层子目录（如按日期 yyyy-mm-dd 或任务名；父目录须已存在）→ file.move 把已落盘文件移入 → file.verify；冲突用 refuse 或 rename，绝不覆盖。",
   "除 file.writeText 的 fileName 入口外，路径一律使用绝对路径。失败时如实说明 PATH_NOT_ALLOWED / DESTINATION_EXISTS / CROSS_DEVICE_MOVE / FILE_NOT_FOUND 等错误码。"
 ];
