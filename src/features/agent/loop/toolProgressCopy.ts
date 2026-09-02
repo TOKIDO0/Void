@@ -56,6 +56,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "agent.inspectPrivacyBoundaries": "正在检查隐私与数据边界…",
   "agent.inspectTaskPlaybooks": "正在整理可用任务范式…",
   "agent.inspectSkills": "正在查看技能目录…",
+  "agent.inspectWorkspace": "正在查看工作区结构…",
   "agent.runCode": "正在执行代码…",
   "agent.inspectMemoryVerification": "正在检查记忆自验…",
   echo: "正在执行内部校验…"

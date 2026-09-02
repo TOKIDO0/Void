@@ -311,6 +311,10 @@ const AGENT_TASK_PLAYBOOK_TOOL_NAMES = [
   "agent.inspectTaskPlaybooks"
 ];
 
+const AGENT_WORKSPACE_TOOL_NAMES = [
+  "agent.inspectWorkspace"
+];
+
 const AGENT_RUN_CODE_TOOL_NAMES = [
   "agent.runCode"
 ];
@@ -384,6 +388,8 @@ const AGENT_PRIVACY_BOUNDARY_PATTERN =
   /(?:(?:VOID|void|agent|Agent|你).{0,24}(?:隐私|数据|资料|记忆|上下文|文件内容|API\s*Key|token|密钥|语音|音频).{0,40}(?:会不会泄露|会不会外发|会不会发到云端|是否离开本机|离开本机|发给谁|传到哪里|数据流|边界|安全吗|安全边界)|(?:哪些|什么).{0,20}(?:数据|资料|内容|上下文|记忆|文件|音频|语音).{0,40}(?:离开本机|发到云端|发给模型|发给语音服务|会外发|会泄露|会上传)|(?:检查|查看|说明|介绍|自检).{0,24}(?:隐私|数据边界|数据流|本地边界|本地优先|去中心化|泄露风险|模型上下文|语音数据|记忆隐私).{0,24}(?:安全|边界|策略|状态)?|(?:本地语义检索|embedding|向量|记忆原文).{0,36}(?:云端|离开本机|外发|上传|发给谁|隐私|安全吗))/i;
 const AGENT_TASK_PLAYBOOK_PATTERN =
   /(?:(?:VOID|void|agent|Agent|你).{0,24}(?:任务模板|任务范式|工作流|playbook|recipes?|slash\s*commands?|组合任务|自动化流程|常用流程|用法示例|使用示例).{0,36}(?:有哪些|是什么|列出|查看|说明|介绍|推荐|示例|例子|清单|怎么用)|(?:有哪些|推荐|列出|查看|说明|介绍).{0,24}(?:任务模板|任务范式|工作流|playbook|recipes?|组合任务|自动化流程|常用流程|用法示例|使用示例)|(?:怎么|如何).{0,12}(?:使用|用好|更高效地用|让).{0,20}(?:VOID|void|agent|Agent|你).{0,24}(?:做任务|完成任务|自动化|工作流|组合任务))/i;
+const WORKSPACE_SNAPSHOT_PATTERN =
+  /(?:工作区|项目结构|目录结构|文件树|项目文件|仓库结构).{0,12}(?:看看|查看|列出|展示|快照|结构|有哪些|是什么)|(?:看看|查看|列出|展示).{0,12}(?:工作区|项目结构|目录结构|文件树|项目文件)/i;
 // 技能库问询：中文「技能」+ 列举/查看/用法语义；不含执行动作词，不误伤「用日报技能搜新闻」这类后续真实任务。
 const AGENT_SKILLS_PATTERN =
   /(?:(?:我|你|VOID|void|agent|Agent).{0,8}(?:有哪些|有什么|装了|安装了|启用了?)(?:的)?技能|(?:列出|查看|看看|检查|说明|介绍|打开).{0,10}技能(?:库|列表|清单)|技能(?:库|列表|清单)(?:里|中|都有|有)?(?:有什么|有哪些|是什么|怎么样)|(?:怎么用|如何用|怎么使用).{0,8}技能)/;
@@ -529,6 +535,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (CODE_RUN_PATTERN.test(userInput)) {
     return createRoute("agent", AGENT_RUN_CODE_TOOL_NAMES);
+  }
+
+  if (WORKSPACE_SNAPSHOT_PATTERN.test(userInput)) {
+    return createRoute("agent", AGENT_WORKSPACE_TOOL_NAMES);
   }
 
   if (AGENT_TASK_PLAYBOOK_PATTERN.test(userInput)) {

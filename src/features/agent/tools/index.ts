@@ -120,6 +120,7 @@ export { agentInspectExtensionPolicyTool } from "./builtin/agentInspectExtension
 export { agentInspectSafetyHooksTool } from "./builtin/agentInspectSafetyHooksTool";
 export { agentInspectPrivacyBoundariesTool } from "./builtin/agentInspectPrivacyBoundariesTool";
 export { agentInspectTaskPlaybooksTool } from "./builtin/agentInspectTaskPlaybooksTool";
+export { agentInspectWorkspaceTool } from "./builtin/agentInspectWorkspaceTool";
 export { clipboardReadTool } from "./builtin/clipboardReadTool";
 export { clipboardWriteTool } from "./builtin/clipboardWriteTool";
 export { desktopRevealPathTool } from "./builtin/desktopRevealPathTool";
