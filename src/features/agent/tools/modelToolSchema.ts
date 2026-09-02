@@ -11,6 +11,7 @@ import {
   hasToolPermissionGrants,
   type PermissionGrants
 } from "../permissions";
+import { sanitizeParametersSchema } from "./sanitizeToolSchemas";
 
 /**
  * 不暴露给模型的工具：
@@ -111,7 +112,13 @@ function toolJsonSchemaToParameters(schema: ToolJsonSchema): Record<string, unkn
     };
   }
 
-  return cloneSchema(schema) as Record<string, unknown>;
+  const cloned = cloneSchema(schema);
+  // 下发前最小净化：多后端兼容（llama.cpp/Anthropic 严格校验），不改 registry 真源
+  try {
+    return sanitizeParametersSchema(cloned as ToolJsonSchema);
+  } catch {
+    return cloned as Record<string, unknown>;
+  }
 }
 
 function cloneSchema(schema: ToolJsonSchema): unknown {

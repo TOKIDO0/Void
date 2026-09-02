@@ -19,6 +19,7 @@ export { validateAgainstSchema } from "./toolSchema";
 export type { SchemaValidationIssue, SchemaValidationResult } from "./toolSchema";
 export { coerceToolArgs } from "./coerceToolArgs";
 export { sanitizeToolErrorMessage, SANITIZE_TOOL_ERROR_MAX_LEN } from "./sanitizeToolError";
+export { sanitizeParametersSchema } from "./sanitizeToolSchemas";
 
 export {
   clearToolRegistry,

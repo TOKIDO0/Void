@@ -2437,6 +2437,24 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push("错误净化：框架 token 已剥离并限长 2000，relay 正确");
   }
 
+  // 2d) Schema 下发净化：空 object 补 properties / required 修剪（对标 sanitize_tool_schemas）
+  const { sanitizeParametersSchema: sanitizeForSchemaSmoke } = await import("../tools/sanitizeToolSchemas");
+  const emptyObjSanitized = sanitizeForSchemaSmoke({ type: "object" } as unknown as import("../tools/toolTypes").ToolJsonSchema);
+  const trimmedSanitized = sanitizeForSchemaSmoke({
+    type: "object",
+    properties: { a: { type: "string" } },
+    required: ["a", "missing"]
+  } as unknown as import("../tools/toolTypes").ToolJsonSchema);
+  const hasEmptyProps = Boolean((emptyObjSanitized as { properties?: unknown }).properties);
+  const hasTrimmed = Array.isArray((trimmedSanitized as { required?: unknown }).required)
+    && ((trimmedSanitized as { required: string[] }).required.length === 1)
+    && ((trimmedSanitized as { required: string[] }).required[0] === "a");
+  if (!hasEmptyProps || !hasTrimmed) {
+    failures.push(`Schema 下发净化异常：emptyProps=${hasEmptyProps} trimmed=${hasTrimmed}`);
+  } else {
+    notes.push("Schema 下发净化：空 object 补 properties 且 required 已修剪");
+  }
+
   // 3) 未注册工具明确拒绝
   const missing = await executeToolCall({
     taskId: "smoke_missing",
