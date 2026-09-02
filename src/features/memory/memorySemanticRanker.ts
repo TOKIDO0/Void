@@ -8,6 +8,11 @@
 import type { MemoryEntry } from "./memoryTypes";
 import type { MemorySearchHit } from "./memorySearchIndex";
 import { applyMemoryDecayScore } from "./memoryConflictResolver";
+import {
+  MEMORY_RECALL_CALIBRATION_ENABLED,
+  applySubjectPenalty,
+  rebalanceFusedWithConfidence
+} from "./memoryRecallScoring";
 
 /** 融合权重：全文分与向量分各占一半。两者都已各自归一到 [0,1]。 */
 export const TEXT_SCORE_WEIGHT = 0.5;
@@ -26,6 +31,10 @@ export type FuseSemanticRankingParams = {
   maxEntries: number;
   /** 现在时间 epoch ms，用于衰减 */
   now: number;
+  /** 原始用户查询（用于主体隔离小权重）；不传则不做主体惩罚 */
+  query?: string;
+  /** 校准总开关，默认取 MEMORY_RECALL_CALIBRATION_ENABLED */
+  calibrationEnabled?: boolean;
 };
 
 /**
@@ -36,6 +45,8 @@ export type FuseSemanticRankingParams = {
  */
 export function fuseSemanticRanking(params: FuseSemanticRankingParams): MemoryEntry[] {
   const { candidates, queryVector, candidateVectors, textHits, maxEntries, now } = params;
+  const calibrationEnabled = params.calibrationEnabled ?? MEMORY_RECALL_CALIBRATION_ENABLED;
+  const queryForSubject = params.query ?? "";
   if (candidates.length === 0 || maxEntries <= 0) {
     return [];
   }
@@ -65,9 +76,16 @@ export function fuseSemanticRanking(params: FuseSemanticRankingParams): MemoryEn
         ? clampUnit(cosineSimilarity(queryVector, candidateVector))
         : 0;
     const fusedBase = TEXT_SCORE_WEIGHT * textScore + VECTOR_SCORE_WEIGHT * vectorScore;
-    // 融合分为 0（既无全文命中也无向量分）时，退回置信度作底座，避免整条被衰减压到垫底。
-    const base = fusedBase > 0 ? fusedBase : entry.confidence;
-    return { entry, score: applyMemoryDecayScore(entry, now, base) };
+    // 校准：融合分与置信度再平衡，避免低置信条靠单一语义分霸榜；为 0 时仍回落置信度作底座。
+    const balancedBase =
+      fusedBase > 0
+        ? calibrationEnabled
+          ? rebalanceFusedWithConfidence(fusedBase, entry.confidence, true)
+          : fusedBase
+        : entry.confidence;
+    const decayed = applyMemoryDecayScore(entry, now, balancedBase);
+    const score = applySubjectPenalty(decayed, entry, queryForSubject, calibrationEnabled);
+    return { entry, score };
   });
 
   scored.sort((a, b) => b.score - a.score || b.entry.updatedAt - a.entry.updatedAt);

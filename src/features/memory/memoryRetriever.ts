@@ -15,6 +15,11 @@ import { applyMemoryDecayScore } from "./memoryConflictResolver";
 import { isSemanticSearchEnabled } from "./memorySemanticConfig";
 import { embedMemoryTexts } from "./memoryEmbeddingClient";
 import { fuseSemanticRanking } from "./memorySemanticRanker";
+import {
+  MEMORY_RECALL_CALIBRATION_ENABLED,
+  applySubjectPenalty,
+  rebalanceTextWithConfidence
+} from "./memoryRecallScoring";
 
 /** 召回意图：从用户当前问题推断，决定拉哪些分区。 */
 export type RetrievalIntent =
@@ -169,7 +174,8 @@ export async function retrieveMemoriesAsync(
     candidateVectors,
     textHits,
     maxEntries,
-    now
+    now,
+    query: normalizedQuery
   });
 
   // 关系旁路与同步版一致：仅显式谈 VOID 关系时额外并入，最多 2 条。
@@ -185,10 +191,10 @@ export async function retrieveMemoriesAsync(
 }
 
 /**
- * 在已过分区门禁的候选集内排序：
- * 1) 全文索引命中：Orama 分 × 时间衰减，再截断
- * 2) 无命中/索引失败 → 回退「衰减后置信度 + 更新时间」
- * 衰减只影响排序，不物理删除。
+ * 在已过分区门禁的候选集内排序（校准版）：
+ * 1) 全文索引命中：归一化全文分 × 置信度再平衡 × 时间衰减 × 主体隔离小权重，再截断
+ * 2) 无命中/索引失败 → 回退「衰减后置信度 + 主体隔离 + 更新时间」
+ * 衰减只影响排序，不物理删除；校准可开关，关闭时与旧版一字不差。
  */
 function rankCandidatesByQuery(
   query: string,
@@ -209,6 +215,11 @@ function rankCandidatesByQuery(
   );
 
   if (hits.length > 0) {
+    // 归一化全文分到 [0,1]，再与置信度再平衡
+    let maxScore = 0;
+    for (const hit of hits) {
+      if (typeof hit.score === "number" && hit.score > maxScore) maxScore = hit.score;
+    }
     const scored: { entry: MemoryEntry; score: number }[] = [];
     const seen = new Set<string>();
     for (const hit of hits) {
@@ -217,19 +228,25 @@ function rankCandidatesByQuery(
         continue;
       }
       seen.add(entry.id);
-      // Orama score 为正相关度；再乘分区半衰期衰减
-      const base = typeof hit.score === "number" && hit.score > 0 ? hit.score : entry.confidence;
-      scored.push({
-        entry,
-        score: applyMemoryDecayScore(entry, now, base)
-      });
+      const raw = typeof hit.score === "number" && hit.score > 0 ? hit.score : 0;
+      const normalized = maxScore > 0 ? raw / maxScore : 0;
+      // 再平衡：归一化全文分与置信度加权；为 0 时回落置信度作底座
+      const base =
+        normalized > 0
+          ? MEMORY_RECALL_CALIBRATION_ENABLED
+            ? rebalanceTextWithConfidence(normalized, entry.confidence, true)
+            : normalized
+          : entry.confidence;
+      const decayed = applyMemoryDecayScore(entry, now, base);
+      const score = applySubjectPenalty(decayed, entry, query, MEMORY_RECALL_CALIBRATION_ENABLED);
+      scored.push({ entry, score });
     }
     scored.sort((a, b) => b.score - a.score || b.entry.updatedAt - a.entry.updatedAt);
 
     const ranked = scored.map((item) => item.entry);
-    // 全文命中不足时，用衰减后置信度补足，避免相关度分把高置信底座挤没
+    // 全文命中不足时，用衰减后置信度×主体隔离补足
     if (ranked.length < maxEntries) {
-      const fallback = [...candidates].sort((a, b) => compareByDecayRelevance(a, b, now));
+      const fallback = [...candidates].sort((a, b) => compareByDecayRelevanceWithSubject(a, b, now, query));
       for (const entry of fallback) {
         if (seen.has(entry.id)) {
           continue;
@@ -244,7 +261,7 @@ function rankCandidatesByQuery(
     return ranked.slice(0, maxEntries);
   }
 
-  return [...candidates].sort((a, b) => compareByDecayRelevance(a, b, now)).slice(0, maxEntries);
+  return [...candidates].sort((a, b) => compareByDecayRelevanceWithSubject(a, b, now, query)).slice(0, maxEntries);
 }
 
 /** 保序合并并按 id 去重：base 在前，extra 追加。 */
@@ -278,6 +295,16 @@ export function detectIntent(query: string): RetrievalIntent {
 function compareByDecayRelevance(a: MemoryEntry, b: MemoryEntry, now: number): number {
   const scoreA = applyMemoryDecayScore(a, now);
   const scoreB = applyMemoryDecayScore(b, now);
+  if (scoreB !== scoreA) {
+    return scoreB - scoreA;
+  }
+  return b.updatedAt - a.updatedAt;
+}
+
+/** 带主体隔离的回退排序：普通问询时 relative 条目小幅压分，避免误召亲属健康。 */
+function compareByDecayRelevanceWithSubject(a: MemoryEntry, b: MemoryEntry, now: number, query: string): number {
+  const scoreA = applySubjectPenalty(applyMemoryDecayScore(a, now), a, query, MEMORY_RECALL_CALIBRATION_ENABLED);
+  const scoreB = applySubjectPenalty(applyMemoryDecayScore(b, now), b, query, MEMORY_RECALL_CALIBRATION_ENABLED);
   if (scoreB !== scoreA) {
     return scoreB - scoreA;
   }
