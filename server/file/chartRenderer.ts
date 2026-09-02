@@ -1,6 +1,6 @@
 import { Jimp, loadFont } from "jimp";
 
-// ARGB "FF38BDF8" -> Jimp RGBA int 0xRRGGBBAA
+// ARGB "FF38BDF8" -> Jimp RGBA int 0xRRGGBBAA (unsigned)
 function argbToRgbaInt(argb: string): number {
   const hex = (argb || "FF3B82F6").replace(/^#/, "").toUpperCase();
   const clean = hex.length === 8 ? hex : `FF${hex}`;
@@ -8,15 +8,15 @@ function argbToRgbaInt(argb: string): number {
   const r = parseInt(clean.slice(2, 4), 16);
   const g = parseInt(clean.slice(4, 6), 16);
   const b = parseInt(clean.slice(6, 8), 16);
-  // Jimp expects 0xRRGGBBAA
-  return (r << 24) | (g << 16) | (b << 8) | a;
+  // Jimp expects 0xRRGGBBAA unsigned
+  return (((r << 24) | (g << 16) | (b << 8) | a) >>> 0);
 }
 
-const WHITE = 0xffffffff;
-const AXIS_COLOR = 0x9ca3af80; // will use opaque
-const AXIS_OPAQUE = 0x9ca3afff;
-const GRID_COLOR = 0xe5e7ebff;
-const TEXT_COLOR = 0x1f2937ff;
+const WHITE = 0xffffffff >>> 0;
+const AXIS_COLOR = 0x9ca3af80 >>> 0;
+const AXIS_OPAQUE = 0x9ca3afff >>> 0;
+const GRID_COLOR = 0xe5e7ebff >>> 0;
+const TEXT_COLOR = 0x1f2937ff >>> 0;
 
 function fillRect(img: InstanceType<typeof Jimp>, x: number, y: number, w: number, h: number, color: number) {
   const x1 = Math.max(0, Math.floor(x));
@@ -68,7 +68,7 @@ export async function renderBarChartPng(opts: {
   } catch { /* ignore */ }
 
   // 若上方字体未生效，手动画一条标题下划线示意
-  fillRect(img, margin.left, margin.top - 18, plotW, 1, 0xe5e7ebff);
+    fillRect(img, margin.left, margin.top - 18, plotW, 1, GRID_COLOR);
 
   const vals = opts.values.map((v) => (Number.isFinite(v) ? v : 0));
   const maxVal = Math.max(1, ...vals) * 1.12;
@@ -98,7 +98,7 @@ export async function renderBarChartPng(opts: {
     fillRect(img, x + 1, y + 1, barW - 2, 3, col);
     fillRect(img, x + 2, y, barW - 4, 2, col);
     // 顶部高光 1px
-    drawHLine(img, y, x + 2, x + barW - 3, 0xffffff66 as unknown as number);
+    drawHLine(img, y, x + 2, x + barW - 3, 0xffffff66 >>> 0);
   }
 
   // 类目文字：若有字体则打印缩写，否则用底部 1px 色块示意已含轴
