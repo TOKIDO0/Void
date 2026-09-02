@@ -424,6 +424,33 @@ export class BrowserSessionManager {
       );
     }
 
+    // 站内搜常因登录墙/反爬零结果，零结果时回退到 DuckDuckGo site: 兜底，保证可用性
+    if (results.length === 0 && engine !== "duckduckgo") {
+      const siteMap: Record<string, string> = {
+        bilibili: "bilibili.com",
+        zhihu: "zhihu.com",
+        douyin: "douyin.com",
+        xiaohongshu: "xiaohongshu.com",
+        weibo: "weibo.com"
+      };
+      const site = siteMap[engine];
+      if (site) {
+        const fallbackQuery = `site:${site} ${query}`;
+        const fallbackUrl = buildDuckDuckGoHtmlSearchUrl(fallbackQuery);
+        try {
+          const fallbackOpened = await this.open({ taskId: session.taskId, url: fallbackUrl });
+          const fallbackSession = this.requireSession(fallbackOpened.taskId);
+          const fallbackPage = this.requirePage(fallbackSession, fallbackOpened.pageId);
+          const fallbackResults = await extractDuckDuckGoResults(fallbackPage, limit);
+          if (fallbackResults.length > 0) {
+            results = fallbackResults;
+          }
+        } catch {
+          // 回退失败静默保留空结果，不抛
+        }
+      }
+    }
+
     session.lastUsedAt = Date.now();
 
     return {
