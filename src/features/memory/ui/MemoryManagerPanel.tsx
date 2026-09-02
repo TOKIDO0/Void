@@ -8,6 +8,7 @@ import type { MemoryEntry, MemoryType } from "../memoryTypes";
 import { MEMORY_TYPES } from "../memoryTypes";
 import { listMemories, removeMemory, clearMemories } from "../memoryStore";
 import { buildHealthTimeline, formatHealthTimelineDate } from "../healthTimeline";
+import { HealthVisualization } from "./HealthVisualization";
 import {
   loadSettingsLanguage,
   saveSettingsLanguage,
@@ -280,8 +281,10 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
             </div>
 
             {selectedCategory === "healthRecord" && healthTimelineGroups.length > 0 ? (
-              <div className="memory-manager__timeline">
-                {healthTimelineGroups.map((group) => (
+              <>
+                <HealthVisualization groups={healthTimelineGroups} />
+                <div className="memory-manager__timeline">
+                  {healthTimelineGroups.map((group) => (
                   <div key={`${group.subjectType}:${group.subjectName}`} className="memory-manager__timeline-group">
                     <h4 className="memory-manager__timeline-title">{group.subjectName}</h4>
                     <div className="memory-manager__timeline-list">
@@ -292,9 +295,10 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
                         </div>
                       ))}
                     </div>
+                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </>
             ) : hasVisibleEntries ? (
               <div className="memory-manager__list">
                 {filteredEntries.map((entry) => (
