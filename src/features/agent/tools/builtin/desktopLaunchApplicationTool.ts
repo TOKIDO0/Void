@@ -7,6 +7,9 @@ import type { ToolDefinition } from "../toolTypes";
 
 export type DesktopLaunchApplicationToolInput = {
   name: string;
+  appName?: string;
+  app?: string;
+  query?: string;
 };
 
 export type DesktopLaunchApplicationToolOutput = DesktopLaunchAppData;
@@ -22,16 +25,15 @@ export const desktopLaunchApplicationTool: ToolDefinition<
   riskLevel: "L2",
   inputSchema: {
     type: "object",
-    additionalProperties: false,
-    required: ["name"],
+    additionalProperties: true,
+    required: [],
     properties: {
-      name: {
-        type: "string",
-        minLength: 1,
-        maxLength: 120,
-        description: "应用名（开始菜单显示名，如 微信、Chrome、Visual Studio Code）"
-      }
-    }
+      name: { type: "string", minLength: 1, maxLength: 120, description: "应用名（开始菜单显示名，如 微信、Chrome、Visual Studio Code）" },
+      appName: { type: "string", minLength: 1, maxLength: 120 },
+      app: { type: "string", minLength: 1, maxLength: 120 },
+      query: { type: "string", minLength: 1, maxLength: 120 }
+    },
+    anyOf: [{ required: ["name"] }, { required: ["appName"] }, { required: ["app"] }, { required: ["query"] }]
   },
   outputSchema: {
     type: "object",
@@ -53,7 +55,9 @@ export const desktopLaunchApplicationTool: ToolDefinition<
   maxRetries: 0,
   async execute(input, context) {
     try {
-      return await launchApplication({ name: input.name.trim() }, context.signal);
+      const rawName = (input.name ?? input.appName ?? input.app ?? input.query ?? "").trim();
+      if (!rawName) throw new Error("缺少应用名（name/appName/app/query）");
+      return await launchApplication({ name: rawName }, context.signal);
     } catch (error) {
       throwAsDesktopToolError(error);
     }
