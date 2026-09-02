@@ -431,6 +431,66 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     ]
   },
   {
+    id: "conversation-digest-docx",
+    category: "file",
+    label: "对话一键整理为 Word",
+    summary: "把本轮/刚才的聊天、讨论内容直接整理为带封面与章节的 Word 文档，不依赖网页或本地检索。",
+    userValue: "适合会后纪要、讨论总结、聊天内容沉淀为可打印文档。",
+    exampleRequests: [
+      "把刚才的讨论整理成 Word 报告",
+      "把本次聊天内容汇总成文档"
+    ],
+    requiredToolNames: ["file.createDocx"],
+    optionalToolNames: ["file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "仅整理当前会话上下文，不读取本地敏感文件或网页。",
+      "落盘前需确认文件名与模板，不覆盖已有文件。"
+    ]
+  },
+  {
+    id: "conversation-digest-excel",
+    category: "file",
+    label: "对话/清单一键整理为 Excel",
+    summary: "把对话中的清单、待办或结构化数据直接整理为带样式的 Excel 表格。",
+    userValue: "适合把聊天中的任务、数据、对照表一键导出为表格。",
+    exampleRequests: [
+      "把本次聊天内容汇总成 Excel 表格",
+      "把待办清单整理成 Excel"
+    ],
+    requiredToolNames: ["file.createExcel"],
+    optionalToolNames: ["file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "仅整理当前会话或用户明确给出的清单，不盲搜本地或网页。",
+      "落盘前需确认文件名与模板，不覆盖已有文件。"
+    ]
+  },
+  {
+    id: "health-memory-office-export",
+    category: "file",
+    label: "健康/记忆清单导出为办公文档",
+    summary: "把健康档案或记忆清单（待办/偏好）直接导出为 Word/Excel 办公文档，模板按商务浅色自适应。",
+    userValue: "适合就医携带、备份清单或把待办导出为表格分享。",
+    exampleRequests: [
+      "把健康档案导出成 Word 报告",
+      "把待办清单整理成 Excel"
+    ],
+    requiredToolNames: ["file.createDocx", "file.createExcel"],
+    optionalToolNames: ["file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "仅导出健康档案分区与记忆清单，不含身份证/医保号/住址等永不记录内容。",
+      "落盘前需确认文件名与模板，不覆盖已有文件。"
+    ]
+  },
+  {
     id: "privacy-and-boundary-review",
     category: "agent",
     label: "隐私、安全与扩展边界说明",
