@@ -143,6 +143,36 @@ const FILE_CREATE_DOCX_TOOL_NAMES = [
   "desktop.revealPath"
 ];
 
+const FILE_LOCAL_EXCEL_TOOL_NAMES = [
+  "file.searchText",
+  "file.readText",
+  "file.createExcel",
+  "file.verify",
+  "desktop.revealPath",
+  "browser.search",
+  "browser.extract"
+];
+
+const FILE_LOCAL_PPTX_TOOL_NAMES = [
+  "file.searchText",
+  "file.readText",
+  "file.createPptx",
+  "file.verify",
+  "desktop.revealPath",
+  "browser.search",
+  "browser.extract"
+];
+
+const FILE_LOCAL_DOCX_TOOL_NAMES = [
+  "file.searchText",
+  "file.readText",
+  "file.createDocx",
+  "file.verify",
+  "desktop.revealPath",
+  "browser.search",
+  "browser.extract"
+];
+
 const AGENT_TOOL_NAMES = [
   "agent.inspectCapabilities",
   "agent.inspectSkills"
@@ -215,11 +245,14 @@ const FILE_RECENT_ARTIFACT_PATTERN =
 const FILE_ORGANIZE_PATTERN =
   /(?:整理|归档|分类).{0,12}下载(?:文件夹|目录|文件)?|下载(?:文件夹|目录|文件)?.{0,12}(?:整理|归档|分类)|(?:把|将).{0,12}下载.{0,12}(?:整理|归档|分类)/i;
 const FILE_CREATE_EXCEL_PATTERN =
-  /(?:生成|做成|创建|导出).{0,12}excel|excel.{0,12}(?:生成|做成|创建|导出)|(?:世界游戏玩家|游戏类型趋向).{0,12}excel/i;
+  /(?:生成|做成|创建|导出|整理).{0,16}(?:excel|xlsx|表格|报表)|(?:excel|xlsx|表格|报表).{0,16}(?:生成|做成|创建|导出|整理)/i;
 const FILE_CREATE_PPTX_PATTERN =
-  /(?:生成|做成|创建|导出).{0,12}(?:ppt|pptx|演示文稿|幻灯片|演示稿)|(?:ppt|pptx|演示文稿|幻灯片).{0,12}(?:生成|做成|创建|导出)/i;
+  /(?:生成|做成|创建|导出).{0,16}(?:ppt|pptx|演示文稿|幻灯片|演示稿)|(?:ppt|pptx|演示文稿|幻灯片).{0,16}(?:生成|做成|创建|导出)/i;
 const FILE_CREATE_DOCX_PATTERN =
-  /(?:生成|做成|创建|导出).{0,12}(?:word|docx|文档|报告|方案|合同|说明书)|(?:word|docx|文档|报告).{0,12}(?:生成|做成|创建|导出)/i;
+  /(?:生成|做成|创建|导出).{0,16}(?:word|docx|文档|报告|方案|合同|说明书)|(?:word|docx|文档|报告).{0,16}(?:生成|做成|创建|导出)/i;
+const LOCAL_OFFICE_EXCEL_PATTERN = /(?:excel|xlsx|表格|报表)/i;
+const LOCAL_OFFICE_PPTX_PATTERN = /(?:ppt|pptx|演示文稿|幻灯片|演示稿)/i;
+const LOCAL_OFFICE_DOCX_PATTERN = /(?:word|docx|文档|报告)/i;
 const WEB_TEXT_ARTIFACT_SOURCE_PATTERN =
   /(?:网页|网站|网址|链接|URL|http:\/\/|https:\/\/|搜索结果|检索结果|查到的|搜到的|新闻|报道|来源|官网|页面摘要|网页摘要)/i;
 const EXPLICIT_WEB_SOURCE_PATTERN =
@@ -427,6 +460,17 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
     return createRoute("file", FILE_ORGANIZE_TOOL_NAMES);
   }
 
+  // 本地资料聚合生成办公产物：先于通用办公与纯本地检索，使“把本地销售数据整理成Excel/报表”等可一轮同时搜本地+生成
+  if (isLocalOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
+    return createRoute("file", FILE_LOCAL_EXCEL_TOOL_NAMES);
+  }
+  if (isLocalOfficeIntent(userInput, LOCAL_OFFICE_PPTX_PATTERN)) {
+    return createRoute("file", FILE_LOCAL_PPTX_TOOL_NAMES);
+  }
+  if (isLocalOfficeIntent(userInput, LOCAL_OFFICE_DOCX_PATTERN)) {
+    return createRoute("file", FILE_LOCAL_DOCX_TOOL_NAMES);
+  }
+
   if (FILE_CREATE_EXCEL_PATTERN.test(userInput)) {
     return createRoute("file", FILE_CREATE_EXCEL_TOOL_NAMES);
   }
@@ -495,6 +539,15 @@ function isLocalKnowledgeFileIntent(userInput: string): boolean {
     return false;
   }
   return LOCAL_KNOWLEDGE_ACTION_PATTERN.test(userInput);
+}
+
+function isLocalOfficeIntent(userInput: string, officePattern: RegExp): boolean {
+  const hasLocalHint =
+    LOCAL_KNOWLEDGE_SOURCE_PATTERN.test(userInput) ||
+    /(?:本地|整理|汇总|统计).{0,12}(?:资料|文件|数据|记录)/i.test(userInput);
+  if (!hasLocalHint) return false;
+  if (EXPLICIT_WEB_SOURCE_PATTERN.test(userInput)) return false;
+  return officePattern.test(userInput);
 }
 
 export function doesTurnCapabilityRequireBridge(capability: TurnCapability): boolean {

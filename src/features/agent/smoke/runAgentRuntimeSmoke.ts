@@ -1809,6 +1809,32 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("PPT 路由正确：做成 PPT→file.createPptx + browser.search 同轮可用");
     }
+    // 通用表格/报表口语应同样路由到 Excel
+    const excelTableRoute = resolveTurnCapability("做个销售报表，整理成表格", []);
+    if (excelTableRoute.capability !== "file" || !excelTableRoute.allowedToolNames.includes("file.createExcel")) {
+      failures.push("通用表格/报表口语应路由到 file.createExcel");
+    } else {
+      notes.push("通用表格/报表路由正确：做个销售报表→file.createExcel");
+    }
+    // 本地资料聚合生成办公产物：同轮可用本地检索 + 办公生成 + 浏览器调研兜底
+    const localExcelRoute = resolveTurnCapability("把本地销售数据整理成 Excel 表格", []);
+    if (localExcelRoute.capability !== "file" || !localExcelRoute.allowedToolNames.includes("file.searchText") || !localExcelRoute.allowedToolNames.includes("file.createExcel") || !localExcelRoute.allowedToolNames.includes("browser.search")) {
+      failures.push("本地资料聚合 Excel 应同轮可用 file.searchText/readText + file.createExcel + browser.search");
+    } else {
+      notes.push("本地聚合 Excel 路由正确：本地销售数据→file.searchText/readText + file.createExcel + browser.search 同轮可用");
+    }
+    const localPptxRoute = resolveTurnCapability("把本地资料整理成 PPT 演示文稿", []);
+    if (localPptxRoute.capability !== "file" || !localPptxRoute.allowedToolNames.includes("file.searchText") || !localPptxRoute.allowedToolNames.includes("file.createPptx")) {
+      failures.push("本地资料聚合 PPT 应同轮可用 file.searchText/readText + file.createPptx");
+    } else {
+      notes.push("本地聚合 PPT 路由正确：本地资料→PPT 同轮可用");
+    }
+    const localDocxRoute = resolveTurnCapability("把本地资料整理成 Word 报告文档", []);
+    if (localDocxRoute.capability !== "file" || !localDocxRoute.allowedToolNames.includes("file.searchText") || !localDocxRoute.allowedToolNames.includes("file.createDocx")) {
+      failures.push("本地资料聚合 Word 应同轮可用 file.searchText/readText + file.createDocx");
+    } else {
+      notes.push("本地聚合 Word 路由正确：本地资料→Word 同轮可用");
+    }
   }
 
   // 阶段 AD（43 号总规划）：模型上下文窗口表
