@@ -1053,11 +1053,12 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
      const directDocx = data.playbooks?.find((playbook) => playbook.id === "direct-docx-generate");
     const directExcel = data.playbooks?.find((playbook) => playbook.id === "direct-excel-generate");
     const directPptx = data.playbooks?.find((playbook) => playbook.id === "direct-pptx-generate");
+    const localCodeOffice = data.playbooks?.find((playbook) => playbook.id === "local-code-office");
     const codeCalc = data.playbooks?.find((playbook) => playbook.id === "code-calculation");
     const codeTransform = data.playbooks?.find((playbook) => playbook.id === "code-data-transform");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount !== 29
+      || data.playbookCount !== 30
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1111,6 +1112,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || directExcel.requiresConfirmation !== true
       || !directPptx?.requiredToolNames?.includes("file.createPptx")
       || directPptx.requiresConfirmation !== true
+      || !localCodeOffice?.requiredToolNames?.includes("agent.runCode")
+      || !localCodeOffice.requiredToolNames.includes("file.createExcel")
+      || !localCodeOffice.requiredToolNames.includes("file.searchText")
+      || localCodeOffice.requiresConfirmation !== true
       || !codeCalc?.requiredToolNames?.includes("agent.runCode")
       || codeCalc.requiresConfirmation !== true
       || codeCalc.maxRiskLevel !== "L2"
@@ -1850,6 +1855,18 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       failures.push("本地资料聚合 PPT 应同轮可用 file.searchText/readText + file.createPptx");
     } else {
       notes.push("本地聚合 PPT 路由正确：本地资料→PPT 同轮可用");
+    }
+    const localCodeExcelRoute = resolveTurnCapability("把本地销售数据用 python 分析后生成 Excel 报表", []);
+    if (localCodeExcelRoute.capability !== "file" || !localCodeExcelRoute.allowedToolNames.includes("file.searchText") || !localCodeExcelRoute.allowedToolNames.includes("agent.runCode") || !localCodeExcelRoute.allowedToolNames.includes("file.createExcel")) {
+      failures.push("本地代码分析 Excel 应同轮可用 file.searchText/readText + agent.runCode + file.createExcel");
+    } else {
+      notes.push("本地代码分析 Excel 路由正确：本地数据+python→Excel 同轮可用");
+    }
+    const localCodePptxRoute = resolveTurnCapability("用 JS 统计本地表格并做成 PPT 演示文稿", []);
+    if (localCodePptxRoute.capability !== "file" || !localCodePptxRoute.allowedToolNames.includes("agent.runCode") || !localCodePptxRoute.allowedToolNames.includes("file.createPptx")) {
+      failures.push("本地代码分析 PPT 应同轮可用 agent.runCode + file.createPptx");
+    } else {
+      notes.push("本地代码分析 PPT 路由正确：本地表格+JS→PPT 同轮可用");
     }
     const localDocxRoute = resolveTurnCapability("把本地资料整理成 Word 报告文档", []);
     if (localDocxRoute.capability !== "file" || !localDocxRoute.allowedToolNames.includes("file.searchText") || !localDocxRoute.allowedToolNames.includes("file.createDocx")) {

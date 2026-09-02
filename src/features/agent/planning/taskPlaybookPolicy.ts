@@ -551,6 +551,26 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     ]
   },
   {
+    id: "local-code-office",
+    category: "file",
+    label: "本地数据用代码分析后生成办公文档",
+    summary: "先在本地资料中检索并精读目标数据，再用 JS/Python 沙箱做统计分析，最后渲染为 Excel/PPT/Word 落盘。",
+    userValue: "适合把本地销售表格、CSV 数据用代码统计清洗后生成精美报表或演示稿，无需手动导出中转。",
+    exampleRequests: [
+      "把本地销售数据用 python 分析后生成 Excel 报表",
+      "用 JS 统计本地表格并做成 PPT 演示文稿"
+    ],
+    requiredToolNames: ["file.searchText", "file.readText", "agent.runCode", "file.createExcel"],
+    optionalToolNames: ["file.createPptx", "file.createDocx", "file.verify", "desktop.revealPath", "browser.search", "browser.extract"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "只在允许根内搜索和读取；敏感凭据路径读取会动态升为 L2 确认。",
+      "沙箱内无文件/网络权限，计算超时与输出均有上限；落盘前需确认文件名与模板。"
+    ]
+  },
+  {
     id: "clipboard-table-to-office",
     category: "clipboard",
     label: "剪贴板表格整理为办公文档",

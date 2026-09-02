@@ -173,6 +173,39 @@ const FILE_LOCAL_DOCX_TOOL_NAMES = [
   "browser.extract"
 ];
 
+const FILE_LOCAL_CODE_EXCEL_TOOL_NAMES = [
+  "file.searchText",
+  "file.readText",
+  "agent.runCode",
+  "file.createExcel",
+  "file.verify",
+  "desktop.revealPath",
+  "browser.search",
+  "browser.extract"
+];
+
+const FILE_LOCAL_CODE_PPTX_TOOL_NAMES = [
+  "file.searchText",
+  "file.readText",
+  "agent.runCode",
+  "file.createPptx",
+  "file.verify",
+  "desktop.revealPath",
+  "browser.search",
+  "browser.extract"
+];
+
+const FILE_LOCAL_CODE_DOCX_TOOL_NAMES = [
+  "file.searchText",
+  "file.readText",
+  "agent.runCode",
+  "file.createDocx",
+  "file.verify",
+  "desktop.revealPath",
+  "browser.search",
+  "browser.extract"
+];
+
 const CONVERSATION_EXCEL_TOOL_NAMES = [
   "file.createExcel",
   "file.verify",
@@ -446,6 +479,17 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
     return createRoute("agent", AGENT_PRIVACY_BOUNDARY_TOOL_NAMES);
   }
 
+  // 本地数据用代码分析后生成办公：本地+计算+办公三合一（优先于纯代码/纯办公）
+  if (isLocalCodeOfficeIntent(userInput, LOCAL_OFFICE_PPTX_PATTERN)) {
+    return createRoute("file", FILE_LOCAL_CODE_PPTX_TOOL_NAMES);
+  }
+  if (isLocalCodeOfficeIntent(userInput, LOCAL_OFFICE_DOCX_PATTERN)) {
+    return createRoute("file", FILE_LOCAL_CODE_DOCX_TOOL_NAMES);
+  }
+  if (isLocalCodeOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
+    return createRoute("file", FILE_LOCAL_CODE_EXCEL_TOOL_NAMES);
+  }
+
   // 代码结果一键落盘为办公文档：算完直接生成表格/报告/演示
   if (isCodeOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
     return createRoute("file", CODE_OFFICE_EXCEL_TOOL_NAMES);
@@ -692,6 +736,7 @@ function isCodeOfficeIntent(userInput: string, officePattern: RegExp): boolean {
   const hasCodeHint = /(?:js|javascript|python|代码|沙箱|计算|统计|平均值|求和|清洗|转换)/i.test(userInput);
   const hasOfficeAction = /(?:生成|做成|导出|整理|转换|做一下|做个)/i.test(userInput);
   if (!hasCodeHint || !hasOfficeAction) return false;
+  if (LOCAL_KNOWLEDGE_SOURCE_PATTERN.test(userInput) || /(?:本地).{0,12}(?:资料|文件|数据|记录|表格)/i.test(userInput)) return false;
   return officePattern.test(userInput);
 }
 
@@ -708,6 +753,16 @@ function isDirectOfficeIntent(userInput: string, officePattern: RegExp): boolean
   if (/(?:js|javascript|python|代码|沙箱|平均值|求和)/i.test(userInput) && /(?:计算|统计|清洗|转换)/i.test(userInput)) return false;
   if (isResearchIntent(userInput)) return false;
   return FILE_CREATE_EXCEL_PATTERN.test(userInput) || FILE_CREATE_PPTX_PATTERN.test(userInput) || FILE_CREATE_DOCX_PATTERN.test(userInput);
+}
+
+function isLocalCodeOfficeIntent(userInput: string, officePattern: RegExp): boolean {
+  const hasLocal = LOCAL_KNOWLEDGE_SOURCE_PATTERN.test(userInput) || /(?:本地|整理|汇总|统计).{0,12}(?:资料|文件|数据|记录|表格)/i.test(userInput);
+  const hasCode = /(?:js|javascript|python|代码|沙箱|计算|统计|平均值|求和|清洗|转换|分析)/i.test(userInput);
+  const hasOfficeAction = /(?:生成|做成|导出|整理|做一下|做个)/i.test(userInput);
+  if (!hasLocal || !hasCode || !hasOfficeAction) return false;
+  if (EXPLICIT_WEB_SOURCE_PATTERN.test(userInput)) return false;
+  if (/(?:剪贴板|粘贴板)/i.test(userInput)) return false;
+  return officePattern.test(userInput);
 }
 
 export function doesTurnCapabilityRequireBridge(capability: TurnCapability): boolean {
