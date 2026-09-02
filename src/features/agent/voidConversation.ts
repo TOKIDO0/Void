@@ -35,6 +35,7 @@ import {
   saveConversationWorkingSummary
 } from "./context/conversationCompactor";
 import { estimateTokens, planTokenBudget } from "./context/tokenBudget";
+import { resolveCodingPosture } from "./context/codingPosture";
 
 // 阶段 AD：上下文感知——每会话最多提醒一次，避免复读
 let contextHintReminded = false;
@@ -477,6 +478,15 @@ function buildSystemPrompt(
   if (memoryContext && memoryContext.trim()) {
     sections.push(memoryContext.trim());
   }
+
+  // 阶段 AD+ 姿态路由：Hermes coding_context 轻量移植，会话内冻结，零副作用
+  try {
+    const posture = resolveCodingPosture();
+    if (posture.isCoding && posture.workspaceBlock && posture.guidance) {
+      sections.push(posture.workspaceBlock);
+      sections.push(posture.guidance);
+    }
+  } catch {}
 
   if (modelConfig.thinkingModeEnabled) {
     sections.push(THINKING_MODE_SYSTEM_SUFFIX);
