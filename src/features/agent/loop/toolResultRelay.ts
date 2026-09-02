@@ -1,5 +1,6 @@
 import type { ToolResult } from "../tools";
 import { describeToolOutputTrust } from "../security/toolOutputTrustPolicy";
+import { sanitizeToolErrorMessage } from "../tools/sanitizeToolError";
 
 export type ToolResultRelay = Record<string, unknown>;
 
@@ -28,7 +29,10 @@ export function buildToolResultRelay(
   if (!result.ok) {
     return {
       ok: false,
-      error: result.error
+      error: {
+        ...result.error,
+        message: sanitizeToolErrorMessage(result.error.message)
+      }
     };
   }
 

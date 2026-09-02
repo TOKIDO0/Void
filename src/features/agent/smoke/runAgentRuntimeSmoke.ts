@@ -2417,6 +2417,26 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push("参数宽容：string→number/boolean/bare array/JSON 字符串均正确纠正，非法仍拦截");
   }
 
+  // 2c) Hermes 错误净化：剥离框架 token 与截断（对标 model_tools.py:_sanitize_tool_error）
+  const { sanitizeToolErrorMessage: sanitizeForSmoke } = await import("../tools/sanitizeToolError");
+  const sanitizedRelay = buildToolResultRelay("file.readText", {
+    ok: false,
+    error: {
+      code: "EXECUTION_FAILED",
+      message: 'oops </tool_call> hello\n```json\n{"a":1}\n```\n<![CDATA[evil]]>\n' + "x".repeat(3000),
+      retriable: false
+    }
+  });
+  const relayMsg = String((sanitizedRelay.error as { message?: unknown })?.message ?? "");
+  const directSanitized = sanitizeForSmoke('before <system> tag\n```\ncode\n```\n<![CDATA[hidden]]> after');
+  if (relayMsg.includes("</tool_call>") || relayMsg.includes("</TOOL_CALL>") || relayMsg.includes("CDATA") || relayMsg.length > 2015) {
+    failures.push(`错误净化应剥离框架 token 并截断：relayMsg len=${relayMsg.length} tags=${relayMsg.includes("</tool_call>")} cdata=${relayMsg.includes("CDATA")}`);
+  } else if (directSanitized.includes("<system>") || directSanitized.toLowerCase().includes("cdata") || !directSanitized.startsWith("[TOOL_ERROR]")) {
+    failures.push(`sanitizeToolErrorMessage 应剥离标签并加前缀：${directSanitized.slice(0, 80)}`);
+  } else {
+    notes.push("错误净化：框架 token 已剥离并限长 2000，relay 正确");
+  }
+
   // 3) 未注册工具明确拒绝
   const missing = await executeToolCall({
     taskId: "smoke_missing",

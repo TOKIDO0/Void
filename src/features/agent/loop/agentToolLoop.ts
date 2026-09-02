@@ -48,6 +48,7 @@ import {
   formatToolProgressMessage
 } from "./toolProgressCopy";
 import { buildToolResultRelay } from "./toolResultRelay";
+import { sanitizeToolErrorMessage } from "../tools/sanitizeToolError";
 import {
   formatBehaviorToolRefusal,
   isBehaviorToolGateBlocked,
@@ -815,7 +816,7 @@ function buildToolFailureRelay(error: {
   const details = error.details ?? {};
   const relay: Record<string, unknown> = {
     code: error.code,
-    message: error.message
+    message: sanitizeToolErrorMessage(error.message).replace(/^\[TOOL_ERROR\] /, "")
   };
 
   if (details.bridgeUnreachable === true) {
@@ -912,7 +913,7 @@ function injectTaskId(input: unknown, taskId: string): unknown {
 function serializeToolFailure(message: string, code: string) {
   return JSON.stringify({
     ok: false,
-    error: { code, message }
+    error: { code, message: sanitizeToolErrorMessage(message).replace(/^\[TOOL_ERROR\] /, "") }
   });
 }
 
