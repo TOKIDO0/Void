@@ -15,11 +15,20 @@ export function isSemanticSearchEnabled(): boolean {
   }
 }
 
-/** 写入开关。写盘失败静默吞掉，不影响主流程。 */
+/** 开关变更广播：设置面/记忆面板双向显性化回显。 */
+export const SEMANTIC_SEARCH_CHANGED_EVENT = "void:memory-semantic-changed";
+
+/** 写入开关。写盘失败静默吞掉，不影响主流程；成功后广播变更供双面板回显。 */
 export function setSemanticSearchEnabled(enabled: boolean): void {
   try {
     window.localStorage.setItem(SEMANTIC_SEARCH_ENABLED_KEY, enabled ? "true" : "false");
   } catch {
     // localStorage 不可用时忽略：下次读取回落默认关闭。
+    return;
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(SEMANTIC_SEARCH_CHANGED_EVENT, { detail: enabled }));
+  } catch {
+    // 事件派发失败不影响持久化本身。
   }
 }

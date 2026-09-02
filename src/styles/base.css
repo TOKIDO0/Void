@@ -816,6 +816,40 @@ body {
   background: rgba(69, 10, 10, 0.28);
 }
 
+.memory-manager__semantic-card {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  padding: 12px 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.memory-manager__semantic-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.memory-manager__semantic-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.memory-manager__semantic-text strong {
+  color: rgba(244, 244, 245, 0.95);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.memory-manager__semantic-text small {
+  color: rgba(161, 161, 170, 0.95);
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 500;
+}
+
 .model-settings-modal__content,
 .memory-manager__content {
   flex: 1 1 auto;

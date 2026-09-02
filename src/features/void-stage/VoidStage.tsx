@@ -1553,6 +1553,37 @@ export function VoidStage() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  // 语义检索空闲预热：仅当开关已开时，空闲时静默触发 bridge 模型加载（关时零成本，不发请求）。
+  // 首轮若模型仍在加载，retrieveMemoriesAsync 已会降级全文，此处仅做预热以让下一轮命中。
+  useEffect(() => {
+    let cancelIdleWarmup: (() => void) | null = null;
+    let cancelled = false;
+    const run = async () => {
+      if (cancelled) return;
+      const { isSemanticSearchEnabled } = await import("../memory/memorySemanticConfig");
+      if (!isSemanticSearchEnabled()) return;
+      const { scheduleIdleSemanticWarmup } = await import("../memory/memorySemanticWarmup");
+      cancelIdleWarmup = scheduleIdleSemanticWarmup();
+    };
+    // 同步：switch 关→开的广播也会触发面板级即时 warmup，这里做应用级兜底。
+    const timer = window.setTimeout(() => void run(), 1400);
+    const handleSemanticChanged = async () => {
+      if (cancelled) return;
+      const { isSemanticSearchEnabled } = await import("../memory/memorySemanticConfig");
+      if (!isSemanticSearchEnabled()) return;
+      const { scheduleIdleSemanticWarmup } = await import("../memory/memorySemanticWarmup");
+      if (cancelIdleWarmup) cancelIdleWarmup();
+      cancelIdleWarmup = scheduleIdleSemanticWarmup();
+    };
+    window.addEventListener("void:memory-semantic-changed", handleSemanticChanged as EventListener);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("void:memory-semantic-changed", handleSemanticChanged as EventListener);
+      if (cancelIdleWarmup) cancelIdleWarmup();
+    };
+  }, []);
+
   return (
     <main className="void-stage">
       <Suspense fallback={<div className="blob-scene" aria-hidden="true" style={{ background: "#000" }} />}>

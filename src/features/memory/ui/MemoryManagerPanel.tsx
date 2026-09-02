@@ -18,6 +18,12 @@ import {
   formatMemoryTimestamp,
   getMemoryManagerCopy
 } from "./memoryManagerI18n";
+import {
+  isSemanticSearchEnabled,
+  setSemanticSearchEnabled,
+  SEMANTIC_SEARCH_CHANGED_EVENT
+} from "../memorySemanticConfig";
+import { scheduleIdleSemanticWarmup, warmupSemanticEmbedIfEnabled } from "../memorySemanticWarmup";
 
 interface MemoryManagerPanelProps {
   isOpen: boolean;
@@ -38,6 +44,8 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
   const [selectedCategory, setSelectedCategory] = useState<CategoryId>(ALL_CATEGORY);
   const [searchQuery, setSearchQuery] = useState("");
   const [confirmState, setConfirmState] = useState<ConfirmState>({ kind: "none" });
+  const [semanticEnabled, setSemanticEnabled] = useState(() => isSemanticSearchEnabled());
+  const [semanticWarming, setSemanticWarming] = useState(false);
 
   const copy = getMemoryManagerCopy(language);
 
@@ -55,8 +63,20 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
     setSelectedCategory(ALL_CATEGORY);
     setSearchQuery("");
     setConfirmState({ kind: "none" });
+    setSemanticEnabled(isSemanticSearchEnabled());
+    setSemanticWarming(false);
     refresh();
   }, [isOpen, refresh]);
+
+  // 设置面/记忆面板双向回显：任一处切换开关后，另一处即时同步展示态。
+  useEffect(() => {
+    const handleSemanticChanged = (event: Event) => {
+      const detail = (event as CustomEvent<boolean>).detail;
+      setSemanticEnabled(typeof detail === "boolean" ? detail : isSemanticSearchEnabled());
+    };
+    window.addEventListener(SEMANTIC_SEARCH_CHANGED_EVENT, handleSemanticChanged as EventListener);
+    return () => window.removeEventListener(SEMANTIC_SEARCH_CHANGED_EVENT, handleSemanticChanged as EventListener);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -152,6 +172,22 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
     refresh();
   }, [confirmState, refresh]);
 
+  const handleSemanticToggle = useCallback(
+    (nextEnabled: boolean) => {
+      setSemanticEnabled(nextEnabled);
+      setSemanticSearchEnabled(nextEnabled);
+      if (nextEnabled) {
+        setSemanticWarming(true);
+        // 即时触发 + 空闲兜底：保证即刻可见预热态，空闲再补一次也不重发（模块级去重）。
+        void warmupSemanticEmbedIfEnabled().finally(() => setSemanticWarming(false));
+        scheduleIdleSemanticWarmup();
+      } else {
+        setSemanticWarming(false);
+      }
+    },
+    []
+  );
+
   if (!isOpen) {
     return null;
   }
@@ -245,6 +281,35 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="memory-manager__semantic-card" aria-label={language === "zh-CN" ? "本地语义检索" : "Local semantic search"}>
+              <label className="memory-manager__semantic-toggle">
+                <span className="memory-manager__semantic-text">
+                  <strong>{language === "zh-CN" ? "本地语义检索" : "Local semantic search"}</strong>
+                  <small>
+                    {language === "zh-CN"
+                      ? semanticEnabled
+                        ? semanticWarming
+                          ? "模型预热中 · 本轮降级全文，下一轮生效"
+                          : "已开启 · 空闲后台已预热，同义召回更准"
+                        : "已关闭 · 零成本，不加载模型"
+                      : semanticEnabled
+                        ? semanticWarming
+                          ? "Warming up · falls back to full-text this turn"
+                          : "On · warmed up in idle, better recall"
+                        : "Off · zero cost, no model loaded"}
+                  </small>
+                </span>
+                <span className="model-settings-modal__switch">
+                  <input
+                    type="checkbox"
+                    checked={semanticEnabled}
+                    onChange={(event) => handleSemanticToggle(event.target.checked)}
+                  />
+                  <span className="model-settings-modal__switch-slider" />
+                </span>
+              </label>
             </div>
 
             {hasAnyEntries ? (

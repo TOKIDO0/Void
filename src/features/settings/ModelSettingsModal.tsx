@@ -320,6 +320,12 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
       doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId
     });
     setSemanticSearchEnabled(semanticSearchDraft);
+    if (semanticSearchDraft) {
+      void import("../memory/memorySemanticWarmup").then(({ scheduleIdleSemanticWarmup, warmupSemanticEmbedIfEnabled }) => {
+        void warmupSemanticEmbedIfEnabled();
+        scheduleIdleSemanticWarmup();
+      });
+    }
     setIsDirty(false);
     onClose();
   };
