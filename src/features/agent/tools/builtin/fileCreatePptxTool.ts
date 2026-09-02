@@ -1,6 +1,7 @@
 import { createPptx } from "../../file/fileBridgeClient";
 import type { FileCreatePptxData } from "../../file/fileBridgeTypes";
 import { FILE_STATIC_RESOURCES, throwAsFileToolError } from "../../file/fileToolShared";
+import { resolveOfficeTemplatePreferenceFromMemory } from "../../file/officeTemplatePreference";
 import type { ToolDefinition } from "../toolTypes";
 
 export type FileCreatePptxToolInput = {
@@ -77,7 +78,8 @@ export const fileCreatePptxTool: ToolDefinition<FileCreatePptxToolInput, FileCre
   maxRetries: 0,
   async execute(input, context) {
     try {
-      return await createPptx({ fileName: input.fileName.trim(), title: input.title, slides: input.slides, templateId: input.templateId }, context.signal);
+      const resolvedTemplateId = input.templateId ?? resolveOfficeTemplatePreferenceFromMemory(input.title ?? input.slides[0]?.title);
+      return await createPptx({ fileName: input.fileName.trim(), title: input.title, slides: input.slides, templateId: resolvedTemplateId }, context.signal);
     } catch (error) {
       throwAsFileToolError(error);
     }

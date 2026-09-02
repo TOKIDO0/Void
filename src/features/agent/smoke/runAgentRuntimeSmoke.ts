@@ -1835,6 +1835,19 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("本地聚合 Word 路由正确：本地资料→Word 同轮可用");
     }
+    // 办公模板偏好：记忆 preference → 模板自适应（深/浅/活力），无偏好时按 hint 游戏→vivid 兜底
+    const { resolveOfficeTemplateFromText } = await import("../file/officeTemplatePreference");
+    const prefDark = resolveOfficeTemplateFromText("我喜欢深色主题", "");
+    const prefLight = resolveOfficeTemplateFromText("偏好浅色亮色", "");
+    const prefVivid = resolveOfficeTemplateFromText("喜欢活力鲜艳", "");
+    const hintVivid = resolveOfficeTemplateFromText("", "游戏趋向分析");
+    const hintNone = resolveOfficeTemplateFromText("", "普通商务报告");
+    const prefOverridesHint = resolveOfficeTemplateFromText("深色", "游戏大作");
+    if (prefDark !== "void-dark" || prefLight !== "void-light" || prefVivid !== "void-vivid" || hintVivid !== "void-vivid" || hintNone !== undefined || prefOverridesHint !== "void-dark") {
+      failures.push("办公模板偏好解析错误：深/浅/活力与 hint 兜底及偏好优先应正确");
+    } else {
+      notes.push("办公模板偏好正确：深→void-dark、浅→void-light、活力→void-vivid、游戏 hint→vivid、偏好优先于 hint");
+    }
   }
 
   // 阶段 AD（43 号总规划）：模型上下文窗口表

@@ -1,6 +1,7 @@
 import { createExcel } from "../../file/fileBridgeClient";
 import type { FileCreateExcelData } from "../../file/fileBridgeTypes";
 import { FILE_STATIC_RESOURCES, throwAsFileToolError } from "../../file/fileToolShared";
+import { resolveOfficeTemplatePreferenceFromMemory } from "../../file/officeTemplatePreference";
 import type { ToolDefinition } from "../toolTypes";
 
 export type FileCreateExcelToolInput = {
@@ -76,7 +77,8 @@ export const fileCreateExcelTool: ToolDefinition<FileCreateExcelToolInput, FileC
   maxRetries: 0,
   async execute(input, context) {
     try {
-      return await createExcel({ fileName: input.fileName.trim(), sheets: input.sheets, templateId: input.templateId, title: input.title }, context.signal);
+      const resolvedTemplateId = input.templateId ?? resolveOfficeTemplatePreferenceFromMemory(input.title ?? input.sheets[0]?.name);
+      return await createExcel({ fileName: input.fileName.trim(), sheets: input.sheets, templateId: resolvedTemplateId, title: input.title }, context.signal);
     } catch (error) {
       throwAsFileToolError(error);
     }

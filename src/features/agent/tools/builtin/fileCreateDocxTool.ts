@@ -1,6 +1,7 @@
 import { createDocx } from "../../file/fileBridgeClient";
 import type { FileCreateDocxData } from "../../file/fileBridgeTypes";
 import { FILE_STATIC_RESOURCES, throwAsFileToolError } from "../../file/fileToolShared";
+import { resolveOfficeTemplatePreferenceFromMemory } from "../../file/officeTemplatePreference";
 import type { ToolDefinition } from "../toolTypes";
 
 export type FileCreateDocxToolInput = {
@@ -78,8 +79,9 @@ export const fileCreateDocxTool: ToolDefinition<FileCreateDocxToolInput, FileCre
   maxRetries: 0,
   async execute(input, context) {
     try {
+      const resolvedTemplateId = input.templateId ?? resolveOfficeTemplatePreferenceFromMemory(input.title ?? input.sections[0]?.heading);
       return await createDocx(
-        { fileName: input.fileName.trim(), title: input.title, subtitle: input.subtitle, sections: input.sections, templateId: input.templateId },
+        { fileName: input.fileName.trim(), title: input.title, subtitle: input.subtitle, sections: input.sections, templateId: resolvedTemplateId },
         context.signal
       );
     } catch (error) {
