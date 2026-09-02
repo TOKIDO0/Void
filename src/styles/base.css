@@ -2822,7 +2822,89 @@ body {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .security-status__overall-time {
-    margin-left: 0;
+.security-status__overall-time {
+  margin-left: 0;
   }
+}
+
+/* 上下文预算条（只读，不改截断） */
+.context-budget-bar {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.context-budget-bar.is-compact {
+  margin-bottom: 8px;
+  padding: 7px 9px;
+}
+
+.context-budget-bar__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.context-budget-bar__label {
+  color: rgba(161, 161, 170, 0.95);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.context-budget-bar__value {
+  color: rgba(244, 244, 245, 0.95);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 600;
+}
+
+.context-budget-bar__tip {
+  margin-left: auto;
+  color: rgba(161, 161, 170, 0.9);
+  font-size: 10px;
+}
+
+.context-budget-bar__tip.is-warn {
+  color: rgba(251, 191, 36, 0.95);
+}
+
+.context-budget-bar__tip.is-danger {
+  color: rgba(248, 113, 113, 0.95);
+}
+
+.context-budget-bar__track {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.context-budget-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(244, 244, 245, 0.9);
+  transition: width 0.3s ease;
+}
+
+.context-budget-bar__fill.is-warn {
+  background: rgba(251, 191, 36, 0.95);
+}
+
+.context-budget-bar__fill.is-danger {
+  background: rgba(248, 113, 113, 0.95);
+}
+
+.context-budget-bar__threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.35);
 }

@@ -5,6 +5,7 @@ import { Icon } from "@iconify/react";
 import type { VoidConversationMessage } from "../agent/voidConversation";
 import { stripStageDirections } from "../agent/responseTextDisplay";
 import { ExpandedDialogueLine } from "./ExpandedDialogueLine";
+import { ContextBudgetBar } from "../agent/context/ContextBudgetBar";
 
 gsap.registerPlugin(useGSAP);
 
@@ -254,6 +255,7 @@ export function ExpandedResponseOverlay({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="expanded-response-overlay__mark">Session</div>
+        <ContextBudgetBar messages={messages} />
         <div
           ref={messagesRef}
           className="expanded-response-overlay__messages"

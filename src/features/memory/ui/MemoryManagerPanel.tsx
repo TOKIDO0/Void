@@ -24,6 +24,7 @@ import {
   SEMANTIC_SEARCH_CHANGED_EVENT
 } from "../memorySemanticConfig";
 import { scheduleIdleSemanticWarmup, warmupSemanticEmbedIfEnabled } from "../memorySemanticWarmup";
+import { ContextBudgetBar } from "../../agent/context/ContextBudgetBar";
 
 interface MemoryManagerPanelProps {
   isOpen: boolean;
@@ -324,6 +325,7 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
           </aside>
 
           <div className="memory-manager__content">
+            <ContextBudgetBar compact />
             <div className="memory-manager__list-header">
               <div className="memory-manager__list-heading">
                 <h3 className="memory-manager__list-title">{activeSectionLabel}</h3>
