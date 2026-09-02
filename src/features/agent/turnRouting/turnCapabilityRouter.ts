@@ -191,6 +191,27 @@ const CONVERSATION_DOCX_TOOL_NAMES = [
   "desktop.revealPath"
 ];
 
+const CLIPBOARD_EXCEL_TOOL_NAMES = [
+  "clipboard.read",
+  "file.createExcel",
+  "file.verify",
+  "desktop.revealPath"
+];
+
+const CLIPBOARD_PPTX_TOOL_NAMES = [
+  "clipboard.read",
+  "file.createPptx",
+  "file.verify",
+  "desktop.revealPath"
+];
+
+const CLIPBOARD_DOCX_TOOL_NAMES = [
+  "clipboard.read",
+  "file.createDocx",
+  "file.verify",
+  "desktop.revealPath"
+];
+
 const AGENT_TOOL_NAMES = [
   "agent.inspectCapabilities",
   "agent.inspectSkills"
@@ -443,6 +464,17 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
     return createRoute("browser", CLIPBOARD_DOWNLOAD_TOOL_NAMES);
   }
 
+  // 剪贴板表格/内容一键整理为办公文档：复制后直接整理成 Excel/PPT/Word
+  if (isClipboardOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
+    return createRoute("file", CLIPBOARD_EXCEL_TOOL_NAMES);
+  }
+  if (isClipboardOfficeIntent(userInput, LOCAL_OFFICE_PPTX_PATTERN)) {
+    return createRoute("file", CLIPBOARD_PPTX_TOOL_NAMES);
+  }
+  if (isClipboardOfficeIntent(userInput, LOCAL_OFFICE_DOCX_PATTERN)) {
+    return createRoute("file", CLIPBOARD_DOCX_TOOL_NAMES);
+  }
+
   if (CLIPBOARD_PATTERN.test(userInput)) {
     // 「读取剪贴板并下载」等：CLIPBOARD 命中但含下载意图 → 升级为剪贴板+下载工具组
     if (ACTIVE_DOWNLOAD_INTENT_PATTERN.test(userInput)) {
@@ -603,6 +635,13 @@ function isHealthMemoryOfficeIntent(userInput: string, officePattern: RegExp): b
   const hasDigest = /(?:导出|生成|整理|做成|汇总|总结)/i.test(userInput);
   if (!hasHealthOrMemory || !hasDigest) return false;
   if (EXPLICIT_WEB_SOURCE_PATTERN.test(userInput)) return false;
+  return officePattern.test(userInput);
+}
+
+function isClipboardOfficeIntent(userInput: string, officePattern: RegExp): boolean {
+  const hasClipboard = /(?:剪贴板|粘贴板)/i.test(userInput);
+  const hasAction = /(?:整理|生成|做成|转换|导出|汇总|做一下|做个)/i.test(userInput);
+  if (!hasClipboard || !hasAction) return false;
   return officePattern.test(userInput);
 }
 

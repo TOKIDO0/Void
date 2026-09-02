@@ -1054,7 +1054,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const codeTransform = data.playbooks?.find((playbook) => playbook.id === "code-data-transform");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount !== 24
+      || data.playbookCount !== 25
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1096,6 +1096,8 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || excelResearch.requiresConfirmation !== true
       || excelResearch.maxRiskLevel !== "L2"
       || !data.playbooks?.find((p) => p.id === "ppt-research-generate")?.requiredToolNames?.includes("file.createPptx")
+      || !data.playbooks?.find((p) => p.id === "clipboard-table-to-office")?.requiredToolNames?.includes("clipboard.read")
+      || !data.playbooks?.find((p) => p.id === "clipboard-table-to-office")?.requiredToolNames?.includes("file.createExcel")
       || !codeCalc?.requiredToolNames?.includes("agent.runCode")
       || codeCalc.requiresConfirmation !== true
       || codeCalc.maxRiskLevel !== "L2"
@@ -1872,6 +1874,24 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       failures.push("待办清单导出 Excel 应直达 file.createExcel");
     } else {
       notes.push("记忆清单导出 Excel 路由正确：待办清单→file.createExcel 直达");
+    }
+    const clipboardExcelRoute = resolveTurnCapability("把剪贴板里的表格整理成 Excel", []);
+    if (clipboardExcelRoute.capability !== "file" || !clipboardExcelRoute.allowedToolNames.includes("clipboard.read") || !clipboardExcelRoute.allowedToolNames.includes("file.createExcel")) {
+      failures.push("剪贴板表格整理 Excel 应为 file 能力且同轮可用 clipboard.read + file.createExcel");
+    } else {
+      notes.push("剪贴板表格整理路由正确：剪贴板表格→clipboard.read + file.createExcel 同轮可用");
+    }
+    const clipboardDocxRoute = resolveTurnCapability("把剪贴板内容做成 Word 报告", []);
+    if (clipboardDocxRoute.capability !== "file" || !clipboardDocxRoute.allowedToolNames.includes("clipboard.read") || !clipboardDocxRoute.allowedToolNames.includes("file.createDocx")) {
+      failures.push("剪贴板内容整理 Word 应为 file 能力且同轮可用 clipboard.read + file.createDocx");
+    } else {
+      notes.push("剪贴板 Word 整理路由正确：剪贴板→clipboard.read + file.createDocx 同轮可用");
+    }
+    const clipboardNegative = resolveTurnCapability("查看剪贴板里有什么", []);
+    if (clipboardNegative.capability !== "clipboard" || clipboardNegative.allowedToolNames.includes("file.createExcel")) {
+      failures.push("纯剪贴板查看不应误触发办公生成，应保持 clipboard 能力");
+    } else {
+      notes.push("剪贴板查看负例正确：查看剪贴板不进办公生成");
     }
     const codeCalcRoute = resolveTurnCapability("帮我用 JS 算一下这组数据的平均值", []);
     if (codeCalcRoute.capability !== "agent" || !codeCalcRoute.allowedToolNames.includes("agent.runCode")) {

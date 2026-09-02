@@ -98,7 +98,7 @@ export const agentInspectTaskPlaybooksTool: ToolDefinition<
       availablePlaybookCount: { type: "number", minimum: 0 },
       playbooks: {
         type: "array",
-        maxItems: 24,
+        maxItems: 32,
         items: {
           type: "object",
           additionalProperties: false,
