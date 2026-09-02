@@ -1912,6 +1912,12 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("代码结果直达办公路由正确：JS 计算+Excel 同轮可用");
     }
+    const codeOfficePptxRoute = resolveTurnCapability("用 JS 统计后做成 PPT 演示文稿", []);
+    if (codeOfficePptxRoute.capability !== "file" || !codeOfficePptxRoute.allowedToolNames.includes("agent.runCode") || !codeOfficePptxRoute.allowedToolNames.includes("file.createPptx")) {
+      failures.push("代码计算+PPT生成应为 file 能力且同轮可用 agent.runCode + file.createPptx");
+    } else {
+      notes.push("代码结果直达 PPT 路由正确：JS 统计+PPT 同轮可用");
+    }
     const codePureRoute = resolveTurnCapability("帮我用 JS 算一下平均值", []);
     if (codePureRoute.capability !== "agent" || !codePureRoute.allowedToolNames.includes("agent.runCode") || codePureRoute.allowedToolNames.includes("file.createExcel")) {
       failures.push("纯代码计算应保持 agent 能力，不暴露办公生成");

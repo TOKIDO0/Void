@@ -541,7 +541,7 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
       "用 python 清洗这段 CSV 并导出成表格"
     ],
     requiredToolNames: ["agent.runCode", "file.createExcel"],
-    optionalToolNames: ["file.createDocx", "file.verify", "desktop.revealPath"],
+    optionalToolNames: ["file.createDocx", "file.createPptx", "file.verify", "desktop.revealPath"],
     expectedMaxRiskLevel: "L2",
     requiresBridge: true,
     requiresConfirmation: true,

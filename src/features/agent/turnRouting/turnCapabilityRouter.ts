@@ -226,6 +226,13 @@ const CODE_OFFICE_DOCX_TOOL_NAMES = [
   "desktop.revealPath"
 ];
 
+const CODE_OFFICE_PPTX_TOOL_NAMES = [
+  "agent.runCode",
+  "file.createPptx",
+  "file.verify",
+  "desktop.revealPath"
+];
+
 const AGENT_TOOL_NAMES = [
   "agent.inspectCapabilities",
   "agent.inspectSkills"
@@ -439,9 +446,12 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
     return createRoute("agent", AGENT_PRIVACY_BOUNDARY_TOOL_NAMES);
   }
 
-  // 代码结果一键落盘为办公文档：算完直接生成表格/报告
+  // 代码结果一键落盘为办公文档：算完直接生成表格/报告/演示
   if (isCodeOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
     return createRoute("file", CODE_OFFICE_EXCEL_TOOL_NAMES);
+  }
+  if (isCodeOfficeIntent(userInput, LOCAL_OFFICE_PPTX_PATTERN)) {
+    return createRoute("file", CODE_OFFICE_PPTX_TOOL_NAMES);
   }
   if (isCodeOfficeIntent(userInput, LOCAL_OFFICE_DOCX_PATTERN)) {
     return createRoute("file", CODE_OFFICE_DOCX_TOOL_NAMES);
