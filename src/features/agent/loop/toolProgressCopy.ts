@@ -29,6 +29,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "desktop.focusWindow": "正在切换窗口…",
   "desktop.closeWindow": "正在关闭窗口…",
   "desktop.getSystemInfo": "正在获取系统信息…",
+  "desktop.screenshot": "正在截取桌面…",
   "file.downloadToTemp": "正在下载到临时目录…",
   "file.downloadMedia": "正在下载媒体…",
   "file.downloadMediaPage": "正在从媒体页下载视频…",

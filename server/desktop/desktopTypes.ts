@@ -89,6 +89,13 @@ export type DesktopSystemInfoData = {
   collectedAt: number;
 };
 
+export type DesktopScreenshotData = {
+  path: string;
+  width: number;
+  height: number;
+  capturedAt: number;
+};
+
 export type DesktopApiErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"

@@ -89,6 +89,7 @@ const DESKTOP_WINDOW_LIST_TOOL_NAMES = ["desktop.listWindows"];
 const DESKTOP_FOCUS_WINDOW_TOOL_NAMES = ["desktop.listWindows", "desktop.focusWindow"];
 const DESKTOP_CLOSE_WINDOW_TOOL_NAMES = ["desktop.listWindows", "desktop.closeWindow"];
 const DESKTOP_SYSTEM_INFO_TOOL_NAMES = ["desktop.getSystemInfo"];
+const DESKTOP_SCREENSHOT_TOOL_NAMES = ["desktop.screenshot"];
 
 const CLIPBOARD_TOOL_NAMES = [
   "clipboard.read",
@@ -347,6 +348,7 @@ const DESKTOP_WINDOW_LIST_PATTERN = /(?:(?:查看|列出|显示|看看).{0,12}(?
 const DESKTOP_FOCUS_WINDOW_PATTERN = /(?:(?:切换|切到|聚焦|转到|激活|切回).{0,10}(?:窗口|应用|软件|微信|浏览器|VS\s*Code|Code))/i;
 const DESKTOP_CLOSE_WINDOW_PATTERN = /(?:(?:关闭|关掉|结束|退出).{0,10}(?:窗口|应用|软件|微信|浏览器|VS\s*Code))/i;
 const DESKTOP_SYSTEM_INFO_PATTERN = /(?:(?:查看|看看|获取).{0,10}(?:系统信息|电脑信息|电脑配置|内存|CPU|屏幕|分辨率)|(?:系统信息|电脑配置|本机信息).{0,6}(?:看看|查看|是多少)?)/i;
+const DESKTOP_SCREENSHOT_PATTERN = /(?:(?:截屏|截图|屏幕截图|桌面截图).{0,12}(?:看看|一下|当前|桌面)?|(?:看看|查看).{0,10}(?:屏幕|桌面).{0,6}(?:内容|当前|截图)?)/i;
 const DESKTOP_SIMPLE_LAUNCH_PATTERN = /(?:^|[^\w\u4e00-\u9fa5])(?:给我|帮我)?(?:打开|启动|运行)\s*([A-Za-z0-9\u4e00-\u9fa5]{1,20})\s*$/;
 const DESKTOP_LAUNCH_BLOCKLIST = ["网页", "网站", "链接", "浏览器", "文件", "文件夹", "目录", "路径", "下载", "http", "https"];
 const THIS_PC_PATTERN = /(?:打开|进入|显示|启动).{0,6}(?:我的电脑|此电脑|这台电脑)/;
@@ -580,6 +582,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (DESKTOP_SYSTEM_INFO_PATTERN.test(userInput)) {
     return createRoute("desktop", DESKTOP_SYSTEM_INFO_TOOL_NAMES);
+  }
+
+  if (DESKTOP_SCREENSHOT_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_SCREENSHOT_TOOL_NAMES);
   }
 
   if (DESKTOP_APP_PATTERN.test(userInput)) {

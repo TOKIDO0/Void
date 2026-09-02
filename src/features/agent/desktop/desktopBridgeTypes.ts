@@ -86,6 +86,13 @@ export type DesktopSystemInfoData = {
   collectedAt: number;
 };
 
+export type DesktopScreenshotData = {
+  path: string;
+  width: number;
+  height: number;
+  capturedAt: number;
+};
+
 export type DesktopBridgeErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"

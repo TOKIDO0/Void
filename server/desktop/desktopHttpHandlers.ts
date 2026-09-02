@@ -18,6 +18,7 @@ import { desktopRevealManager } from "./desktopRevealManager";
 import { desktopKnownLocationManager } from "./desktopKnownLocationManager";
 import { listInstalledApplications, launchApplicationByName } from "./desktopAppManager";
 import { listWindows, focusWindow, closeWindow, getSystemInfo } from "./desktopWindowManager";
+import { takeDesktopScreenshot } from "./desktopScreenshotManager";
 import type {
   ClipboardReadData,
   ClipboardWriteData,
@@ -239,6 +240,14 @@ export async function handleDesktopHttpRequest(
       await readJsonBody(request);
       const info = await getSystemInfo();
       return { ...info, collectedAt: Date.now() };
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/screenshot") {
+    await withDesktopHandler(response, async () => {
+      await readJsonBody(request);
+      return takeDesktopScreenshot();
     });
     return true;
   }

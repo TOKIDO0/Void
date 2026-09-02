@@ -23,6 +23,7 @@ import { desktopListWindowsTool } from "./builtin/desktopListWindowsTool";
 import { desktopFocusWindowTool } from "./builtin/desktopFocusWindowTool";
 import { desktopCloseWindowTool } from "./builtin/desktopCloseWindowTool";
 import { desktopGetSystemInfoTool } from "./builtin/desktopGetSystemInfoTool";
+import { desktopScreenshotTool } from "./builtin/desktopScreenshotTool";
 import { echoTool } from "./builtin/echoTool";
 import { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 import { fileDownloadMediaPageTool } from "./builtin/fileDownloadMediaPageTool";
@@ -90,6 +91,7 @@ export function registerBuiltinTools() {
     desktopFocusWindowTool,
     desktopCloseWindowTool,
     desktopGetSystemInfoTool,
+    desktopScreenshotTool,
     fileDownloadToTempTool,
     fileDownloadMediaPageTool,
     fileDownloadMediaTool,

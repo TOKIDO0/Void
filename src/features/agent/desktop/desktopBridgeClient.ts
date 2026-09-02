@@ -17,7 +17,8 @@ import type {
   DesktopListWindowsData,
   DesktopFocusWindowData,
   DesktopCloseWindowData,
-  DesktopSystemInfoData
+  DesktopSystemInfoData,
+  DesktopScreenshotData
 } from "./desktopBridgeTypes";
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 
@@ -210,6 +211,10 @@ export async function closeWindow(
 
 export async function getSystemInfo(signal?: AbortSignal): Promise<DesktopSystemInfoData> {
   return postDesktopApi<DesktopSystemInfoData>("/void-desktop/system-info", {}, signal);
+}
+
+export async function takeScreenshot(signal?: AbortSignal): Promise<DesktopScreenshotData> {
+  return postDesktopApi<DesktopScreenshotData>("/void-desktop/screenshot", {}, signal);
 }
 
 export function getDesktopBridgeErrorInfo(error: unknown): {

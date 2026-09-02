@@ -221,3 +221,4 @@ export { desktopListWindowsTool } from "./builtin/desktopListWindowsTool";
 export { desktopFocusWindowTool } from "./builtin/desktopFocusWindowTool";
 export { desktopCloseWindowTool } from "./builtin/desktopCloseWindowTool";
 export { desktopGetSystemInfoTool } from "./builtin/desktopGetSystemInfoTool";
+export { desktopScreenshotTool } from "./builtin/desktopScreenshotTool";
