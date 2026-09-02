@@ -1798,10 +1798,16 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       notes.push("file.createDocx 契约：支持多章节模板渲染与落盘");
     }
     const docxRoute = resolveTurnCapability("把这份报告做成 Word 文档", []);
-    if (docxRoute.capability !== "file" || !docxRoute.allowedToolNames.includes("file.createDocx")) {
-      failures.push("Word 生成应路由到 file.createDocx");
+    if (docxRoute.capability !== "file" || !docxRoute.allowedToolNames.includes("file.createDocx") || !docxRoute.allowedToolNames.includes("browser.search")) {
+      failures.push("Word 生成应路由到 file.createDocx 且同轮可用 browser.search 完成调研");
     } else {
-      notes.push("Word 路由正确：做成 Word→file.createDocx");
+      notes.push("Word 路由正确：做成 Word→file.createDocx + browser.search 同轮可用");
+    }
+    const pptRoute = resolveTurnCapability("调研后生成带图表的 PPT", []);
+    if (pptRoute.capability !== "file" || !pptRoute.allowedToolNames.includes("file.createPptx") || !pptRoute.allowedToolNames.includes("browser.search")) {
+      failures.push("PPT 生成应路由到 file.createPptx 且同轮可用 browser.search 完成调研");
+    } else {
+      notes.push("PPT 路由正确：做成 PPT→file.createPptx + browser.search 同轮可用");
     }
   }
 
