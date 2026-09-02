@@ -37,28 +37,34 @@ export function ContextBudgetBar({ messages, compact = false }: ContextBudgetBar
   }, [messages]);
 
   const barPercent = Math.round(percent * 100);
+  const thresholdTokens = Math.floor(windowTokens * AUTO_SUMMARY_THRESHOLD);
+  const willSummarize = percent >= AUTO_SUMMARY_THRESHOLD;
   const tip =
     percent >= 0.95
-      ? "已接近上限，将自动摘要早期轮次"
+      ? `已超阈值，将自动摘要早期轮次（阈值 ${formatTokens(thresholdTokens)}）`
       : percent >= 0.8
-        ? "将自动摘要早期轮次的中"
-        : `距自动摘要阈值还剩约 ${formatTokens(remainingToThreshold)} tokens`;
+        ? `已达阈值，超出将自动摘要早期轮次（阈值 ${formatTokens(thresholdTokens)}）`
+        : `距自动摘要阈值还剩约 ${formatTokens(remainingToThreshold)} tokens（阈值 ${formatTokens(thresholdTokens)}）`;
+  const detailTitle = willSummarize
+    ? "上下文已达 80% 阈值，后续请求将把更早轮次折叠为工作摘要（不写入长期记忆），近窗保留最新轮次原文"
+    : `当前 ${formatTokens(usedTokens)} / ${formatTokens(windowTokens)}，80% 阈值约 ${formatTokens(thresholdTokens)}，越过后自动折叠早期轮次为工作摘要`;
 
   return (
-    <div className={`context-budget-bar${compact ? " is-compact" : ""}`} role="status" aria-label="上下文预算">
+    <div className={`context-budget-bar${compact ? " is-compact" : ""} is-${status}`} role="status" aria-label="上下文预算" title={detailTitle}>
       <div className="context-budget-bar__row">
         <span className="context-budget-bar__label">上下文</span>
         <span className="context-budget-bar__value">
           {formatTokens(usedTokens)} / {formatTokens(windowTokens)} · {barPercent}%
         </span>
-        <span className={`context-budget-bar__tip is-${status}`}>{tip}</span>
+        <span className={`context-budget-bar__tip is-${status}`}>{willSummarize ? "⚠ " : ""}{tip}</span>
       </div>
       <div className="context-budget-bar__track" aria-hidden="true">
         <div
-          className={`context-budget-bar__fill is-${status}`}
+          className={`context-budget-bar__fill is-${status}${willSummarize ? " is-pulsing" : ""}`}
           style={{ width: `${Math.min(100, barPercent)}%` }}
         />
-        <span className="context-budget-bar__threshold" style={{ left: `${AUTO_SUMMARY_THRESHOLD * 100}%` }} />
+        <span className="context-budget-bar__threshold" style={{ left: `${AUTO_SUMMARY_THRESHOLD * 100}%` }} title={`自动摘要阈值 ${AUTO_SUMMARY_THRESHOLD * 100}%`} />
+        <span className="context-budget-bar__threshold-label" style={{ left: `${AUTO_SUMMARY_THRESHOLD * 100}%` }}>摘要</span>
       </div>
     </div>
   );
