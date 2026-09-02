@@ -26,8 +26,12 @@ import {
 } from "./duckduckgoSearch";
 import {
   buildDouyinSearchUrl,
+  buildWeiboSearchUrl,
+  buildXiaohongshuSearchUrl,
   buildZhihuSearchUrl,
   extractDouyinSearchResults,
+  extractWeiboSearchResults,
+  extractXiaohongshuSearchResults,
   extractZhihuSearchResults,
   getPreferredExtractScopeForUrl
 } from "./siteAdapters";
@@ -370,7 +374,7 @@ export class BrowserSessionManager {
   async search(input: {
     taskId: string;
     query: string;
-    engine?: "duckduckgo" | "bilibili" | "zhihu" | "douyin";
+    engine?: "duckduckgo" | "bilibili" | "zhihu" | "douyin" | "xiaohongshu" | "weibo";
     limit?: number;
   }): Promise<BrowserSearchData> {
     const query = input.query.trim();
@@ -379,7 +383,11 @@ export class BrowserSessionManager {
     }
 
     const normalizedEngine =
-      input.engine === "bilibili" || input.engine === "zhihu" || input.engine === "douyin"
+      input.engine === "bilibili"
+      || input.engine === "zhihu"
+      || input.engine === "douyin"
+      || input.engine === "xiaohongshu"
+      || input.engine === "weibo"
         ? input.engine
         : "duckduckgo";
     const engine = normalizedEngine;
@@ -388,6 +396,8 @@ export class BrowserSessionManager {
     if (engine === "bilibili") resultPageUrl = buildBilibiliSearchUrl(query);
     else if (engine === "zhihu") resultPageUrl = buildZhihuSearchUrl(query);
     else if (engine === "douyin") resultPageUrl = buildDouyinSearchUrl(query);
+    else if (engine === "xiaohongshu") resultPageUrl = buildXiaohongshuSearchUrl(query);
+    else if (engine === "weibo") resultPageUrl = buildWeiboSearchUrl(query);
     else resultPageUrl = buildDuckDuckGoHtmlSearchUrl(query);
 
     const opened = await this.open({
@@ -403,6 +413,8 @@ export class BrowserSessionManager {
       if (engine === "bilibili") results = await extractBilibiliSearchResults(managedPage.page, limit);
       else if (engine === "zhihu") results = await extractZhihuSearchResults(managedPage.page, limit);
       else if (engine === "douyin") results = await extractDouyinSearchResults(managedPage.page, limit);
+      else if (engine === "xiaohongshu") results = await extractXiaohongshuSearchResults(managedPage.page, limit);
+      else if (engine === "weibo") results = await extractWeiboSearchResults(managedPage.page, limit);
       else results = await extractDuckDuckGoResults(managedPage.page, limit);
     } catch (error) {
       throw createBrowserError(

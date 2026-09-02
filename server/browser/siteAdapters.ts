@@ -26,6 +26,11 @@ export function buildXiaohongshuSearchUrl(query: string): string {
   return `https://www.xiaohongshu.com/search_result?${params.toString()}`;
 }
 
+export function buildWeiboSearchUrl(query: string): string {
+  const trimmed = query.trim();
+  return `https://s.weibo.com/weibo?q=${encodeURIComponent(trimmed)}`;
+}
+
 // —— 知乎搜索结果抽取 ——
 
 export async function extractZhihuSearchResults(
@@ -194,6 +199,150 @@ export async function extractDouyinSearchResults(
   }));
 }
 
+// —— 小红书搜索结果抽取 ——
+
+export async function extractXiaohongshuSearchResults(
+  page: Page,
+  limit: number
+): Promise<BrowserSearchResultItem[]> {
+  const safeLimit = Math.min(20, Math.max(1, Math.floor(limit)));
+  await page
+    .waitForSelector(
+      'a[href*="/explore/"], .note-item, .feed-card, [class*="search"]',
+      { timeout: 18_000 }
+    )
+    .catch(() => undefined);
+  await page.waitForTimeout(1100).catch(() => undefined);
+
+  const rawItems = await page.evaluate((maxCount) => {
+    const items: Array<{ title: string; href: string; snippet: string; displayUrl: string }> = [];
+    const seen = new Set<string>();
+    const push = (title: string, href: string, snippet: string) => {
+      if (items.length >= maxCount) return;
+      const cleanTitle = title.replace(/\s+/g, " ").trim();
+      if (!cleanTitle || !href) return;
+      let absolute = href.trim();
+      if (absolute.startsWith("//")) absolute = `https:${absolute}`;
+      else if (absolute.startsWith("/")) absolute = `https://www.xiaohongshu.com${absolute}`;
+      try {
+        const url = new URL(absolute);
+        if (!url.hostname.includes("xiaohongshu.com")) return;
+        if (!url.pathname.includes("/explore/") && !url.pathname.includes("/discovery/")) return;
+        const normalized = url.toString().split("?")[0]!;
+        if (seen.has(normalized)) return;
+        seen.add(normalized);
+        items.push({
+          title: cleanTitle.slice(0, 120),
+          href: normalized,
+          snippet: snippet.replace(/\s+/g, " ").trim().slice(0, 240),
+          displayUrl: normalized
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    const cards = Array.from(document.querySelectorAll(".note-item, .feed-card, [class*=\"Card\"]"));
+    for (const card of cards) {
+      if (items.length >= maxCount) break;
+      const anchor = card.querySelector('a[href*="/explore/"]') as HTMLAnchorElement | null;
+      if (!anchor?.href) continue;
+      const title =
+        card.querySelector(".title, [class*=\"title\"], span")?.textContent ?? anchor.textContent ?? "";
+      push(title, anchor.href, "");
+    }
+
+    if (items.length < maxCount) {
+      const anchors = Array.from(document.querySelectorAll('a[href*="xiaohongshu.com/explore"]')) as HTMLAnchorElement[];
+      for (const anchor of anchors) {
+        if (items.length >= maxCount) break;
+        push(anchor.textContent ?? "", anchor.href, "");
+      }
+    }
+    return items;
+  }, safeLimit);
+
+  return rawItems.map((item, index) => ({
+    rank: index + 1,
+    title: item.title,
+    url: item.href,
+    snippet: item.snippet,
+    displayUrl: item.displayUrl
+  }));
+}
+
+// —— 微博搜索结果抽取 ——
+
+export async function extractWeiboSearchResults(
+  page: Page,
+  limit: number
+): Promise<BrowserSearchResultItem[]> {
+  const safeLimit = Math.min(20, Math.max(1, Math.floor(limit)));
+  await page
+    .waitForSelector(
+      '.card-wrap, [class*="card"], [action-type="feed_list_item"]',
+      { timeout: 18_000 }
+    )
+    .catch(() => undefined);
+  await page.waitForTimeout(1100).catch(() => undefined);
+
+  const rawItems = await page.evaluate((maxCount) => {
+    const items: Array<{ title: string; href: string; snippet: string; displayUrl: string }> = [];
+    const seen = new Set<string>();
+    const push = (title: string, href: string, snippet: string) => {
+      if (items.length >= maxCount) return;
+      const cleanTitle = title.replace(/\s+/g, " ").trim();
+      if (!cleanTitle || !href) return;
+      let absolute = href.trim();
+      if (absolute.startsWith("//")) absolute = `https:${absolute}`;
+      else if (absolute.startsWith("/")) absolute = `https://s.weibo.com${absolute}`;
+      try {
+        const url = new URL(absolute);
+        if (!url.hostname.includes("weibo.com") && !url.hostname.includes("weibo.cn")) return;
+        const normalized = url.toString();
+        if (seen.has(normalized)) return;
+        seen.add(normalized);
+        items.push({
+          title: cleanTitle.slice(0, 120),
+          href: normalized,
+          snippet: snippet.replace(/\s+/g, " ").trim().slice(0, 240),
+          displayUrl: normalized
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    const cards = Array.from(document.querySelectorAll('.card-wrap, [action-type="feed_list_item"]'));
+    for (const card of cards) {
+      if (items.length >= maxCount) break;
+      const anchor =
+        card.querySelector('a[href*="/status/"], a[href*="weibo.com"]') as HTMLAnchorElement | null;
+      if (!anchor?.href) continue;
+      const textEl = card.querySelector(".txt, .content, p") as HTMLElement | null;
+      const title = textEl?.textContent ?? anchor.textContent ?? "";
+      push(title, anchor.href, textEl?.textContent ?? "");
+    }
+
+    if (items.length < maxCount) {
+      const anchors = Array.from(document.querySelectorAll('a[href*="weibo.com"]')) as HTMLAnchorElement[];
+      for (const anchor of anchors) {
+        if (items.length >= maxCount) break;
+        push(anchor.textContent ?? "", anchor.href, "");
+      }
+    }
+    return items;
+  }, safeLimit);
+
+  return rawItems.map((item, index) => ({
+    rank: index + 1,
+    title: item.title,
+    url: item.href,
+    snippet: item.snippet,
+    displayUrl: item.displayUrl
+  }));
+}
+
 // —— 站点页面抽取优先级 Scope ——
 // 当 browser.extract 未指定 scopeSelector 且 mode 含 text，按 host 给出首选容器，便于 model 少写选择器。
 
@@ -223,4 +372,4 @@ export function getPreferredExtractScopeForUrl(url: string): string | undefined 
   }
 }
 
-export type SiteEngine = "duckduckgo" | "bilibili" | "zhihu" | "douyin";
+export type SiteEngine = "duckduckgo" | "bilibili" | "zhihu" | "douyin" | "xiaohongshu" | "weibo";

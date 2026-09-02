@@ -11,12 +11,12 @@ export type BrowserOpenRequest = {
   pageId?: string;
 };
 
-/** 搜索请求：默认 DuckDuckGo HTML；B 站/知乎/抖音 站内搜用对应引擎 */
+/** 搜索请求：默认 DuckDuckGo HTML；B 站/知乎/抖音/小红书/微博 站内搜用对应引擎 */
 export type BrowserSearchRequest = {
   taskId: string;
   query: string;
-  /** duckduckgo=全网 HTML；bilibili=B 站；zhihu=知乎；douyin=抖音 */
-  engine?: "duckduckgo" | "bilibili" | "zhihu" | "douyin";
+  /** duckduckgo=全网 HTML；bilibili=B 站；zhihu=知乎；douyin=抖音；xiaohongshu=小红书；weibo=微博 */
+  engine?: "duckduckgo" | "bilibili" | "zhihu" | "douyin" | "xiaohongshu" | "weibo";
   /** 最多返回条数，默认 8，上限 20 */
   limit?: number;
 };
@@ -72,7 +72,7 @@ export type BrowserOpenData = {
 export type BrowserSearchData = {
   taskId: string;
   pageId: string;
-  engine: "duckduckgo" | "bilibili" | "zhihu" | "douyin";
+  engine: "duckduckgo" | "bilibili" | "zhihu" | "douyin" | "xiaohongshu" | "weibo";
   query: string;
   resultPageUrl: string;
   results: BrowserSearchResultItem[];
