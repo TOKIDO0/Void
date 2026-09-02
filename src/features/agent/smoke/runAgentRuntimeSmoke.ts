@@ -1835,18 +1835,38 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("本地聚合 Word 路由正确：本地资料→Word 同轮可用");
     }
-    // 办公模板偏好：记忆 preference → 模板自适应（深/浅/活力），无偏好时按 hint 游戏→vivid 兜底
+    // 对话历史一键整理为办公文档：本轮聊天/讨论直接导出，无需再搜
+    const conversationDocxRoute = resolveTurnCapability("把刚才的讨论整理成 Word 报告", []);
+    if (conversationDocxRoute.capability !== "file" || !conversationDocxRoute.allowedToolNames.includes("file.createDocx") || conversationDocxRoute.allowedToolNames.includes("browser.search") || conversationDocxRoute.allowedToolNames.includes("file.searchText")) {
+      failures.push("对话纪要导出 Word 应直达 file.createDocx，不依赖本地检索或网页搜索");
+    } else {
+      notes.push("对话整理 Word 路由正确：刚才讨论→file.createDocx 直达");
+    }
+    const conversationExcelRoute = resolveTurnCapability("把本次聊天内容汇总成 Excel 表格", []);
+    if (conversationExcelRoute.capability !== "file" || !conversationExcelRoute.allowedToolNames.includes("file.createExcel") || conversationExcelRoute.allowedToolNames.includes("browser.search")) {
+      failures.push("对话汇总导出 Excel 应直达 file.createExcel，不依赖网页搜索");
+    } else {
+      notes.push("对话整理 Excel 路由正确：本次聊天→file.createExcel 直达");
+    }
+    const conversationPptxRoute = resolveTurnCapability("把这轮会话整理成 PPT 演示文稿", []);
+    if (conversationPptxRoute.capability !== "file" || !conversationPptxRoute.allowedToolNames.includes("file.createPptx")) {
+      failures.push("对话整理导出 PPT 应直达 file.createPptx");
+    } else {
+      notes.push("对话整理 PPT 路由正确：这轮会话→file.createPptx 直达");
+    }
+    // 办公模板偏好：记忆 preference → 模板自适应（深/浅/活力），无偏好时按 hint 游戏→vivid/报告→light 兜底
     const { resolveOfficeTemplateFromText } = await import("../file/officeTemplatePreference");
     const prefDark = resolveOfficeTemplateFromText("我喜欢深色主题", "");
     const prefLight = resolveOfficeTemplateFromText("偏好浅色亮色", "");
     const prefVivid = resolveOfficeTemplateFromText("喜欢活力鲜艳", "");
     const hintVivid = resolveOfficeTemplateFromText("", "游戏趋向分析");
-    const hintNone = resolveOfficeTemplateFromText("", "普通商务报告");
+    const hintReportLight = resolveOfficeTemplateFromText("", "周报汇总报告");
+    const hintTechDark = resolveOfficeTemplateFromText("", "技术架构分析");
     const prefOverridesHint = resolveOfficeTemplateFromText("深色", "游戏大作");
-    if (prefDark !== "void-dark" || prefLight !== "void-light" || prefVivid !== "void-vivid" || hintVivid !== "void-vivid" || hintNone !== undefined || prefOverridesHint !== "void-dark") {
-      failures.push("办公模板偏好解析错误：深/浅/活力与 hint 兜底及偏好优先应正确");
+    if (prefDark !== "void-dark" || prefLight !== "void-light" || prefVivid !== "void-vivid" || hintVivid !== "void-vivid" || hintReportLight !== "void-light" || hintTechDark !== "void-dark" || prefOverridesHint !== "void-dark") {
+      failures.push("办公模板偏好解析错误：深/浅/活力与 hint 兜底（游戏→vivid/报告→light/技术→dark）及偏好优先应正确");
     } else {
-      notes.push("办公模板偏好正确：深→void-dark、浅→void-light、活力→void-vivid、游戏 hint→vivid、偏好优先于 hint");
+      notes.push("办公模板偏好正确：深→void-dark、浅→void-light、活力→void-vivid、游戏→vivid、报告→light、技术→dark、偏好优先于 hint");
     }
   }
 

@@ -22,6 +22,12 @@ export function resolveOfficeTemplateFromText(preferenceText: string, hint?: str
   if (lowerHint.includes("游戏") || lowerHint.includes("game") || lowerHint.includes("活力") || lowerHint.includes("vivid")) {
     return "void-vivid";
   }
+  if (lowerHint.includes("报告") || lowerHint.includes("周报") || lowerHint.includes("商务") || lowerHint.includes("汇总") || lowerHint.includes("纪要")) {
+    return "void-light";
+  }
+  if (lowerHint.includes("技术") || lowerHint.includes("架构") || lowerHint.includes("tech")) {
+    return "void-dark";
+  }
   return undefined;
 }
 
