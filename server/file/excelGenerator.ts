@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import type { ExcelTemplate } from "./excelTemplates";
+import { renderBarChartPng, renderPieChartPng } from "./chartRenderer";
 
 export type ExcelSheetInput = {
   name: string;
@@ -147,20 +148,65 @@ export async function generateExcelBuffer(input: ExcelGenerateInput): Promise<Bu
     worksheet.mergeCells(footerIdx, 1, footerIdx, Math.max(headers.length, 1));
     footerRow.commit();
 
-    // 图表占位：用色块+文字模拟“高级图表区”，避免纯文字寒酸
+    // 原生图表：Jimp 纯 JS 渲染 PNG 并嵌入，失败回落文字占位（L0 安全）
     if (sheetInput.chart && rows.length > 0) {
       const chartTitle = sheetInput.chart.title || "Chart";
       const chartRowIdx = footerIdx + 2;
-      const chartRow = worksheet.getRow(chartRowIdx);
-      const cell = chartRow.getCell(1);
-      cell.value = `▣ 图表：${chartTitle}（${sheetInput.chart.type}）—— ${headers[sheetInput.chart.xColumn]} vs ${headers[sheetInput.chart.yColumn]}（数据已备，图表可在 WPS/Excel 中一键插入）`;
-      cell.font = { name: "Calibri", size: 9, color: { argb: input.template.chartPalette[0].replace("FF", "FF") }, bold: true };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
-      cell.border = { top: { style: "thin", color: { argb: input.template.borderColor } }, left: { style: "thin", color: { argb: input.template.borderColor } }, bottom: { style: "thin", color: { argb: input.template.borderColor } }, right: { style: "thin", color: { argb: input.template.borderColor } } };
-      cell.alignment = { horizontal: "left", vertical: "middle" };
-      chartRow.height = 20;
-      worksheet.mergeCells(chartRowIdx, 1, chartRowIdx, Math.max(headers.length, 1));
-      chartRow.commit();
+      const xCol = sheetInput.chart.xColumn;
+      const yCol = sheetInput.chart.yColumn;
+      let embedded = false;
+      // 边界校验：列索引合法且有可用数据
+      if (xCol >= 0 && yCol >= 0 && xCol < headers.length && yCol < headers.length) {
+        const categories: string[] = [];
+        const values: number[] = [];
+        for (const r of rows) {
+          categories.push(String(r[xCol] ?? ""));
+          const raw = r[yCol];
+          const num = typeof raw === "number" ? raw : Number(String(raw).replace(/[,，%％]/g, ""));
+          values.push(Number.isFinite(num) ? num : 0);
+        }
+        const hasData = values.some((v) => v !== 0) || categories.some((c) => c);
+        if (hasData && categories.length > 0) {
+          try {
+            const palette = input.template.chartPalette?.length ? input.template.chartPalette : ["FF3B82F6", "FF0EA5E9", "FF0891B2", "FF6366F1"];
+            let png: Buffer | null = null;
+            if (sheetInput.chart.type === "pie") {
+              png = await renderPieChartPng({ title: chartTitle, categories: categories.slice(0, 12), values: values.slice(0, 12), palette });
+            } else {
+              png = await renderBarChartPng({ title: chartTitle, categories: categories.slice(0, 16), values: values.slice(0, 16), palette, xLabel: headers[xCol], yLabel: headers[yCol] });
+            }
+            if (png && png.length > 100) {
+              const imageId = workbook.addImage({ buffer: png, extension: "png" } as any);
+              // 依图表类型设不同尺寸：bar 更宽，pie 适中
+              const ext = sheetInput.chart.type === "pie" ? { width: 520, height: 320 } : { width: 640, height: 336 };
+              // tl 使用 0 索引，需将 1 索引的 chartRowIdx 转为 0 索引
+              worksheet.addImage(imageId, { tl: { col: 0, row: chartRowIdx - 1 }, ext } as any);
+              // 预留行高使图片不遮挡后续内容（每 34px ≈ 1 行）
+              const rowsNeeded = Math.ceil(ext.height / 34) + 1;
+              for (let rr = 0; rr < rowsNeeded; rr++) {
+                const r = worksheet.getRow(chartRowIdx + rr);
+                r.height = 34;
+                r.commit();
+              }
+              embedded = true;
+            }
+          } catch (e) {
+            console.warn("[excel] chart render failed, fallback to placeholder", e);
+          }
+        }
+      }
+      if (!embedded) {
+        const chartRow = worksheet.getRow(chartRowIdx);
+        const cell = chartRow.getCell(1);
+        cell.value = `▣ 图表：${chartTitle}（${sheetInput.chart.type}）—— ${headers[xCol] ?? "?"} vs ${headers[yCol] ?? "?"}（数据已备，图表可在 WPS/Excel 中一键插入）`;
+        cell.font = { name: "Calibri", size: 9, color: { argb: input.template.chartPalette[0] }, bold: true };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
+        cell.border = { top: { style: "thin", color: { argb: input.template.borderColor } }, left: { style: "thin", color: { argb: input.template.borderColor } }, bottom: { style: "thin", color: { argb: input.template.borderColor } }, right: { style: "thin", color: { argb: input.template.borderColor } } };
+        cell.alignment = { horizontal: "left", vertical: "middle" };
+        chartRow.height = 20;
+        worksheet.mergeCells(chartRowIdx, 1, chartRowIdx, Math.max(headers.length, 1));
+        chartRow.commit();
+      }
     }
 
     // 打印与视图优化
