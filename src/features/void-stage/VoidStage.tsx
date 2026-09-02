@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
-import { BlobScene } from "../blob-scene/BlobScene";
+
+// 首屏懒加载：three/postprocessing 链路（BlobScene→VoidBlob/VoidBlobShader/postprocessing）
+// 改为动态 import，Suspense 骨架与 Canvas 背景一致（纯黑占位），首包不再常驻 three，
+// 首屏解析体积下降；three 代码外移到 three chunk，按需加载。
+const BlobScene = lazy(() =>
+  import("../blob-scene/BlobScene").then((module) => ({ default: module.BlobScene }))
+);
 import {
   applyAssistantStreamContent,
   createPendingAssistantConversation,
@@ -1530,17 +1536,36 @@ export function VoidStage() {
     };
   }, [stopVoicePlayback]);
 
+  // 空闲预加载：首屏骨架先出，空闲时再把 BlobScene/three 拉回，保证视觉不闪且首包仍瘦。
+  useEffect(() => {
+    const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    const preload = () => {
+      void import("../blob-scene/BlobScene");
+    };
+    if (typeof idle === "function") {
+      const handle = idle(preload);
+      return () => {
+        const cancelIdle = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback;
+        if (typeof cancelIdle === "function") cancelIdle(handle);
+      };
+    }
+    const timer = window.setTimeout(preload, 900);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <main className="void-stage">
-      <BlobScene
-        visualState={visualState}
-        expandedResponseProgress={expandedResponseProgress}
-        isExpandedResponseClosing={isExpandedResponseClosing}
-        thinkingModePulseEventId={thinkingModePulseEventId}
-        thinkingModePulseDirection={thinkingModePulseDirection}
-        emotionVisualHint={emotionVisualHint}
-        playbackLevelSignal={playbackLevelSignalRef}
-      />
+      <Suspense fallback={<div className="blob-scene" aria-hidden="true" style={{ background: "#000" }} />}>
+        <BlobScene
+          visualState={visualState}
+          expandedResponseProgress={expandedResponseProgress}
+          isExpandedResponseClosing={isExpandedResponseClosing}
+          thinkingModePulseEventId={thinkingModePulseEventId}
+          thinkingModePulseDirection={thinkingModePulseDirection}
+          emotionVisualHint={emotionVisualHint}
+          playbackLevelSignal={playbackLevelSignalRef}
+        />
+      </Suspense>
       <VoidResponseLayer
         isVisible={responseLayer.isVisible}
         text={responseLayer.text}

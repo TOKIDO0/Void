@@ -34,6 +34,16 @@ export default defineConfig({
           if (id.includes("node_modules/pptxgenjs/")) return "pptxgenjs";
           if (id.includes("node_modules/@huggingface/")) return "transformers";
           if (id.includes("node_modules/mammoth/")) return "mammoth";
+          // three 生态单独成 chunk：首屏 BlobScene 懒加载后，首包不再常驻 three；
+          // Luminous/Echo 仍在首包依赖该 chunk，但代码已外移，首包解析体积下降。
+          if (
+            id.includes("node_modules/three")
+            || id.includes("node_modules/@react-three/fiber")
+            || id.includes("node_modules/@react-three/postprocessing")
+            || id.includes("node_modules/postprocessing")
+          ) {
+            return "three";
+          }
           // 其余第三方（含框架）归一，避免框架/vendor 循环依赖
           return "vendor";
         }
