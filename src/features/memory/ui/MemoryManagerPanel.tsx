@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MemoryEntry, MemoryType } from "../memoryTypes";
 import { MEMORY_TYPES } from "../memoryTypes";
 import { listMemories, removeMemory, clearMemories } from "../memoryStore";
-import { buildHealthTimeline, formatHealthTimelineDate } from "../healthTimeline";
+import { buildHealthTimeline, filterHealthTimelineByMonth, formatHealthTimelineDate } from "../healthTimeline";
 import { HealthVisualization } from "./HealthVisualization";
 import {
   loadSettingsLanguage,
@@ -156,10 +156,29 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
   const activeSectionLabel =
     selectedCategory === ALL_CATEGORY ? copy.all : copy.typeLabels[selectedCategory];
 
+  const [healthSelectedMonth, setHealthSelectedMonth] = useState<string | null>(null);
+
   const healthTimelineGroups = useMemo(() => {
     if (selectedCategory !== "healthRecord") return [];
     return buildHealthTimeline();
   }, [selectedCategory, entries]);
+
+  const healthFilteredGroups = useMemo(() => {
+    return filterHealthTimelineByMonth(healthTimelineGroups, healthSelectedMonth);
+  }, [healthTimelineGroups, healthSelectedMonth]);
+
+  // 月份不在新数据中时自动清除筛选，避免空状态迷惑
+  useEffect(() => {
+    if (healthSelectedMonth && healthTimelineGroups.length > 0) {
+      const months = new Set<string>();
+      for (const g of healthTimelineGroups) for (const e of g.entries) {
+        const d = new Date(e.createdAt);
+        months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+      }
+      if (!months.has(healthSelectedMonth)) setHealthSelectedMonth(null);
+    }
+    if (selectedCategory !== "healthRecord" && healthSelectedMonth) setHealthSelectedMonth(null);
+  }, [healthTimelineGroups, selectedCategory, healthSelectedMonth]);
 
   const handleLanguageChange = (nextLanguage: SettingsLanguage) => {
     setLanguage(nextLanguage);
@@ -403,9 +422,12 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
 
             {selectedCategory === "healthRecord" && healthTimelineGroups.length > 0 ? (
               <>
-                <HealthVisualization groups={healthTimelineGroups} />
+                <HealthVisualization groups={healthTimelineGroups} selectedMonth={healthSelectedMonth} onSelectMonth={setHealthSelectedMonth} />
+                {healthSelectedMonth ? <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}><span>已按月份筛选：{healthSelectedMonth} · {healthFilteredGroups.reduce((s, g) => s + g.entries.length, 0)} 条</span><button type="button" onClick={() => setHealthSelectedMonth(null)} style={{ fontSize: 11, color: "#38BDF8", background: "none", border: "none", cursor: "pointer", padding: 0 }}>查看全部</button></div> : null}
                 <div className="memory-manager__timeline">
-                  {healthTimelineGroups.map((group) => (
+                  {(healthSelectedMonth ? healthFilteredGroups : healthTimelineGroups).length === 0 && healthSelectedMonth ? (
+                    <div style={{ padding: "14px 12px", color: "#94A3B8", fontSize: 12, textAlign: "center", background: "rgba(15,23,42,0.5)", borderRadius: 10, border: "1px solid rgba(148,163,184,0.12)" }}>{healthSelectedMonth} 暂无记录 · <button type="button" onClick={() => setHealthSelectedMonth(null)} style={{ color: "#38BDF8", background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 12 }}>查看全部</button></div>
+                  ) : (healthSelectedMonth ? healthFilteredGroups : healthTimelineGroups).map((group) => (
                   <div key={`${group.subjectType}:${group.subjectName}`} className="memory-manager__timeline-group">
                     <h4 className="memory-manager__timeline-title">{group.subjectName}</h4>
                     <div className="memory-manager__timeline-list">

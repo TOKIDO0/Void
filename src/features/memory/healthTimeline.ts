@@ -25,6 +25,21 @@ export function buildHealthTimeline(): HealthTimelineGroup[] {
   return groups;
 }
 
+export function formatHealthMonth(timestamp: number): string {
+  const d = new Date(timestamp);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function filterHealthTimelineByMonth(groups: HealthTimelineGroup[], month: string | null): HealthTimelineGroup[] {
+  if (!month) return groups;
+  const filtered: HealthTimelineGroup[] = [];
+  for (const g of groups) {
+    const entries = g.entries.filter((e) => formatHealthMonth(e.createdAt) === month);
+    if (entries.length > 0) filtered.push({ ...g, entries });
+  }
+  return filtered;
+}
+
 export function formatHealthTimelineDate(timestamp: number, lang: "zh-CN" | "en-US" = "zh-CN"): string {
   const d = new Date(timestamp);
   if (lang === "en-US") return d.toLocaleDateString("en-US");
