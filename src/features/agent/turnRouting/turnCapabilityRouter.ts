@@ -565,6 +565,17 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
     return createRoute("file", FILE_LOCAL_DOCX_TOOL_NAMES);
   }
 
+  // 写作/模板直出办公文档：无网页/本地/剪贴板/代码线索时，不做检索，直接生成
+  if (isDirectOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
+    return createRoute("file", CONVERSATION_EXCEL_TOOL_NAMES);
+  }
+  if (isDirectOfficeIntent(userInput, LOCAL_OFFICE_PPTX_PATTERN)) {
+    return createRoute("file", CONVERSATION_PPTX_TOOL_NAMES);
+  }
+  if (isDirectOfficeIntent(userInput, LOCAL_OFFICE_DOCX_PATTERN)) {
+    return createRoute("file", CONVERSATION_DOCX_TOOL_NAMES);
+  }
+
   if (FILE_CREATE_EXCEL_PATTERN.test(userInput)) {
     return createRoute("file", FILE_CREATE_EXCEL_TOOL_NAMES);
   }
@@ -672,6 +683,21 @@ function isCodeOfficeIntent(userInput: string, officePattern: RegExp): boolean {
   const hasOfficeAction = /(?:生成|做成|导出|整理|转换|做一下|做个)/i.test(userInput);
   if (!hasCodeHint || !hasOfficeAction) return false;
   return officePattern.test(userInput);
+}
+
+function isDirectOfficeIntent(userInput: string, officePattern: RegExp): boolean {
+  if (!officePattern.test(userInput)) return false;
+  if (!/(?:生成|做成|创建|导出|整理|写|做一下|做个)/i.test(userInput)) return false;
+  if (!/(?:写|请假条|清单|台账|费用|计划书|说明|纪要|提纲|模版|模板|报表)/i.test(userInput)) return false;
+  if (LOCAL_KNOWLEDGE_SOURCE_PATTERN.test(userInput)) return false;
+  if (EXPLICIT_WEB_SOURCE_PATTERN.test(userInput)) return false;
+  if (WEB_TEXT_ARTIFACT_SOURCE_PATTERN.test(userInput) && isResearchIntent(userInput)) return false;
+  if (/(?:剪贴板|粘贴板)/i.test(userInput)) return false;
+  if (/(?:刚才|最近|本次|这轮|聊天|对话|讨论|会话)/i.test(userInput)) return false;
+  if (/(?:健康档案|健康记录|体检|健康数据|待办|任务清单|记忆清单|偏好清单)/i.test(userInput)) return false;
+  if (/(?:js|javascript|python|代码|沙箱|平均值|求和)/i.test(userInput) && /(?:计算|统计|清洗|转换)/i.test(userInput)) return false;
+  if (isResearchIntent(userInput)) return false;
+  return FILE_CREATE_EXCEL_PATTERN.test(userInput) || FILE_CREATE_PPTX_PATTERN.test(userInput) || FILE_CREATE_DOCX_PATTERN.test(userInput);
 }
 
 export function doesTurnCapabilityRequireBridge(capability: TurnCapability): boolean {

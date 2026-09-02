@@ -1050,11 +1050,14 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const downloadsOrganize = data.playbooks?.find((playbook) => playbook.id === "downloads-auto-organize");
     const healthExport = data.playbooks?.find((playbook) => playbook.id === "health-export");
     const excelResearch = data.playbooks?.find((playbook) => playbook.id === "excel-research-generate");
+     const directDocx = data.playbooks?.find((playbook) => playbook.id === "direct-docx-generate");
+    const directExcel = data.playbooks?.find((playbook) => playbook.id === "direct-excel-generate");
+    const directPptx = data.playbooks?.find((playbook) => playbook.id === "direct-pptx-generate");
     const codeCalc = data.playbooks?.find((playbook) => playbook.id === "code-calculation");
     const codeTransform = data.playbooks?.find((playbook) => playbook.id === "code-data-transform");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount !== 26
+      || data.playbookCount !== 29
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1100,6 +1103,14 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || !data.playbooks?.find((p) => p.id === "clipboard-table-to-office")?.requiredToolNames?.includes("file.createExcel")
       || !data.playbooks?.find((p) => p.id === "code-result-to-office")?.requiredToolNames?.includes("agent.runCode")
       || !data.playbooks?.find((p) => p.id === "code-result-to-office")?.requiredToolNames?.includes("file.createExcel")
+      || !directDocx?.requiredToolNames?.includes("file.createDocx")
+      || directDocx.requiresConfirmation !== true
+      || directDocx.maxRiskLevel !== "L2"
+      || directDocx.requiresBridge !== true
+      || !directExcel?.requiredToolNames?.includes("file.createExcel")
+      || directExcel.requiresConfirmation !== true
+      || !directPptx?.requiredToolNames?.includes("file.createPptx")
+      || directPptx.requiresConfirmation !== true
       || !codeCalc?.requiredToolNames?.includes("agent.runCode")
       || codeCalc.requiresConfirmation !== true
       || codeCalc.maxRiskLevel !== "L2"
@@ -1924,6 +1935,30 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       failures.push("自然口语算一下平均值应路由到 agent.runCode");
     } else {
       notes.push("自然计算路由正确：算一下平均值→agent.runCode");
+    }
+    const directDocxRoute = resolveTurnCapability("帮我写一封请假条并做成 Word 文档", []);
+    if (directDocxRoute.capability !== "file" || !directDocxRoute.allowedToolNames.includes("file.createDocx") || directDocxRoute.allowedToolNames.includes("browser.search") || directDocxRoute.allowedToolNames.includes("file.searchText") || directDocxRoute.allowedToolNames.includes("clipboard.read")) {
+      failures.push("写作直出 Word 应直达 file.createDocx，不依赖检索/剪贴板/代码");
+    } else {
+      notes.push("写作直出 Word 路由正确：写请假条→file.createDocx 直达");
+    }
+    const directExcelRoute = resolveTurnCapability("做一个费用清单整理成 Excel 表格", []);
+    if (directExcelRoute.capability !== "file" || !directExcelRoute.allowedToolNames.includes("file.createExcel") || directExcelRoute.allowedToolNames.includes("browser.search")) {
+      failures.push("写作直出 Excel 应直达 file.createExcel，不依赖网页检索");
+    } else {
+      notes.push("写作直出 Excel 路由正确：费用清单→file.createExcel 直达");
+    }
+    const directPptxRoute = resolveTurnCapability("把这个提纲做成 PPT 演示文稿", []);
+    if (directPptxRoute.capability !== "file" || !directPptxRoute.allowedToolNames.includes("file.createPptx") || directPptxRoute.allowedToolNames.includes("browser.search")) {
+      failures.push("写作直出 PPT 应直达 file.createPptx，不依赖网页检索");
+    } else {
+      notes.push("写作直出 PPT 路由正确：提纲→file.createPptx 直达");
+    }
+    const directVsResearch = resolveTurnCapability("帮我调研 AI 趋势并做成 Word 报告", []);
+    if (directVsResearch.capability !== "file" || !directVsResearch.allowedToolNames.includes("browser.search") || !directVsResearch.allowedToolNames.includes("file.createDocx")) {
+      failures.push("调研后生成 Word 仍应走 browser.search + file.createDocx，非直出");
+    } else {
+      notes.push("调研生成 Word 路由正确：调研+Word→browser.search + file.createDocx");
     }
     const codeWeatherNegative = resolveTurnCapability("算一下今天天气怎么样", []);
     if (codeWeatherNegative.allowedToolNames.includes("agent.runCode")) {

@@ -571,6 +571,66 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     ]
   },
   {
+    id: "direct-docx-generate",
+    category: "file",
+    label: "写作直出 Word 文档",
+    summary: "把用户口述的请假条、计划书、总结、说明等直接整理为带封面章节的 Word 文档，无需检索网页或本地文件。",
+    userValue: "适合写请假条、项目计划、会议纪要、说明文档等，一句话直出可打印 Word。",
+    exampleRequests: [
+      "帮我写一封请假条并做成 Word 文档",
+      "把这个项目计划整理成 Word 报告"
+    ],
+    requiredToolNames: ["file.createDocx"],
+    optionalToolNames: ["file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "仅基于用户本轮输入与对话上下文生成，不检索网页或本地文件。",
+      "落盘前需确认文件名与模板，不覆盖已有文件。"
+    ]
+  },
+  {
+    id: "direct-excel-generate",
+    category: "file",
+    label: "写作/模板直出 Excel 表格",
+    summary: "把用户口述的清单、报表、台账、统计表直接整理为带样式的 Excel 表格，无需检索。",
+    userValue: "适合做销售报表、费用清单、台账、对比表等，一句话直出可编辑表格。",
+    exampleRequests: [
+      "做一个销售报表整理成 Excel 表格",
+      "帮我生成一个费用清单 Excel"
+    ],
+    requiredToolNames: ["file.createExcel"],
+    optionalToolNames: ["file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "仅基于用户本轮输入与对话上下文生成，不检索网页或本地文件。",
+      "落盘前需确认文件名与模板，不覆盖已有文件。"
+    ]
+  },
+  {
+    id: "direct-pptx-generate",
+    category: "file",
+    label: "写作直出 PPT 演示文稿",
+    summary: "把用户口述的提纲、要点、方案直接整理为带封面与要点的 PPTX，无需检索。",
+    userValue: "适合把提纲、方案、分享要点一句话整理成可演示 PPT。",
+    exampleRequests: [
+      "把这个提纲做成 PPT 演示文稿",
+      "帮我生成一个方案介绍 PPT"
+    ],
+    requiredToolNames: ["file.createPptx"],
+    optionalToolNames: ["file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "仅基于用户本轮输入与对话上下文生成，不检索网页或本地文件。",
+      "落盘前需确认文件名与模板，不覆盖已有文件。"
+    ]
+  },
+  {
     id: "privacy-and-boundary-review",
     category: "agent",
     label: "隐私、安全与扩展边界说明",
