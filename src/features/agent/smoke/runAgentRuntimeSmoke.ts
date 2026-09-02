@@ -1039,7 +1039,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       }>;
       safetyBoundaries?: unknown[];
     };
-    const webResearch = data.playbooks?.find((playbook) => playbook.id === "web-research-save-report");
+     const webResearch = data.playbooks?.find((playbook) => playbook.id === "web-research-save-report");
     const localDigest = data.playbooks?.find((playbook) => playbook.id === "local-knowledge-digest");
     const installer = data.playbooks?.find((playbook) => playbook.id === "official-installer-download");
     const dryRun = data.playbooks?.find((playbook) => playbook.id === "task-dry-run");
@@ -1050,9 +1050,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const downloadsOrganize = data.playbooks?.find((playbook) => playbook.id === "downloads-auto-organize");
     const healthExport = data.playbooks?.find((playbook) => playbook.id === "health-export");
     const excelResearch = data.playbooks?.find((playbook) => playbook.id === "excel-research-generate");
+    const codeCalc = data.playbooks?.find((playbook) => playbook.id === "code-calculation");
+    const codeTransform = data.playbooks?.find((playbook) => playbook.id === "code-data-transform");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount < 19
+      || data.playbookCount !== 24
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1094,6 +1096,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || excelResearch.requiresConfirmation !== true
       || excelResearch.maxRiskLevel !== "L2"
       || !data.playbooks?.find((p) => p.id === "ppt-research-generate")?.requiredToolNames?.includes("file.createPptx")
+      || !codeCalc?.requiredToolNames?.includes("agent.runCode")
+      || codeCalc.requiresConfirmation !== true
+      || codeCalc.maxRiskLevel !== "L2"
+      || !codeTransform?.requiredToolNames?.includes("agent.runCode")
+      || codeTransform.requiresConfirmation !== true
       || !data.safetyBoundaries?.some((item) => typeof item === "string" && item.includes("不是插件执行器"))
     ) {
       failures.push("agent.inspectTaskPlaybooks 应列出可用组合任务范式，并标记工具、风险、确认、输出来源与非插件执行边界");
@@ -1865,6 +1872,30 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       failures.push("待办清单导出 Excel 应直达 file.createExcel");
     } else {
       notes.push("记忆清单导出 Excel 路由正确：待办清单→file.createExcel 直达");
+    }
+    const codeCalcRoute = resolveTurnCapability("帮我用 JS 算一下这组数据的平均值", []);
+    if (codeCalcRoute.capability !== "agent" || !codeCalcRoute.allowedToolNames.includes("agent.runCode")) {
+      failures.push("数据计算应路由到 agent.runCode");
+    } else {
+      notes.push("代码计算路由正确：JS 平均值→agent.runCode");
+    }
+    const codeTransformRoute = resolveTurnCapability("把这段 CSV 数据用 python 转换成 JSON", []);
+    if (codeTransformRoute.capability !== "agent" || !codeTransformRoute.allowedToolNames.includes("agent.runCode")) {
+      failures.push("表格转换应路由到 agent.runCode");
+    } else {
+      notes.push("表格转换路由正确：CSV→JSON python→agent.runCode");
+    }
+    const codeCalcNaturalRoute = resolveTurnCapability("算一下平均值和总和", []);
+    if (codeCalcNaturalRoute.capability !== "agent" || !codeCalcNaturalRoute.allowedToolNames.includes("agent.runCode")) {
+      failures.push("自然口语算一下平均值应路由到 agent.runCode");
+    } else {
+      notes.push("自然计算路由正确：算一下平均值→agent.runCode");
+    }
+    const codeWeatherNegative = resolveTurnCapability("算一下今天天气怎么样", []);
+    if (codeWeatherNegative.allowedToolNames.includes("agent.runCode")) {
+      failures.push("天气类算一下不应误触发 agent.runCode");
+    } else {
+      notes.push("天气负例正确：算一下天气不进代码沙箱");
     }
     // 办公模板偏好：记忆 preference → 模板自适应（深/浅/活力），无偏好时按 hint 游戏→vivid/报告→light 兜底
     const { resolveOfficeTemplateFromText } = await import("../file/officeTemplatePreference");

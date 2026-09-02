@@ -491,6 +491,46 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     ]
   },
   {
+    id: "code-calculation",
+    category: "agent",
+    label: "数据计算与脚本执行",
+    summary: "用受限 JS/Python 沙箱执行纯计算、统计与公式，超时与输出有上限，不碰文件与网络。",
+    userValue: "适合算平均值、求和、统计、跑个小公式或数据处理脚本，无需本地装环境。",
+    exampleRequests: [
+      "帮我用 JS 算一下这组数据的平均值",
+      "用 python 统计一下这列数据的总和"
+    ],
+    requiredToolNames: ["agent.runCode"],
+    optionalToolNames: ["file.writeText", "file.readText", "file.createExcel"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "沙箱内无文件/网络权限，只能做纯计算；超时与输出均有上限。",
+      "Python 需本机已安装 python/python3，否则会提示安装。"
+    ]
+  },
+  {
+    id: "code-data-transform",
+    category: "agent",
+    label: "表格数据清洗与转换",
+    summary: "在沙箱内清洗或转换 CSV/JSON/表格数据，再按需落盘为文本或 Excel。",
+    userValue: "适合 CSV 转 JSON、数据清洗、去重排序后生成表格或文本文件。",
+    exampleRequests: [
+      "帮我把这段 CSV 数据用 JS 转换成 JSON",
+      "用 python 清洗一下表格数据并生成 Excel"
+    ],
+    requiredToolNames: ["agent.runCode"],
+    optionalToolNames: ["file.writeText", "file.createExcel", "file.readText", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "沙箱只做数据变换，不直接读写磁盘；落盘需走 file 工具并确认。",
+      "输入数据过大时会截断，回灌模型前会压缩。"
+    ]
+  },
+  {
     id: "privacy-and-boundary-review",
     category: "agent",
     label: "隐私、安全与扩展边界说明",
