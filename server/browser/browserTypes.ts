@@ -11,12 +11,12 @@ export type BrowserOpenRequest = {
   pageId?: string;
 };
 
-/** 搜索请求：默认 DuckDuckGo HTML；B 站站内搜用 bilibili */
+/** 搜索请求：默认 DuckDuckGo HTML；B 站/知乎/抖音 站内搜用对应引擎 */
 export type BrowserSearchRequest = {
   taskId: string;
   query: string;
-  /** duckduckgo=全网 HTML；bilibili=B 站站内视频搜索 */
-  engine?: "duckduckgo" | "bilibili";
+  /** duckduckgo=全网 HTML；bilibili=B 站；zhihu=知乎；douyin=抖音 */
+  engine?: "duckduckgo" | "bilibili" | "zhihu" | "douyin";
   /** 最多返回条数，默认 8，上限 20 */
   limit?: number;
 };
@@ -72,7 +72,7 @@ export type BrowserOpenData = {
 export type BrowserSearchData = {
   taskId: string;
   pageId: string;
-  engine: "duckduckgo" | "bilibili";
+  engine: "duckduckgo" | "bilibili" | "zhihu" | "douyin";
   query: string;
   resultPageUrl: string;
   results: BrowserSearchResultItem[];

@@ -25,7 +25,7 @@ export type BrowserOpenData = {
 export type BrowserSearchData = {
   taskId: string;
   pageId: string;
-  engine: "duckduckgo" | "bilibili";
+  engine: "duckduckgo" | "bilibili" | "zhihu" | "douyin";
   query: string;
   resultPageUrl: string;
   results: BrowserSearchResultItem[];

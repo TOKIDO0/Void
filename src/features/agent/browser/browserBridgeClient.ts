@@ -200,7 +200,7 @@ export async function browserSearch(
   input: {
     taskId: string;
     query: string;
-    engine?: "duckduckgo" | "bilibili";
+    engine?: "duckduckgo" | "bilibili" | "zhihu" | "douyin";
     limit?: number;
   },
   signal?: AbortSignal

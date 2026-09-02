@@ -17,9 +17,10 @@ export type BrowserSearchToolInput = {
   taskId?: string;
   /**
    * duckduckgo=全网 HTML 搜索；
-   * bilibili=B 站站内视频搜索（找博主/最新视频时必须用这个）。
+   * bilibili=B 站站内视频搜索；
+   * zhihu=知乎站内搜；douyin=抖音站内搜。
    */
-  engine?: "duckduckgo" | "bilibili";
+  engine?: "duckduckgo" | "bilibili" | "zhihu" | "douyin";
   /** 最多结果条数，默认 8，上限 20 */
   limit?: number;
 };
@@ -32,8 +33,8 @@ export const browserSearchTool: ToolDefinition<
 > = {
   name: "browser.search",
   description:
-    "搜索并返回标题/URL/摘要列表。engine=duckduckgo 为全网搜索；找 B 站博主或视频时必须用 engine=bilibili。query 要用具体人名/作品名/风格词，禁止把用户口语原句（如「好玩的博主」）原封不动当唯一关键词；可先换 2～3 个具体检索词。只读。打开后用户若要在自己常用浏览器里看，再调 browser.revealInSystemBrowser。",
-  version: "1.1.0",
+    "搜索并返回标题/URL/摘要列表。engine=duckduckgo 全网；bilibili=B 站视频、zhihu=知乎内容、douyin=抖音视频。找对应站点内容时必须指定对应 engine。query 用具体人名/作品名/风格词。只读。打开后若要在系统浏览器查看再调 browser.revealInSystemBrowser。",
+  version: "1.2.0",
   riskLevel: "L0",
   inputSchema: {
     type: "object",
@@ -48,8 +49,8 @@ export const browserSearchTool: ToolDefinition<
       },
       engine: {
         type: "string",
-        enum: ["duckduckgo", "bilibili"],
-        description: "搜索引擎：duckduckgo 或 bilibili"
+        enum: ["duckduckgo", "bilibili", "zhihu", "douyin"],
+        description: "搜索引擎：duckduckgo / bilibili / zhihu / douyin"
       },
       taskId: {
         type: "string",
@@ -72,7 +73,7 @@ export const browserSearchTool: ToolDefinition<
       pageId: { type: "string" },
       engine: {
         type: "string",
-        enum: ["duckduckgo", "bilibili"]
+        enum: ["duckduckgo", "bilibili", "zhihu", "douyin"]
       },
       query: { type: "string" },
       resultPageUrl: { type: "string" },
@@ -108,13 +109,10 @@ export const browserSearchTool: ToolDefinition<
   async execute(input, context) {
     const taskId = resolveTaskIdFromInput(input, context);
     const query = input.query.trim();
-    // 模型漏传 engine 时：文案含 B 站/bilibili/UP主 等则自动走站内搜，避免全网空转
     const engine =
-      input.engine === "bilibili" || input.engine === "duckduckgo"
+      input.engine === "bilibili" || input.engine === "duckduckgo" || input.engine === "zhihu" || input.engine === "douyin"
         ? input.engine
-        : shouldUseBilibiliEngine(query)
-          ? "bilibili"
-          : "duckduckgo";
+        : shouldInferEngine(query) ?? "duckduckgo";
     try {
       await ensureBrowserSession(taskId, context.signal);
       return await browserSearch(
@@ -132,6 +130,9 @@ export const browserSearchTool: ToolDefinition<
   }
 };
 
-function shouldUseBilibiliEngine(query: string) {
-  return /bilibili|b站|哔哩|up主|av\d+|bv[\w]+/i.test(query);
+function shouldInferEngine(query: string): "bilibili" | "zhihu" | "douyin" | undefined {
+  if (/bilibili|b站|哔哩|up主|av\d+|bv[\w]+/i.test(query)) return "bilibili";
+  if (/知乎|zhihu/i.test(query)) return "zhihu";
+  if (/抖音|douyin/i.test(query)) return "douyin";
+  return undefined;
 }

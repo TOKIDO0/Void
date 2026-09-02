@@ -25,6 +25,13 @@ import {
   extractDuckDuckGoResults
 } from "./duckduckgoSearch";
 import {
+  buildDouyinSearchUrl,
+  buildZhihuSearchUrl,
+  extractDouyinSearchResults,
+  extractZhihuSearchResults,
+  getPreferredExtractScopeForUrl
+} from "./siteAdapters";
+import {
   assertSingleMatch,
   createBrowserError,
   isBrowserCodedError,
@@ -363,7 +370,7 @@ export class BrowserSessionManager {
   async search(input: {
     taskId: string;
     query: string;
-    engine?: "duckduckgo" | "bilibili";
+    engine?: "duckduckgo" | "bilibili" | "zhihu" | "douyin";
     limit?: number;
   }): Promise<BrowserSearchData> {
     const query = input.query.trim();
@@ -371,12 +378,17 @@ export class BrowserSessionManager {
       throw createBrowserError("INVALID_REQUEST", "搜索关键词不能为空");
     }
 
-    const engine = input.engine === "bilibili" ? "bilibili" : "duckduckgo";
+    const normalizedEngine =
+      input.engine === "bilibili" || input.engine === "zhihu" || input.engine === "douyin"
+        ? input.engine
+        : "duckduckgo";
+    const engine = normalizedEngine;
     const limit = clampLimit(input.limit, 8);
-    const resultPageUrl =
-      engine === "bilibili"
-        ? buildBilibiliSearchUrl(query)
-        : buildDuckDuckGoHtmlSearchUrl(query);
+    let resultPageUrl: string;
+    if (engine === "bilibili") resultPageUrl = buildBilibiliSearchUrl(query);
+    else if (engine === "zhihu") resultPageUrl = buildZhihuSearchUrl(query);
+    else if (engine === "douyin") resultPageUrl = buildDouyinSearchUrl(query);
+    else resultPageUrl = buildDuckDuckGoHtmlSearchUrl(query);
 
     const opened = await this.open({
       taskId: input.taskId,
@@ -388,10 +400,10 @@ export class BrowserSessionManager {
 
     let results;
     try {
-      results =
-        engine === "bilibili"
-          ? await extractBilibiliSearchResults(managedPage.page, limit)
-          : await extractDuckDuckGoResults(managedPage.page, limit);
+      if (engine === "bilibili") results = await extractBilibiliSearchResults(managedPage.page, limit);
+      else if (engine === "zhihu") results = await extractZhihuSearchResults(managedPage.page, limit);
+      else if (engine === "douyin") results = await extractDouyinSearchResults(managedPage.page, limit);
+      else results = await extractDuckDuckGoResults(managedPage.page, limit);
     } catch (error) {
       throw createBrowserError(
         "PARSE_FAILED",
@@ -757,28 +769,58 @@ export class BrowserSessionManager {
     const session = this.requireSession(input.taskId);
     const managedPage = this.requirePage(session, input.pageId ?? session.activePageId);
 
+    // 站点薄适配：未指定 scope 且为文本抽取时，按 host 提示首选容器，失败回落整页
+    let effectiveScopeSelector = scopeSelector;
+    let usedSiteHint = false;
+    if (!effectiveScopeSelector && (mode === "text" || mode === "both")) {
+      const hint = getPreferredExtractScopeForUrl(managedPage.page.url());
+      if (hint) {
+        try {
+          const hintCount = await managedPage.page.locator(hint).count();
+          if (hintCount > 0) {
+            effectiveScopeSelector = hint;
+            usedSiteHint = true;
+          }
+        } catch {
+          // hint 非法则忽略，回落整页
+        }
+      }
+    }
+
     // 若给了 scope，先确认范围内有节点，避免静默退回整页却不告知
-    if (scopeSelector) {
+    // 站点 hint 命中时不抛错，自动回落整页（避免动态页因容器未渲染而失败）
+    if (effectiveScopeSelector) {
       try {
-        const scopeCount = await managedPage.page.locator(scopeSelector).count();
+        const scopeCount = await managedPage.page.locator(effectiveScopeSelector).count();
         if (scopeCount === 0) {
-          throw createBrowserError(
-            "PARSE_FAILED",
-            `scopeSelector 未匹配到任何元素：${scopeSelector}`,
-            { scopeSelector }
-          );
+          if (usedSiteHint) {
+            effectiveScopeSelector = undefined;
+          } else {
+            throw createBrowserError(
+              "PARSE_FAILED",
+              `scopeSelector 未匹配到任何元素：${effectiveScopeSelector}`,
+              { scopeSelector: effectiveScopeSelector }
+            );
+          }
         }
       } catch (error) {
         if (isBrowserCodedError(error)) {
-          throw error;
+          if (usedSiteHint) {
+            effectiveScopeSelector = undefined;
+          } else {
+            throw error;
+          }
+        } else if (!usedSiteHint) {
+          throw createBrowserError(
+            "INVALID_REQUEST",
+            error instanceof Error
+              ? `非法 scopeSelector：${error.message}`
+              : "非法 scopeSelector",
+            { scopeSelector: effectiveScopeSelector }
+          );
+        } else {
+          effectiveScopeSelector = undefined;
         }
-        throw createBrowserError(
-          "INVALID_REQUEST",
-          error instanceof Error
-            ? `非法 scopeSelector：${error.message}`
-            : "非法 scopeSelector",
-          { scopeSelector }
-        );
       }
     }
 
@@ -786,7 +828,7 @@ export class BrowserSessionManager {
     try {
       items = await extractPageStructure(managedPage.page, {
         mode,
-        scopeSelector,
+        scopeSelector: effectiveScopeSelector,
         limit: extractLimit,
         includeBelowFold: input.includeBelowFold === true
       });
@@ -794,7 +836,7 @@ export class BrowserSessionManager {
       throw createBrowserError(
         "PARSE_FAILED",
         error instanceof Error ? error.message : "页面抽取失败",
-        { mode, scopeSelector }
+        { mode, scopeSelector: effectiveScopeSelector ?? scopeSelector }
       );
     }
 

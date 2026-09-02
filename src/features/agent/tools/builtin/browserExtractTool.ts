@@ -33,8 +33,8 @@ export const browserExtractTool: ToolDefinition<
 > = {
   name: "browser.extract",
   description:
-    "从当前自动化页抽取结构化链接/文案（只读）。click/type 前若看不清结构或 selector 易飘，必须先 extract。mode 默认 links；正文用 text/both。返回 items[].suggestedSelector 仅在页面上唯一匹配时才有，可直接交给 click；若省略则用 text/href 收窄，禁止空猜选择器。items[].role/name 为无障碍语义（ARIA 角色 + 可访问名），可据此判断元素类型（如 button/link）并按 name 选目标。搜索引擎结果优先 browser.readResult，不要用本工具代替。",
-  version: "1.0.0",
+    "从当前自动化页抽取结构化链接/文案（只读）。click/type 前若看不清结构或 selector 易飘，必须先 extract。mode 默认 links；正文用 text/both。站点薄适配：知乎/抖音/B站/小红书/微博 已内置首选容器，未传 scopeSelector 时 text/both 会自动命中正文区并回落整页；也可显式传 scopeSelector 精确限定。返回 items[].suggestedSelector 仅在页面上唯一匹配时才有，可直接交给 click；items[].role/name 为无障碍语义。搜索引擎结果优先 browser.readResult。",
+  version: "1.1.0",
   riskLevel: "L0",
   inputSchema: {
     type: "object",
