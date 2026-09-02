@@ -159,7 +159,7 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
     label: "受限桌面动作",
     summary: "打开固定系统位置、在资源管理器里展示已确认路径、列出已安装应用并启动应用；高权限模式下部分操作免确认。",
     requiresBridge: true,
-    toolNames: ["desktop.openKnownLocation", "desktop.listInstalledApplications", "desktop.launchApplication", "desktop.revealPath"]
+    toolNames: ["desktop.openKnownLocation", "desktop.listInstalledApplications", "desktop.launchApplication", "desktop.listWindows", "desktop.focusWindow", "desktop.closeWindow", "desktop.getSystemInfo", "desktop.revealPath"]
   },
   {
     id: "security",

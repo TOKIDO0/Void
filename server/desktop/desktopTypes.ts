@@ -51,6 +51,44 @@ export type DesktopLaunchAppData = {
   launchedAt: number;
 };
 
+export type DesktopWindowInfo = {
+  hwnd: string;
+  pid: number;
+  processName: string;
+  title: string;
+};
+
+export type DesktopListWindowsData = {
+  windows: DesktopWindowInfo[];
+  count: number;
+  scannedAt: number;
+};
+
+export type DesktopFocusWindowData = {
+  hwnd: string;
+  pid: number;
+  processName: string;
+  title: string;
+  focusedAt: number;
+};
+
+export type DesktopCloseWindowData = {
+  closed: boolean;
+  pid: number;
+  title: string;
+  closedAt: number;
+};
+
+export type DesktopSystemInfoData = {
+  platform: string;
+  arch: string;
+  totalMemMb: number;
+  freeMemMb: number;
+  cpus: number;
+  screen?: { width: number; height: number };
+  collectedAt: number;
+};
+
 export type DesktopApiErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"

@@ -13,7 +13,11 @@ import type {
   DesktopKnownLocation,
   DesktopLaunchAppData,
   DesktopOpenKnownLocationData,
-  DesktopRevealPathData
+  DesktopRevealPathData,
+  DesktopListWindowsData,
+  DesktopFocusWindowData,
+  DesktopCloseWindowData,
+  DesktopSystemInfoData
 } from "./desktopBridgeTypes";
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 
@@ -184,6 +188,28 @@ export async function launchApplication(
     { name: input.name },
     signal
   );
+}
+
+export async function listWindows(signal?: AbortSignal): Promise<DesktopListWindowsData> {
+  return postDesktopApi<DesktopListWindowsData>("/void-desktop/list-windows", {}, signal);
+}
+
+export async function focusWindow(
+  input: { hwnd?: string; pid?: number; title?: string },
+  signal?: AbortSignal
+): Promise<DesktopFocusWindowData> {
+  return postDesktopApi<DesktopFocusWindowData>("/void-desktop/focus-window", input as Record<string, unknown>, signal);
+}
+
+export async function closeWindow(
+  input: { hwnd?: string; pid?: number; title?: string },
+  signal?: AbortSignal
+): Promise<DesktopCloseWindowData> {
+  return postDesktopApi<DesktopCloseWindowData>("/void-desktop/close-window", input as Record<string, unknown>, signal);
+}
+
+export async function getSystemInfo(signal?: AbortSignal): Promise<DesktopSystemInfoData> {
+  return postDesktopApi<DesktopSystemInfoData>("/void-desktop/system-info", {}, signal);
 }
 
 export function getDesktopBridgeErrorInfo(error: unknown): {

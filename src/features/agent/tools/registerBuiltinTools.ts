@@ -19,6 +19,10 @@ import { desktopRevealPathTool } from "./builtin/desktopRevealPathTool";
 import { desktopOpenKnownLocationTool } from "./builtin/desktopOpenKnownLocationTool";
 import { desktopListInstalledApplicationsTool } from "./builtin/desktopListInstalledApplicationsTool";
 import { desktopLaunchApplicationTool } from "./builtin/desktopLaunchApplicationTool";
+import { desktopListWindowsTool } from "./builtin/desktopListWindowsTool";
+import { desktopFocusWindowTool } from "./builtin/desktopFocusWindowTool";
+import { desktopCloseWindowTool } from "./builtin/desktopCloseWindowTool";
+import { desktopGetSystemInfoTool } from "./builtin/desktopGetSystemInfoTool";
 import { echoTool } from "./builtin/echoTool";
 import { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 import { fileDownloadMediaPageTool } from "./builtin/fileDownloadMediaPageTool";
@@ -82,6 +86,10 @@ export function registerBuiltinTools() {
     desktopOpenKnownLocationTool,
     desktopListInstalledApplicationsTool,
     desktopLaunchApplicationTool,
+    desktopListWindowsTool,
+    desktopFocusWindowTool,
+    desktopCloseWindowTool,
+    desktopGetSystemInfoTool,
     fileDownloadToTempTool,
     fileDownloadMediaPageTool,
     fileDownloadMediaTool,

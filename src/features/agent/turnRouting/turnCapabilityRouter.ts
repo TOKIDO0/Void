@@ -85,6 +85,11 @@ const DESKTOP_TOOL_NAMES = [
   "desktop.revealPath"
 ];
 
+const DESKTOP_WINDOW_LIST_TOOL_NAMES = ["desktop.listWindows"];
+const DESKTOP_FOCUS_WINDOW_TOOL_NAMES = ["desktop.listWindows", "desktop.focusWindow"];
+const DESKTOP_CLOSE_WINDOW_TOOL_NAMES = ["desktop.listWindows", "desktop.closeWindow"];
+const DESKTOP_SYSTEM_INFO_TOOL_NAMES = ["desktop.getSystemInfo"];
+
 const CLIPBOARD_TOOL_NAMES = [
   "clipboard.read",
   "clipboard.write"
@@ -338,6 +343,10 @@ const SOFTWARE_TOOL_NAMES = [
 
 const EXPLICIT_CONTINUATION_PATTERN = /^(?:继续|接着|接着做|继续刚才|接着刚才|把刚才|刚才那个|再试一次|重试)(?:[，。,.！!？?\s]|$)/;
 const DESKTOP_APP_PATTERN = /(?:(?:打开|启动|运行|打开一下|启动一下).{0,10}(?:应用|程序|软件)|(?:应用|程序|软件).{0,8}(?:列表|有哪些|有什么))/;
+const DESKTOP_WINDOW_LIST_PATTERN = /(?:(?:查看|列出|显示|看看).{0,12}(?:窗口|已打开|正在运行).{0,12}(?:有哪些|列表|是什么)?|(?:窗口|已打开).{0,8}(?:列表|有哪些|看看))/i;
+const DESKTOP_FOCUS_WINDOW_PATTERN = /(?:(?:切换|切到|聚焦|转到|激活|切回).{0,10}(?:窗口|应用|软件|微信|浏览器|VS\s*Code|Code))/i;
+const DESKTOP_CLOSE_WINDOW_PATTERN = /(?:(?:关闭|关掉|结束|退出).{0,10}(?:窗口|应用|软件|微信|浏览器|VS\s*Code))/i;
+const DESKTOP_SYSTEM_INFO_PATTERN = /(?:(?:查看|看看|获取).{0,10}(?:系统信息|电脑信息|电脑配置|内存|CPU|屏幕|分辨率)|(?:系统信息|电脑配置|本机信息).{0,6}(?:看看|查看|是多少)?)/i;
 const DESKTOP_SIMPLE_LAUNCH_PATTERN = /(?:^|[^\w\u4e00-\u9fa5])(?:给我|帮我)?(?:打开|启动|运行)\s*([A-Za-z0-9\u4e00-\u9fa5]{1,20})\s*$/;
 const DESKTOP_LAUNCH_BLOCKLIST = ["网页", "网站", "链接", "浏览器", "文件", "文件夹", "目录", "路径", "下载", "http", "https"];
 const THIS_PC_PATTERN = /(?:打开|进入|显示|启动).{0,6}(?:我的电脑|此电脑|这台电脑)/;
@@ -555,6 +564,22 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (LOCAL_RUNTIME_SECURITY_PATTERN.test(userInput)) {
     return createRoute("security", SECURITY_TOOL_NAMES);
+  }
+
+  if (DESKTOP_CLOSE_WINDOW_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_CLOSE_WINDOW_TOOL_NAMES);
+  }
+
+  if (DESKTOP_FOCUS_WINDOW_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_FOCUS_WINDOW_TOOL_NAMES);
+  }
+
+  if (DESKTOP_WINDOW_LIST_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_WINDOW_LIST_TOOL_NAMES);
+  }
+
+  if (DESKTOP_SYSTEM_INFO_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_SYSTEM_INFO_TOOL_NAMES);
   }
 
   if (DESKTOP_APP_PATTERN.test(userInput)) {

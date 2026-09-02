@@ -217,3 +217,7 @@ export type {
   DesktopOpenKnownLocationToolInput,
   DesktopOpenKnownLocationToolOutput
 } from "./builtin/desktopOpenKnownLocationTool";
+export { desktopListWindowsTool } from "./builtin/desktopListWindowsTool";
+export { desktopFocusWindowTool } from "./builtin/desktopFocusWindowTool";
+export { desktopCloseWindowTool } from "./builtin/desktopCloseWindowTool";
+export { desktopGetSystemInfoTool } from "./builtin/desktopGetSystemInfoTool";

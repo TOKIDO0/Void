@@ -17,6 +17,7 @@ import {
 import { desktopRevealManager } from "./desktopRevealManager";
 import { desktopKnownLocationManager } from "./desktopKnownLocationManager";
 import { listInstalledApplications, launchApplicationByName } from "./desktopAppManager";
+import { listWindows, focusWindow, closeWindow, getSystemInfo } from "./desktopWindowManager";
 import type {
   ClipboardReadData,
   ClipboardWriteData,
@@ -190,6 +191,54 @@ export async function handleDesktopHttpRequest(
         throw Object.assign(new Error("缺少 name（应用名）"), { desktopCode: "INVALID_REQUEST" });
       }
       return launchApplicationByName(name);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/list-windows") {
+    await withDesktopHandler(response, async () => {
+      await readJsonBody(request);
+      const windows = await listWindows();
+      return { windows, count: windows.length, scannedAt: Date.now() };
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/focus-window") {
+    await withDesktopHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const hwnd = typeof body.hwnd === "string" ? body.hwnd.trim() : undefined;
+      const pid = typeof body.pid === "number" ? body.pid : typeof body.pid === "string" ? Number(body.pid) : undefined;
+      const title = typeof body.title === "string" ? body.title.trim() : undefined;
+      if (!hwnd && !pid && !title) {
+        throw Object.assign(new Error("需提供 hwnd/pid/title 之一"), { desktopCode: "INVALID_REQUEST" });
+      }
+      const w = await focusWindow({ hwnd, pid, title });
+      return { hwnd: w.hwnd, pid: w.pid, processName: w.processName, title: w.title, focusedAt: Date.now() };
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/close-window") {
+    await withDesktopHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const hwnd = typeof body.hwnd === "string" ? body.hwnd.trim() : undefined;
+      const pid = typeof body.pid === "number" ? body.pid : typeof body.pid === "string" ? Number(body.pid) : undefined;
+      const title = typeof body.title === "string" ? body.title.trim() : undefined;
+      if (!hwnd && !pid && !title) {
+        throw Object.assign(new Error("需提供 hwnd/pid/title 之一"), { desktopCode: "INVALID_REQUEST" });
+      }
+      const res = await closeWindow({ hwnd, pid, title });
+      return { closed: res.closed, pid: res.pid, title: res.title, closedAt: Date.now() };
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/system-info") {
+    await withDesktopHandler(response, async () => {
+      await readJsonBody(request);
+      const info = await getSystemInfo();
+      return { ...info, collectedAt: Date.now() };
     });
     return true;
   }
