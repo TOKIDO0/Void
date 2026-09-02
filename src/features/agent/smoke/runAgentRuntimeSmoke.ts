@@ -2341,6 +2341,82 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push(`Schema 拦截：${schemaResult.error.message}`);
   }
 
+  // 2b) Hermes 参数宽容：string→number/boolean/array/JSON 字符串纠正（对标 model_tools.py:coerce_tool_args）
+  registerTool({
+    name: "smoke.coerce",
+    description: "仅用于验证参数宽容",
+    version: "1.0.0",
+    riskLevel: "L0",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["count"],
+      properties: {
+        count: { type: "number", minimum: 1, maximum: 100 },
+        enabled: { type: "boolean" },
+        tags: { type: "array", items: { type: "string" } },
+        meta: { type: "object", additionalProperties: false, properties: { note: { type: "string" } } }
+      }
+    },
+    outputSchema: { type: "object", properties: { ok: { type: "boolean" } } },
+    requiredResources: [],
+    permissions: ["tool.smoke.coerce"],
+    timeoutMs: 3_000,
+    cancellable: true,
+    idempotency: "safe",
+    auditPolicy: {},
+    async execute(input) {
+      return { ok: true, echo: input };
+    }
+  });
+  const coerceNumber = await executeToolCall({
+    taskId: "smoke_coerce_number",
+    stepId: "s_coerce_number",
+    toolName: "smoke.coerce",
+    input: { count: "8", enabled: "true", tags: "solo" },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.smoke.coerce"])
+  });
+  const coerceJsonArray = await executeToolCall({
+    taskId: "smoke_coerce_json_array",
+    stepId: "s_coerce_json_array",
+    toolName: "smoke.coerce",
+    input: { count: 2, tags: '["a","b"]' },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.smoke.coerce"])
+  });
+  const coerceJsonObject = await executeToolCall({
+    taskId: "smoke_coerce_json_object",
+    stepId: "s_coerce_json_object",
+    toolName: "smoke.coerce",
+    input: { count: 3, meta: '{"note":"hi"}' },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.smoke.coerce"])
+  });
+  const coerceStillFails = await executeToolCall({
+    taskId: "smoke_coerce_still_fails",
+    stepId: "s_coerce_still_fails",
+    toolName: "smoke.coerce",
+    input: { count: "not-a-number" },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.smoke.coerce"])
+  });
+  if (!coerceNumber.ok) {
+    failures.push(`参数宽容应纠正 string number/boolean/bare array：${coerceNumber.error.message}`);
+  } else if (!coerceJsonArray.ok) {
+    failures.push(`参数宽容应纠正 JSON 字符串数组：${coerceJsonArray.error.message}`);
+  } else if (!coerceJsonObject.ok) {
+    failures.push(`参数宽容应纠正 JSON 字符串对象：${coerceJsonObject.error.message}`);
+  } else if (coerceStillFails.ok || coerceStillFails.error.code !== "SCHEMA_INVALID") {
+    failures.push("无法纠正的非法参数仍应保持 SCHEMA_INVALID");
+  } else {
+    notes.push("参数宽容：string→number/boolean/bare array/JSON 字符串均正确纠正，非法仍拦截");
+  }
+
   // 3) 未注册工具明确拒绝
   const missing = await executeToolCall({
     taskId: "smoke_missing",

@@ -17,6 +17,7 @@ export type {
 
 export { validateAgainstSchema } from "./toolSchema";
 export type { SchemaValidationIssue, SchemaValidationResult } from "./toolSchema";
+export { coerceToolArgs } from "./coerceToolArgs";
 
 export {
   clearToolRegistry,

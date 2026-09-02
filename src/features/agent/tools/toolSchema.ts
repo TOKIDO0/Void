@@ -145,6 +145,8 @@ function matchesType(type: NonNullable<ToolJsonSchema["type"]>, value: unknown) 
       return typeof value === "string";
     case "number":
       return typeof value === "number" && Number.isFinite(value);
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
     case "boolean":
       return typeof value === "boolean";
     case "null":

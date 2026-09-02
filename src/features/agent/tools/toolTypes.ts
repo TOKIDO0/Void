@@ -16,7 +16,7 @@ export type ToolIdempotency = "safe" | "unsafe" | "unknown";
  * 轻量 JSON Schema 子集：阶段 B 只支持校验所需的字段，避免引入重量级依赖。
  */
 export type ToolJsonSchema = {
-  type?: "object" | "string" | "number" | "boolean" | "array" | "null";
+  type?: "object" | "string" | "number" | "integer" | "boolean" | "array" | "null";
   description?: string;
   properties?: Record<string, ToolJsonSchema>;
   required?: string[];

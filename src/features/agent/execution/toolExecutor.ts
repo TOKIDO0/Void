@@ -13,6 +13,7 @@ import {
   type ToolError,
   type ToolResult
 } from "../tools";
+import { coerceToolArgs } from "../tools/coerceToolArgs";
 import {
   acquireResources,
   releaseStepResources,
@@ -84,7 +85,8 @@ export async function executeToolCall(
     return { ok: false, error };
   }
 
-  const validation = validateAgainstSchema(tool.inputSchema, params.input);
+  const coercedInput = coerceToolArgs(params.toolName, params.input);
+  const validation = validateAgainstSchema(tool.inputSchema, coercedInput);
   if (!validation.valid) {
     const error = createToolError(
       "SCHEMA_INVALID",
@@ -132,13 +134,13 @@ export async function executeToolCall(
       attempt: params.attempt,
       input: tool.auditPolicy.logInputSummary === false
         ? undefined
-        : sanitizeForAudit(params.input, tool.auditPolicy.redactInputKeys ?? [])
+        : sanitizeForAudit(coercedInput, tool.auditPolicy.redactInputKeys ?? [])
     },
     redactKeys: tool.auditPolicy.redactInputKeys
   });
 
   try {
-    const output = await runWithTimeoutAndCancel(tool, params);
+    const output = await runWithTimeoutAndCancel(tool, { ...params, input: coercedInput });
     const outputValidation = validateAgainstSchema(tool.outputSchema, output);
     if (!outputValidation.valid) {
       throw createToolError(
