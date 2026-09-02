@@ -91,6 +91,7 @@ const DESKTOP_CLOSE_WINDOW_TOOL_NAMES = ["desktop.listWindows", "desktop.closeWi
 const DESKTOP_SYSTEM_INFO_TOOL_NAMES = ["desktop.getSystemInfo"];
 const DESKTOP_SCREENSHOT_TOOL_NAMES = ["desktop.screenshot"];
 const DESKTOP_WINDOW_BOUNDS_TOOL_NAMES = ["desktop.listWindows", "desktop.setWindowBounds"];
+const DESKTOP_OPEN_FILE_TOOL_NAMES = ["desktop.openFile"];
 
 const CLIPBOARD_TOOL_NAMES = [
   "clipboard.read",
@@ -351,6 +352,7 @@ const DESKTOP_CLOSE_WINDOW_PATTERN = /(?:(?:关闭|关掉|结束|退出).{0,10}(
 const DESKTOP_SYSTEM_INFO_PATTERN = /(?:(?:查看|看看|获取).{0,10}(?:系统信息|电脑信息|电脑配置|内存|CPU|屏幕|分辨率)|(?:系统信息|电脑配置|本机信息).{0,6}(?:看看|查看|是多少)?)/i;
 const DESKTOP_SCREENSHOT_PATTERN = /(?:(?:截屏|截图|屏幕截图|桌面截图).{0,12}(?:看看|一下|当前|桌面)?|(?:看看|查看).{0,10}(?:屏幕|桌面).{0,6}(?:内容|当前|截图)?)/i;
 const DESKTOP_WINDOW_BOUNDS_PATTERN = /(?:(?:最大化|最小化|还原|调整|移动|缩放|摆到|放到).{0,12}(?:窗口|应用|软件)|(?:窗口|应用).{0,12}(?:最大化|最小化|还原|移动|缩放|调整))/i;
+const DESKTOP_OPEN_FILE_PATTERN = /(?:(?:打开|看看|查看).{0,16}(?:文件|文档|表格|报告).{0,12}(?:看看|一下|内容)?|(?:打开|看看|查看).{0,8}[A-Za-z]:\\[^\n]{1,120}\.(?:txt|md|pdf|png|jpg|jpeg|xlsx|pptx|docx|csv)\b)/i;
 const DESKTOP_SIMPLE_LAUNCH_PATTERN = /(?:^|[^\w\u4e00-\u9fa5])(?:给我|帮我)?(?:打开|启动|运行)\s*([A-Za-z0-9\u4e00-\u9fa5]{1,20})\s*$/;
 const DESKTOP_LAUNCH_BLOCKLIST = ["网页", "网站", "链接", "浏览器", "文件", "文件夹", "目录", "路径", "下载", "http", "https"];
 const THIS_PC_PATTERN = /(?:打开|进入|显示|启动).{0,6}(?:我的电脑|此电脑|这台电脑)/;
@@ -592,6 +594,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (DESKTOP_WINDOW_BOUNDS_PATTERN.test(userInput)) {
     return createRoute("desktop", DESKTOP_WINDOW_BOUNDS_TOOL_NAMES);
+  }
+
+  if (DESKTOP_OPEN_FILE_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_OPEN_FILE_TOOL_NAMES);
   }
 
   if (DESKTOP_APP_PATTERN.test(userInput)) {

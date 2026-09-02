@@ -106,6 +106,13 @@ export type DesktopSetWindowBoundsData = {
   appliedAt: number;
 };
 
+export type DesktopOpenFileData = {
+  openedPath: string;
+  revealedPath: string;
+  openMode: "open";
+  revealedAt: number;
+};
+
 export type DesktopApiErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"

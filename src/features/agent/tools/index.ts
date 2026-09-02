@@ -223,3 +223,4 @@ export { desktopCloseWindowTool } from "./builtin/desktopCloseWindowTool";
 export { desktopGetSystemInfoTool } from "./builtin/desktopGetSystemInfoTool";
 export { desktopScreenshotTool } from "./builtin/desktopScreenshotTool";
 export { desktopSetWindowBoundsTool } from "./builtin/desktopSetWindowBoundsTool";
+export { desktopOpenFileTool } from "./builtin/desktopOpenFileTool";

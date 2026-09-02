@@ -19,6 +19,7 @@ import { desktopKnownLocationManager } from "./desktopKnownLocationManager";
 import { listInstalledApplications, launchApplicationByName } from "./desktopAppManager";
 import { listWindows, focusWindow, closeWindow, getSystemInfo, setWindowBounds } from "./desktopWindowManager";
 import { takeDesktopScreenshot } from "./desktopScreenshotManager";
+import { desktopOpenManager } from "./desktopOpenManager";
 import type {
   ClipboardReadData,
   ClipboardWriteData,
@@ -266,6 +267,16 @@ export async function handleDesktopHttpRequest(
       if (!hwnd && !pid && !title) throw Object.assign(new Error("需提供 hwnd/pid/title"), { desktopCode: "INVALID_REQUEST" });
       const res = await setWindowBounds({ hwnd, pid, title, x, y, width, height, action: action as never });
       return { ...res, appliedAt: Date.now() };
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/open-file") {
+    await withDesktopHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const path = typeof body.path === "string" ? body.path.trim() : "";
+      if (!path) throw Object.assign(new Error("缺少 path"), { desktopCode: "INVALID_REQUEST" });
+      return desktopOpenManager.openFile(path);
     });
     return true;
   }

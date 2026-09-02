@@ -19,7 +19,8 @@ import type {
   DesktopCloseWindowData,
   DesktopSystemInfoData,
   DesktopScreenshotData,
-  DesktopSetWindowBoundsData
+  DesktopSetWindowBoundsData,
+  DesktopOpenFileData
 } from "./desktopBridgeTypes";
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 
@@ -223,6 +224,13 @@ export async function setWindowBounds(
   signal?: AbortSignal
 ): Promise<DesktopSetWindowBoundsData> {
   return postDesktopApi<DesktopSetWindowBoundsData>("/void-desktop/set-window-bounds", input as Record<string, unknown>, signal);
+}
+
+export async function openFile(
+  input: { path: string },
+  signal?: AbortSignal
+): Promise<DesktopOpenFileData> {
+  return postDesktopApi<DesktopOpenFileData>("/void-desktop/open-file", { path: input.path }, signal);
 }
 
 export function getDesktopBridgeErrorInfo(error: unknown): {
