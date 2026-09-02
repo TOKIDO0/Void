@@ -206,6 +206,22 @@ const FILE_LOCAL_CODE_DOCX_TOOL_NAMES = [
   "browser.extract"
 ];
 
+const CLIPBOARD_CODE_EXCEL_TOOL_NAMES = [
+  "clipboard.read",
+  "agent.runCode",
+  "file.createExcel",
+  "file.verify",
+  "desktop.revealPath"
+];
+
+const CLIPBOARD_CODE_PPTX_TOOL_NAMES = [
+  "clipboard.read",
+  "agent.runCode",
+  "file.createPptx",
+  "file.verify",
+  "desktop.revealPath"
+];
+
 const CONVERSATION_EXCEL_TOOL_NAMES = [
   "file.createExcel",
   "file.verify",
@@ -490,15 +506,23 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
     return createRoute("file", FILE_LOCAL_CODE_EXCEL_TOOL_NAMES);
   }
 
-  // 代码结果一键落盘为办公文档：算完直接生成表格/报告/演示
-  if (isCodeOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
-    return createRoute("file", CODE_OFFICE_EXCEL_TOOL_NAMES);
-  }
+  // 代码结果一键落盘为办公文档：算完直接生成表格/报告/演示（PPT/Word 优先于 Excel 的通用“表格”词）
   if (isCodeOfficeIntent(userInput, LOCAL_OFFICE_PPTX_PATTERN)) {
     return createRoute("file", CODE_OFFICE_PPTX_TOOL_NAMES);
   }
   if (isCodeOfficeIntent(userInput, LOCAL_OFFICE_DOCX_PATTERN)) {
     return createRoute("file", CODE_OFFICE_DOCX_TOOL_NAMES);
+  }
+  if (isCodeOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
+    return createRoute("file", CODE_OFFICE_EXCEL_TOOL_NAMES);
+  }
+
+  // 剪贴板内容经代码清洗后生成办公：先读剪贴板再沙箱处理再落盘（优先于纯代码）
+  if (isClipboardCodeOfficeIntent(userInput, LOCAL_OFFICE_PPTX_PATTERN)) {
+    return createRoute("file", CLIPBOARD_CODE_PPTX_TOOL_NAMES);
+  }
+  if (isClipboardCodeOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
+    return createRoute("file", CLIPBOARD_CODE_EXCEL_TOOL_NAMES);
   }
 
   if (CODE_RUN_PATTERN.test(userInput)) {
@@ -732,11 +756,20 @@ function isClipboardOfficeIntent(userInput: string, officePattern: RegExp): bool
   return officePattern.test(userInput);
 }
 
+function isClipboardCodeOfficeIntent(userInput: string, officePattern: RegExp): boolean {
+  const hasClipboard = /(?:剪贴板|粘贴板)/i.test(userInput);
+  const hasCode = /(?:js|javascript|python|代码|沙箱|计算|统计|清洗|转换|分析)/i.test(userInput);
+  const hasOfficeAction = /(?:生成|做成|导出|整理|转换|做一下|做个)/i.test(userInput);
+  if (!hasClipboard || !hasCode || !hasOfficeAction) return false;
+  return officePattern.test(userInput);
+}
+
 function isCodeOfficeIntent(userInput: string, officePattern: RegExp): boolean {
   const hasCodeHint = /(?:js|javascript|python|代码|沙箱|计算|统计|平均值|求和|清洗|转换)/i.test(userInput);
   const hasOfficeAction = /(?:生成|做成|导出|整理|转换|做一下|做个)/i.test(userInput);
   if (!hasCodeHint || !hasOfficeAction) return false;
   if (LOCAL_KNOWLEDGE_SOURCE_PATTERN.test(userInput) || /(?:本地).{0,12}(?:资料|文件|数据|记录|表格)/i.test(userInput)) return false;
+  if (/(?:剪贴板|粘贴板)/i.test(userInput)) return false;
   return officePattern.test(userInput);
 }
 

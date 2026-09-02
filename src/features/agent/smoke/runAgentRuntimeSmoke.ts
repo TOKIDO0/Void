@@ -1058,7 +1058,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const codeTransform = data.playbooks?.find((playbook) => playbook.id === "code-data-transform");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount !== 30
+      || data.playbookCount !== 31
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1116,6 +1116,9 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || !localCodeOffice.requiredToolNames.includes("file.createExcel")
       || !localCodeOffice.requiredToolNames.includes("file.searchText")
       || localCodeOffice.requiresConfirmation !== true
+      || !data.playbooks?.find((p) => p.id === "clipboard-code-office")?.requiredToolNames?.includes("clipboard.read")
+      || !data.playbooks?.find((p) => p.id === "clipboard-code-office")?.requiredToolNames?.includes("agent.runCode")
+      || !data.playbooks?.find((p) => p.id === "clipboard-code-office")?.requiredToolNames?.includes("file.createExcel")
       || !codeCalc?.requiredToolNames?.includes("agent.runCode")
       || codeCalc.requiresConfirmation !== true
       || codeCalc.maxRiskLevel !== "L2"
@@ -1867,6 +1870,18 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       failures.push("本地代码分析 PPT 应同轮可用 agent.runCode + file.createPptx");
     } else {
       notes.push("本地代码分析 PPT 路由正确：本地表格+JS→PPT 同轮可用");
+    }
+    const clipboardCodeExcelRoute = resolveTurnCapability("把剪贴板里的 CSV 用 python 清洗后做成 Excel", []);
+    if (clipboardCodeExcelRoute.capability !== "file" || !clipboardCodeExcelRoute.allowedToolNames.includes("clipboard.read") || !clipboardCodeExcelRoute.allowedToolNames.includes("agent.runCode") || !clipboardCodeExcelRoute.allowedToolNames.includes("file.createExcel")) {
+      failures.push("剪贴板代码清洗 Excel 应同轮可用 clipboard.read + agent.runCode + file.createExcel");
+    } else {
+      notes.push("剪贴板代码清洗 Excel 路由正确：剪贴板 CSV+python→Excel 同轮可用");
+    }
+    const clipboardCodePptxRoute = resolveTurnCapability("用 JS 处理剪贴板表格并做成 PPT", []);
+    if (clipboardCodePptxRoute.capability !== "file" || !clipboardCodePptxRoute.allowedToolNames.includes("clipboard.read") || !clipboardCodePptxRoute.allowedToolNames.includes("agent.runCode") || !clipboardCodePptxRoute.allowedToolNames.includes("file.createPptx")) {
+      failures.push("剪贴板代码清洗 PPT 应同轮可用 clipboard.read + agent.runCode + file.createPptx");
+    } else {
+      notes.push("剪贴板代码清洗 PPT 路由正确：剪贴板+JS→PPT 同轮可用");
     }
     const localDocxRoute = resolveTurnCapability("把本地资料整理成 Word 报告文档", []);
     if (localDocxRoute.capability !== "file" || !localDocxRoute.allowedToolNames.includes("file.searchText") || !localDocxRoute.allowedToolNames.includes("file.createDocx")) {
