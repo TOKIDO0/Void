@@ -166,6 +166,10 @@ const AGENT_TASK_PLAYBOOK_TOOL_NAMES = [
   "agent.inspectTaskPlaybooks"
 ];
 
+const AGENT_RUN_CODE_TOOL_NAMES = [
+  "agent.runCode"
+];
+
 // 阶段 Y（41 号文档）：本地技能库问询只暴露只读自检工具；必须先于 research/browser 判定，
 // 否则「我有哪些技能」会被 RESEARCH_TOPIC_PATTERN 的「有哪些+？」句式劫持成网页检索。
 const AGENT_SKILLS_TOOL_NAMES = [
@@ -233,6 +237,8 @@ const AGENT_TASK_PLAYBOOK_PATTERN =
 // 技能库问询：中文「技能」+ 列举/查看/用法语义；不含执行动作词，不误伤「用日报技能搜新闻」这类后续真实任务。
 const AGENT_SKILLS_PATTERN =
   /(?:(?:我|你|VOID|void|agent|Agent).{0,8}(?:有哪些|有什么|装了|安装了|启用了?)(?:的)?技能|(?:列出|查看|看看|检查|说明|介绍|打开).{0,10}技能(?:库|列表|清单)|技能(?:库|列表|清单)(?:里|中|都有|有)?(?:有什么|有哪些|是什么|怎么样)|(?:怎么用|如何用|怎么使用).{0,8}技能)/;
+const CODE_RUN_PATTERN =
+  /(?:执行|运行).{0,12}(?:js|javascript|python|代码|脚本)|(?:代码沙箱|受限执行|沙箱|runCode)|(?:帮我|请).{0,12}(?:计算|算一下|跑一下).{0,12}(?:代码|js|python|公式|数据)|(?:用\s*(?:js|javascript|python).{0,16}(?:算|计算|执行|运行))/i;
 const AGENT_TASK_PREFLIGHT_PATTERN =
   /(?:(?:先别执行|不要执行|不执行|别真的执行|只做计划|只说计划|只看计划|预演|干跑|dry[-\s]?run).{0,28}(?:会用哪些工具|用哪些工具|需要哪些工具|怎么做|会怎么做|怎么执行|风险|需要确认)|(?:如果我要|假如我要|这个任务|这件事).{0,48}(?:会用哪些工具|用哪些工具|需要哪些工具|会怎么做|怎么执行|有什么风险|需要确认吗)|(?:会用哪些工具|需要哪些工具).{0,32}(?:下载|保存|搜索|读取|打开|整理|写入|安装|检查))/i;
 const REQUEST_SAFETY_PREFLIGHT_PATTERN =
@@ -339,6 +345,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (AGENT_PRIVACY_BOUNDARY_PATTERN.test(userInput)) {
     return createRoute("agent", AGENT_PRIVACY_BOUNDARY_TOOL_NAMES);
+  }
+
+  if (CODE_RUN_PATTERN.test(userInput)) {
+    return createRoute("agent", AGENT_RUN_CODE_TOOL_NAMES);
   }
 
   if (AGENT_TASK_PLAYBOOK_PATTERN.test(userInput)) {

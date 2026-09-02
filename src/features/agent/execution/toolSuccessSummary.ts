@@ -259,5 +259,34 @@ export function buildToolSuccessSummary(toolName: string, output: unknown): stri
     return `${toolName} 完成：已写入 ${String(record.length ?? "?")} 字符`;
   }
 
+  if (toolName === "agent.runCode") {
+    const language = typeof record.language === "string" ? record.language : "?";
+    const timedOut = record.timedOut === true ? "，已超时" : "";
+    const truncated = record.truncated === true ? "，已截断" : "";
+    const exitCode = record.exitCode ?? "?";
+    const stdout = typeof record.stdout === "string" ? record.stdout.slice(0, 60) : "";
+    const preview = stdout ? `：${stdout.replace(/\n/g, " ").slice(0, 60)}` : "";
+    return `${toolName} 完成：${language}（exit ${String(exitCode)}${timedOut}${truncated}）${preview}`;
+  }
+
+  if (toolName === "file.organizeDirectory" && typeof record.path === "string") {
+    const movedCount = typeof record.movedCount === "number" ? record.movedCount : 0;
+    const totalFiles = typeof record.totalFiles === "number" ? record.totalFiles : 0;
+    const dryRun = record.dryRun === true ? "（预演）" : "";
+    return `${toolName} 完成：${record.path}${dryRun} ${movedCount}/${totalFiles} 个文件已整理`;
+  }
+
+  if (toolName === "file.createExcel" && typeof record.fileName === "string") {
+    return `${toolName} 完成：${record.fileName}（${String(record.sheets ?? "?")} 个 Sheet）→ ${String(record.path ?? "")}`;
+  }
+
+  if (toolName === "file.createPptx" && typeof record.fileName === "string") {
+    return `${toolName} 完成：${record.fileName}（${String(record.slides ?? "?")} 张）→ ${String(record.path ?? "")}`;
+  }
+
+  if (toolName === "file.createDocx" && typeof record.fileName === "string") {
+    return `${toolName} 完成：${record.fileName}（${String(record.sections ?? "?")} 节）→ ${String(record.path ?? "")}`;
+  }
+
   return `${toolName} 执行成功`;
 }

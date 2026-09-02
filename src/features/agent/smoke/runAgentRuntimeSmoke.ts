@@ -79,11 +79,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   bootstrapAgentRuntime();
 
   const productionTools = listToolMetadata();
-  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 = 52
-  if (productionTools.length !== 52 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 52 个工具，实际 ${productionTools.length}`);
+  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 = 53
+  if (productionTools.length !== 53 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 53 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("52 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("53 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -279,6 +279,31 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("file.listRecentArtifacts 应允许可选 limit，并输出默认目录最近产物元数据");
   } else {
     notes.push("file.listRecentArtifacts 契约允许只读查看默认下载/保存目录最近产物");
+  }
+
+  const runCodeTool = productionTools.find((tool) => tool.name === "agent.runCode");
+  const runCodeInputValidation = runCodeTool
+    ? validateAgainstSchema(runCodeTool.inputSchema, { language: "javascript", code: "console.log(1+1)", timeoutMs: 5000 })
+    : { valid: false };
+  const runCodeOutputValidation = runCodeTool
+    ? validateAgainstSchema(runCodeTool.outputSchema, {
+        status: "ok",
+        language: "javascript",
+        stdout: "2",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+        durationMs: 12,
+        truncated: false,
+        ranAt: Date.now()
+      })
+    : { valid: false };
+  if (!runCodeTool || !runCodeInputValidation.valid || !runCodeOutputValidation.valid) {
+    failures.push("agent.runCode 应允许 language + code + 可选 timeoutMs，并输出结构化执行结果");
+  } else if (runCodeTool.riskLevel !== "L2") {
+    failures.push("agent.runCode 风险等级应为 L2，需用户确认");
+  } else {
+    notes.push("agent.runCode 契约正确：受限 JS/Python 执行，L2 确认，超时与输出上限");
   }
 
   const securityTool = productionTools.find((tool) => tool.name === "security.inspectLocalRuntime");

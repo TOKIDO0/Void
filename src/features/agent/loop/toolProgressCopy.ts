@@ -56,6 +56,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "agent.inspectPrivacyBoundaries": "正在检查隐私与数据边界…",
   "agent.inspectTaskPlaybooks": "正在整理可用任务范式…",
   "agent.inspectSkills": "正在查看技能目录…",
+  "agent.runCode": "正在执行代码…",
   "agent.inspectMemoryVerification": "正在检查记忆自验…",
   echo: "正在执行内部校验…"
 };
@@ -80,7 +81,8 @@ const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "file.createPptx": "请确认是否生成该 PPT",
   "file.createDocx": "请确认是否生成该 Word 文档",
   "software.resolveInstaller": "请确认要解析的软件",
-  "software.downloadInstaller": "请确认是否下载该官方安装包"
+  "software.downloadInstaller": "请确认是否下载该官方安装包",
+  "agent.runCode": "请确认是否执行该代码"
 };
 
 /** 执行中进度 */

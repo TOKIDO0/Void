@@ -88,6 +88,7 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
       "agent.inspectSafetyHooks",
       "agent.inspectPrivacyBoundaries",
       "agent.inspectTaskPlaybooks",
+      "agent.runCode",
       "agent.inspectSkills",
       "agent.inspectMemoryVerification"
     ]

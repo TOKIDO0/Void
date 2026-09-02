@@ -28,6 +28,7 @@ import { handleBrowserHttpRequest } from "./browser/browserHttpHandlers";
 import { handleDesktopHttpRequest } from "./desktop/desktopHttpHandlers";
 import { handleFileHttpRequest } from "./file/fileHttpHandlers";
 import { ensureRuntimeDirectories } from "./file/fileRuntimePaths";
+import { handleCodeHttpRequest } from "./code/codeHttpHandlers";
 import { handleMemoryHttpRequest } from "./memory/memoryEmbeddingHandlers";
 import { handleSkillsHttpRequest } from "./skills/skillsHttpHandlers";
 import { handleSoftwareHttpRequest } from "./software/softwareHttpHandlers";
@@ -444,6 +445,12 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
   // Q4：桌面剪贴板
   if (pathname.startsWith("/void-desktop")) {
     void handleDesktopHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // P2：受限代码执行（JS/Python 沙箱）
+  if (pathname.startsWith("/void-code")) {
+    void handleCodeHttpRequest(request, response, pathname);
     return;
   }
 
