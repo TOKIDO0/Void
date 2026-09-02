@@ -74,6 +74,9 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 };
 const MAX_DOCUMENT_ATTACHMENT_SIZE_BYTES = 20 * 1024 * 1024;
 const SUPPORTED_DOCUMENT_FILE_EXTENSIONS = new Set([".pdf", ".docx"]);
+const DRAFT_STORAGE_KEY = "void.draftInput.v1";
+const DRAFT_SAVE_DEBOUNCE_MS = 300;
+
 const SUPPORTED_TEXT_FILE_EXTENSIONS = new Set([
   ".txt",
   ".md",
@@ -179,7 +182,14 @@ export function LuminousTextEntry({
   onOpenConversationHistory,
   onOpenMemoryManager
 }: LuminousTextEntryProps) {
-  const [inputValue, setInputValue] = useState("");
+  const [inputValue, setInputValue] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+      return saved ?? "";
+    } catch {
+      return "";
+    }
+  });
   const rootRef = useRef<HTMLFormElement | null>(null);
   const opticsRef = useRef<HTMLDivElement | null>(null);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -366,12 +376,39 @@ export function LuminousTextEntry({
     updateRevealFromPointer(lastPointerYRef.current);
   }, [animatePresence, updateRevealFromPointer]);
 
+  // 草稿初始化时同步 ref 与视觉状态，避免首帧高度/发光不一致
+  useEffect(() => {
+    inputValueRef.current = inputValue;
+    hasMessageRef.current = inputValue.trim() ? 1 : 0;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 输入防抖持久化：刷新不丢草稿；发送后清空
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        if (inputValue) {
+          window.localStorage.setItem(DRAFT_STORAGE_KEY, inputValue);
+        } else {
+          window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+        }
+      } catch {
+        // storage 不可用时静默忽略
+      }
+    }, DRAFT_SAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [inputValue]);
+
   const resetEntryContent = useCallback(() => {
     inputValueRef.current = "";
     setInputValue("");
     hasMessageRef.current = 0;
     setAttachments([]);
     setAttachmentError("");
+    try {
+      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
   }, []);
 
   const submitMessage = useCallback(async () => {
