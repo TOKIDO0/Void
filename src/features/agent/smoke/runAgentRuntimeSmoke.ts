@@ -1854,6 +1854,18 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("对话整理 PPT 路由正确：这轮会话→file.createPptx 直达");
     }
+    const healthDocxRoute = resolveTurnCapability("把健康档案导出成 Word 报告", []);
+    if (healthDocxRoute.capability !== "file" || !healthDocxRoute.allowedToolNames.includes("file.createDocx") || healthDocxRoute.allowedToolNames.includes("browser.search")) {
+      failures.push("健康档案导出 Word 应直达 file.createDocx，不依赖网页搜索");
+    } else {
+      notes.push("健康导出 Word 路由正确：健康档案→file.createDocx 直达");
+    }
+    const healthExcelRoute = resolveTurnCapability("把待办清单整理成 Excel 表格", []);
+    if (healthExcelRoute.capability !== "file" || !healthExcelRoute.allowedToolNames.includes("file.createExcel")) {
+      failures.push("待办清单导出 Excel 应直达 file.createExcel");
+    } else {
+      notes.push("记忆清单导出 Excel 路由正确：待办清单→file.createExcel 直达");
+    }
     // 办公模板偏好：记忆 preference → 模板自适应（深/浅/活力），无偏好时按 hint 游戏→vivid/报告→light 兜底
     const { resolveOfficeTemplateFromText } = await import("../file/officeTemplatePreference");
     const prefDark = resolveOfficeTemplateFromText("我喜欢深色主题", "");

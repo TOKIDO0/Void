@@ -489,6 +489,17 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
     return createRoute("file", CONVERSATION_DOCX_TOOL_NAMES);
   }
 
+  // 健康档案/记忆清单一键导出为办公文档：本地敏感/任务数据直达办公生成，不走网页检索
+  if (isHealthMemoryOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
+    return createRoute("file", CONVERSATION_EXCEL_TOOL_NAMES);
+  }
+  if (isHealthMemoryOfficeIntent(userInput, LOCAL_OFFICE_PPTX_PATTERN)) {
+    return createRoute("file", CONVERSATION_PPTX_TOOL_NAMES);
+  }
+  if (isHealthMemoryOfficeIntent(userInput, LOCAL_OFFICE_DOCX_PATTERN)) {
+    return createRoute("file", CONVERSATION_DOCX_TOOL_NAMES);
+  }
+
   // 本地资料聚合生成办公产物：先于通用办公与纯本地检索，使“把本地销售数据整理成Excel/报表”等可一轮同时搜本地+生成
   if (isLocalOfficeIntent(userInput, LOCAL_OFFICE_EXCEL_PATTERN)) {
     return createRoute("file", FILE_LOCAL_EXCEL_TOOL_NAMES);
@@ -583,6 +594,14 @@ function isConversationDigestIntent(userInput: string, officePattern: RegExp): b
   const hasConversation = /(?:刚才|最近|本次|这轮|聊天|对话|讨论|会话)/i.test(userInput);
   const hasDigest = /(?:整理|汇总|总结|导出|生成)/i.test(userInput);
   if (!hasConversation || !hasDigest) return false;
+  if (EXPLICIT_WEB_SOURCE_PATTERN.test(userInput)) return false;
+  return officePattern.test(userInput);
+}
+
+function isHealthMemoryOfficeIntent(userInput: string, officePattern: RegExp): boolean {
+  const hasHealthOrMemory = /(?:健康档案|健康记录|体检|健康数据|待办|任务清单|记忆清单|偏好清单)/i.test(userInput);
+  const hasDigest = /(?:导出|生成|整理|做成|汇总|总结)/i.test(userInput);
+  if (!hasHealthOrMemory || !hasDigest) return false;
   if (EXPLICIT_WEB_SOURCE_PATTERN.test(userInput)) return false;
   return officePattern.test(userInput);
 }
