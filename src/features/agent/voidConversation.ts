@@ -27,6 +27,8 @@ import {
   type BehaviorDecision
 } from "../emotion/behaviorPolicy";
 import { getTool } from "./tools/toolRegistry";
+import { getCurrentPermissionGrants } from "./permissions/permissionGrants";
+import { emitTurnDiagnostic } from "./debug/turnDiagnosticHook";
 import { appendExecutionLog } from "./observability";
 import { applyReplySpeechGuard } from "./loop/replySpeechGuard";
 import {
@@ -280,6 +282,10 @@ export async function sendVoidMessage(
       effectiveBlockedByAffect = false;
     }
   }
+  // 根因钩子：每次 turn 的路由/权限/情绪门禁完整链路落日志，便于复现“为什么没权限”
+  try {
+    emitTurnDiagnostic(normalizedUserInput, turnRoute, getCurrentPermissionGrants(), blockedByAffect, effectiveAllowedToolNames);
+  } catch {}
   const routeHasTools = effectiveAllowedToolNames.length > 0;
   const relationshipToolRefusal = effectiveBlockedByAffect && routeHasTools;
   const enableTools = runtimeOptions.enableTools !== false

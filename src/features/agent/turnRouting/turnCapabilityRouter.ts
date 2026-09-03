@@ -92,6 +92,19 @@ const DESKTOP_SYSTEM_INFO_TOOL_NAMES = ["desktop.getSystemInfo"];
 const DESKTOP_SCREENSHOT_TOOL_NAMES = ["desktop.screenshot"];
 const DESKTOP_WINDOW_BOUNDS_TOOL_NAMES = ["desktop.listWindows", "desktop.setWindowBounds"];
 const DESKTOP_OPEN_FILE_TOOL_NAMES = ["desktop.openFile"];
+const DESKTOP_FULL_TOOL_NAMES = [
+  "desktop.openKnownLocation",
+  "desktop.listInstalledApplications",
+  "desktop.launchApplication",
+  "desktop.revealPath",
+  "desktop.listWindows",
+  "desktop.focusWindow",
+  "desktop.closeWindow",
+  "desktop.getSystemInfo",
+  "desktop.screenshot",
+  "desktop.setWindowBounds",
+  "desktop.openFile"
+];
 
 const CLIPBOARD_TOOL_NAMES = [
   "clipboard.read",
@@ -345,7 +358,7 @@ const SOFTWARE_TOOL_NAMES = [
 ];
 
 const EXPLICIT_CONTINUATION_PATTERN = /^(?:继续|接着|接着做|继续刚才|接着刚才|把刚才|刚才那个|再试一次|重试)(?:[，。,.！!？?\s]|$)/;
-const DESKTOP_APP_PATTERN = /(?:(?:打开|启动|运行|打开一下|启动一下).{0,10}(?:应用|程序|软件)|(?:应用|程序|软件).{0,8}(?:列表|有哪些|有什么))/;
+const DESKTOP_APP_PATTERN = /(?:(?:打开|启动|运行|列出|查看|显示).{0,10}(?:应用|程序|软件)|(?:应用|程序|软件).{0,8}(?:列表|有哪些|有什么|列出|查看))/;
 const DESKTOP_WINDOW_LIST_PATTERN = /(?:(?:查看|列出|显示|看看).{0,12}(?:窗口|已打开|正在运行).{0,12}(?:有哪些|列表|是什么)?|(?:窗口|已打开).{0,8}(?:列表|有哪些|看看))/i;
 const DESKTOP_FOCUS_WINDOW_PATTERN = /(?:(?:切换|切到|聚焦|转到|激活|切回).{0,10}(?:窗口|应用|软件|微信|浏览器|VS\s*Code|Code))/i;
 const DESKTOP_CLOSE_WINDOW_PATTERN = /(?:(?:关闭|关掉|结束|退出).{0,10}(?:窗口|应用|软件|微信|浏览器|VS\s*Code))/i;
@@ -353,7 +366,9 @@ const DESKTOP_SYSTEM_INFO_PATTERN = /(?:(?:查看|看看|获取).{0,10}(?:系统
 const DESKTOP_SCREENSHOT_PATTERN = /(?:(?:截屏|截图|屏幕截图|桌面截图).{0,12}(?:看看|一下|当前|桌面)?|(?:看看|查看).{0,10}(?:屏幕|桌面).{0,6}(?:内容|当前|截图)?)/i;
 const DESKTOP_WINDOW_BOUNDS_PATTERN = /(?:(?:最大化|最小化|还原|调整|移动|缩放|摆到|放到).{0,12}(?:窗口|应用|软件)|(?:窗口|应用).{0,12}(?:最大化|最小化|还原|移动|缩放|调整))/i;
 const DESKTOP_OPEN_FILE_PATTERN = /(?:(?:打开|看看|查看).{0,16}(?:文件|文档|表格|报告).{0,12}(?:看看|一下|内容)?|(?:打开|看看|查看).{0,8}[A-Za-z]:\\[^\n]{1,120}\.(?:txt|md|pdf|png|jpg|jpeg|xlsx|pptx|docx|csv)\b)/i;
-const DESKTOP_SIMPLE_LAUNCH_PATTERN = /(?:^|[^\w\u4e00-\u9fa5])(?:给我|帮我)?(?:打开|启动|运行)\s*([A-Za-z0-9\u4e00-\u9fa5]{1,20})\s*$/;
+const DESKTOP_SIMPLE_LAUNCH_PATTERN = /(?:^|[^\w\u4e00-\u9fa5])(?:给我|帮我)?(?:打开|启动|运行)\s*([A-Za-z0-9\u4e00-\u9fa5]{1,20})(?:\s*(?:，|,|然后|再|和|；|;|。|\s|$))/;
+// 复合桌面意图兜底：只要句中出现桌面关键词，即视为桌面
+const DESKTOP_COMPOUND_PATTERN = /(?:打开\s*(?:微信|qq|QQ|钉钉|飞书)|桌面.*应用|应用.*桌面)/i;
 const DESKTOP_LAUNCH_BLOCKLIST = ["网页", "网站", "链接", "浏览器", "文件", "文件夹", "目录", "路径", "下载", "http", "https"];
 const THIS_PC_PATTERN = /(?:打开|进入|显示|启动).{0,6}(?:我的电脑|此电脑|这台电脑)/;
 const CLIPBOARD_PATTERN = /(?:(?:读取|查看|看看|写入|复制到|放到|清空).{0,6}(?:剪贴板|粘贴板)|(?:剪贴板|粘贴板).{0,6}(?:有什么|内容|读取|查看|写入|清空))/;
@@ -570,6 +585,11 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (LOCAL_RUNTIME_SECURITY_PATTERN.test(userInput)) {
     return createRoute("security", SECURITY_TOOL_NAMES);
+  }
+
+  // 复合桌面意图兜底：多步“打开微信+打开qq+列桌面应用”应一次给全量桌面工具，避免窄路由只给4个而报没权限
+  if (DESKTOP_COMPOUND_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_FULL_TOOL_NAMES);
   }
 
   if (DESKTOP_CLOSE_WINDOW_PATTERN.test(userInput)) {
