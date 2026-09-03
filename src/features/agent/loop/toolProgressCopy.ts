@@ -33,6 +33,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "desktop.setWindowBounds": "正在调整窗口…",
   "desktop.openFile": "正在打开文件…",
   "web.search": "正在全网搜索…",
+  "web.fetch": "正在抓取网页…",
   "file.downloadToTemp": "正在下载到临时目录…",
   "file.downloadMedia": "正在下载媒体…",
   "file.downloadMediaPage": "正在从媒体页下载视频…",

@@ -225,3 +225,4 @@ export { desktopScreenshotTool } from "./builtin/desktopScreenshotTool";
 export { desktopSetWindowBoundsTool } from "./builtin/desktopSetWindowBoundsTool";
 export { desktopOpenFileTool } from "./builtin/desktopOpenFileTool";
 export { webSearchTool } from "./builtin/webSearchTool";
+export { webFetchTool } from "./builtin/webFetchTool";

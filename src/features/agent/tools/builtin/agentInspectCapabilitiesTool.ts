@@ -101,6 +101,7 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
     requiresBridge: true,
     toolNames: [
       "web.search",
+      "web.fetch",
       "browser.open",
       "browser.search",
       "browser.selectTarget",

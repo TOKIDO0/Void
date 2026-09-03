@@ -61,6 +61,7 @@ import { agentInspectPrivacyBoundariesTool } from "./builtin/agentInspectPrivacy
 import { agentInspectTaskPlaybooksTool } from "./builtin/agentInspectTaskPlaybooksTool";
 import { agentInspectWorkspaceTool } from "./builtin/agentInspectWorkspaceTool";
 import { webSearchTool } from "./builtin/webSearchTool";
+import { webFetchTool } from "./builtin/webFetchTool";
 import { agentRunCodeTool } from "./builtin/agentRunCodeTool";
 import { hasTool, registerTool } from "./toolRegistry";
 
@@ -130,6 +131,7 @@ export function registerBuiltinTools() {
     agentRunCodeTool,
     agentInspectWorkspaceTool,
     webSearchTool,
+    webFetchTool,
     agentInspectSkillsTool,
     agentInspectMemoryVerificationTool
   ] as const;

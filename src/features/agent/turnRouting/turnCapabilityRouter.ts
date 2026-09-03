@@ -27,6 +27,7 @@ export type TurnCapabilityRoute = {
  */
 const BROWSER_TOOL_NAMES = [
   "web.search",
+  "web.fetch",
   "browser.open",
   "browser.search",
   "browser.selectTarget",
@@ -95,6 +96,7 @@ const DESKTOP_WINDOW_BOUNDS_TOOL_NAMES = ["desktop.listWindows", "desktop.setWin
 const DESKTOP_OPEN_FILE_TOOL_NAMES = ["desktop.openFile"];
 const RESEARCH_THEN_OPEN_TOOL_NAMES = [
   "web.search",
+  "web.fetch",
   "browser.search",
   "browser.open",
   "browser.extract",
