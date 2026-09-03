@@ -78,7 +78,7 @@ export const openAiCompatibleProvider: ModelProvider = {
     if (config.apiKey.trim()) {
       headers.Authorization = buildBearerToken(config.apiKey);
     }
-    const response = await fetchWithProxyFallback(fetchTarget, {
+    let response = await fetchWithProxyFallback(fetchTarget, {
       method: "POST",
       headers,
       body: JSON.stringify(buildOpenAiCompatibleBody(request, config, false)),
@@ -87,6 +87,29 @@ export const openAiCompatibleProvider: ModelProvider = {
 
     if (!response.ok) {
       const errorMessage = await readErrorMessage(response);
+      const lower = (errorMessage || "").toLowerCase();
+      // 根因修复：中转站对带 tools 的请求报 no_available_channel 时，自动降级为纯对话重试一次，避免全盘 503
+      const shouldRetryWithoutTools = response.status === 503
+        && (lower.includes("no_available_channel") || lower.includes("no available channel"))
+        && request.tools && request.tools.length > 0;
+      if (shouldRetryWithoutTools) {
+        const retryBody = buildOpenAiCompatibleBody({ ...request, tools: undefined, toolChoice: undefined }, config, false);
+        const retryResponse = await fetchWithProxyFallback(fetchTarget, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(retryBody),
+          signal: request.signal
+        });
+        if (retryResponse.ok) {
+          return this.normalizeResponse(await retryResponse.json());
+        }
+        const retryError = await readErrorMessage(retryResponse);
+        throw createHttpStatusError(
+          retryResponse.status,
+          buildOpenAiCompatibleServiceMessage(retryResponse.status, retryError, config) + "（已尝试去掉工具后重试仍失败）",
+          endpointUrl
+        );
+      }
       throw createHttpStatusError(
         response.status,
         buildOpenAiCompatibleServiceMessage(response.status, errorMessage, config),
@@ -326,6 +349,10 @@ function buildOpenAiCompatibleErrorMessage(error: ProviderRequestError) {
   }
 
   if (status >= 500) {
+    const lower = (errorMessage || "").toLowerCase();
+    if (lower.includes("no_available_channel") || lower.includes("no available channel")) {
+      return `模型请求失败：${status}，当前模型「${status >= 500 ? "在该中转站暂时没有可用通道" : ""}」—— 这是中转站侧该模型的所有渠道都挂了/被限流，不是 VOID 拼错参数。你在别的产品里能通，很可能是那边用了不同模型或没走工具调用。建议：在 VOID 设置里把模型名换成 gpt-4o-mini 再试，或等几分钟后重试。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
+    }
     return `模型请求失败：${status}，目标模型服务暂时异常。${errorMessage ? ` 服务端信息：${errorMessage}` : ""}`;
   }
 
