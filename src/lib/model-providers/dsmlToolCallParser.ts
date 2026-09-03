@@ -3,6 +3,9 @@
 // 文本写进 content，而 message.tool_calls 为空。若不处理，协议原文会直达用户
 // 显示与 TTS 朗读。设计：provider 层解析成真 tool_calls 去执行；循环层兜底；
 // 显示/TTS 层剥离。三层共用本文件，禁止各写一套正则漂移。
+//
+// 线上实测两种线格式：单竖线 <|DSML|invoke …|> 与双竖线 <||DSML||invoke …||>。
+// 以下全部正则按“竖线 1 到多根 + 任意空白”编写，新变体不得另起正则。
 
 export type ParsedDsmlCall = {
   name: string;
@@ -25,23 +28,23 @@ export function hasProtocolMarkup(content: string): boolean {
     return false;
   }
   return (
-    /<\|\s*\/?\s*DSML[\s|>]/.test(content)
+    /<\|+\s*\/?\s*\|*\s*DSML/i.test(content)
     || /<\s*\/?\s*(tool_calls|function_calls)\b/i.test(content)
   );
 }
 
 /**
- * 解析 DSML invoke 块为结构化调用。容忍空白/多余竖线变体
- * （如 </|DSML||invoke>）。失败返回 []，绝不抛错。
+ * 解析 DSML invoke 块为结构化调用。竖线 1 到多根、任意空白均可
+ * （如 <||DSML||invoke …||>、</|DSML||invoke>）。失败返回 []，绝不抛错。
  */
 export function parseDsmlToolCalls(content: string): ParsedDsmlCall[] {
   const calls: ParsedDsmlCall[] = [];
   if (!content || !content.includes("DSML")) {
     return calls;
   }
-  const openRe = /<\|\s*DSML\s*\|\s*invoke\b([^>]*)>/gi;
-  const closeRe = /<\|\s*\/\s*DSML\s*\|[^>]*invoke[^>]*>/i;
-  const paramRe = /<\|\s*DSML\s*\|\s*parameter\b([^>]*)>([\s\S]*?)<\|\s*\/\s*DSML\s*\|[^>]*parameter[^>]*>/gi;
+  const openRe = /<\|+\s*DSML\s*\|+\s*invoke\b([^>]*)>/gi;
+  const closeRe = /<\|+\s*\/\s*DSML\s*\|+[^>]*invoke[^>]*>/i;
+  const paramRe = /<\|+\s*DSML\s*\|+\s*parameter\b([^>]*)>([\s\S]*?)<\|+\s*\/\s*DSML\s*\|+[^>]*parameter[^>]*>/gi;
   let m: RegExpExecArray | null;
   while ((m = openRe.exec(content)) !== null) {
     const name = (parseAttrs(m[1] ?? "").name ?? "").trim();
@@ -80,13 +83,13 @@ export function stripProtocolMarkup(content: string): string {
   let out = content;
   // DSML invoke 整块（含内部参数）
   out = out.replace(
-    /<\|\s*DSML\s*\|\s*invoke\b[^>]*>[\s\S]*?<\|\s*\/\s*DSML\s*\|[^>]*invoke[^>]*>/gi,
+    /<\|+\s*DSML\s*\|+\s*invoke\b[^>]*>[\s\S]*?<\|+\s*\/\s*DSML\s*\|+[^>]*invoke[^>]*>/gi,
     ""
   );
   // DSML tool_calls 包裹标记
-  out = out.replace(/<\|\s*\/?\s*DSML\s*\|[^>]*tool_calls[^>]*>/gi, "");
+  out = out.replace(/<\|+\s*\/?\s*DSML\s*\|+[^>]*tool_calls[^>]*>/gi, "");
   // 残留的 DSML 散标记
-  out = out.replace(/<\|\s*\/?\s*DSML[^>]*>/gi, "");
+  out = out.replace(/<\|+\s*\/?\s*\|*\s*DSML[^>]*>/gi, "");
   // 通用 <tool_calls>/<function_calls> 整块与散标记
   out = out.replace(/<\s*(tool_calls|function_calls)\s*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
   out = out.replace(/<\s*\/?\s*(tool_calls|function_calls|tool_call|function_call)\s*>/gi, "");

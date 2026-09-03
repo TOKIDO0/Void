@@ -2686,6 +2686,24 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
         return false;
       }
     }) ?? false;
+  // 线上复现：双竖线变体 <||DSML||…||>（截图原样），必须同等解析/剥离
+  const dsmlDoubleSample = [
+    "我刚才打开的 Metacritic 榜单链接不对，页面显示空结果。我换成正确的官方榜单链接，再核最低分的边。",
+    "",
+    "<||DSML||tool_calls||>",
+    "<||DSML||invoke name=\"browser_open\"||>",
+    "<||DSML||parameter name=\"url\" string=\"true\"||>https://www.metacritic.com/browse/game/<||/DSML||parameter||>",
+    "<||/DSML||invoke||>",
+    "<||DSML||invoke name=\"web_fetch\"||>",
+    "<||DSML||parameter name=\"url\" string=\"true\"||>https://screenrant.com/worst-video-games-all-time/<||/DSML||parameter||>",
+    "<||/DSML||invoke||>",
+    "<||/DSML||tool_calls||>"
+  ].join("\n");
+  const dsmlDoubleParsed = parseDsmlToolCalls(dsmlDoubleSample);
+  const dsmlDoubleStripped = stripProtocolForSmoke(dsmlDoubleSample);
+  const dsmlDoubleNormalized = compatProviderForSmoke.normalizeResponse({
+    choices: [{ message: { content: dsmlDoubleSample }, finish_reason: "stop" }]
+  });
   if (
     dsmlParsed.length !== 2
     || dsmlParsed.some((call) => call.name !== "web_search")
@@ -2696,10 +2714,20 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     || dsmlNormalized.toolCalls?.length !== 2
     || !dsmlArgsOk
     || stripProtocolForSmoke("纯文本你好") !== "纯文本你好"
+    || dsmlDoubleParsed.length !== 2
+    || dsmlDoubleParsed[0].name !== "browser_open"
+    || dsmlDoubleParsed[1].name !== "web_fetch"
+    || (dsmlDoubleParsed[0].args.url as string) !== "https://www.metacritic.com/browse/game/"
+    || !hasProtocolMarkup(dsmlDoubleSample)
+    || hasProtocolMarkup(dsmlDoubleStripped)
+    || dsmlDoubleStripped.includes("DSML")
+    || dsmlDoubleStripped.includes("metacritic.com")
+    || !dsmlDoubleStripped.includes("榜单链接不对")
+    || dsmlDoubleNormalized.toolCalls?.length !== 2
   ) {
     failures.push("DSML 闭环异常：解析/剥离/normalize 三处至少一处未达预期");
   } else {
-    notes.push("DSML 闭环正确：正文协议解析成 2 个真 web_search 调用，剥离后只剩人类正文，纯文本零误伤");
+    notes.push("DSML 闭环正确：单/双竖线正文协议均解析成真调用，剥离后只剩人类正文，纯文本零误伤");
   }
 
   // 3) 未注册工具明确拒绝
