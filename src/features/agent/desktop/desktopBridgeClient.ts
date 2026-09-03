@@ -20,7 +20,8 @@ import type {
   DesktopSystemInfoData,
   DesktopScreenshotData,
   DesktopSetWindowBoundsData,
-  DesktopOpenFileData
+  DesktopOpenFileData,
+  DesktopInspectControlsData
 } from "./desktopBridgeTypes";
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 
@@ -231,6 +232,13 @@ export async function openFile(
   signal?: AbortSignal
 ): Promise<DesktopOpenFileData> {
   return postDesktopApi<DesktopOpenFileData>("/void-desktop/open-file", { path: input.path }, signal);
+}
+
+export async function inspectWindowControls(
+  input: { hwnd?: string; pid?: number; title?: string; depth?: number; limit?: number },
+  signal?: AbortSignal
+): Promise<DesktopInspectControlsData> {
+  return postDesktopApi<DesktopInspectControlsData>("/void-desktop/inspect-window-controls", input as Record<string, unknown>, signal);
 }
 
 export function getDesktopBridgeErrorInfo(error: unknown): {

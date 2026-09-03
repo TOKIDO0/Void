@@ -44,6 +44,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.desktop.screenshot",
   "tool.desktop.setWindowBounds",
   "tool.desktop.openFile",
+  "tool.desktop.inspectWindowControls",
   "tool.web.search",
   "tool.web.fetch",
   "tool.file.downloadMedia",

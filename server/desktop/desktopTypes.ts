@@ -113,6 +113,24 @@ export type DesktopOpenFileData = {
   revealedAt: number;
 };
 
+export type DesktopWindowControl = {
+  name: string;
+  controlType: string;
+  automationId: string;
+  depth: number;
+  rect: { x: number; y: number; width: number; height: number };
+};
+
+export type DesktopInspectControlsData = {
+  hwnd: string;
+  pid: number;
+  processName: string;
+  title: string;
+  controls: DesktopWindowControl[];
+  truncated: boolean;
+  inspectedAt: number;
+};
+
 export type DesktopApiErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"

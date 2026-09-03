@@ -26,6 +26,7 @@ import { desktopGetSystemInfoTool } from "./builtin/desktopGetSystemInfoTool";
 import { desktopScreenshotTool } from "./builtin/desktopScreenshotTool";
 import { desktopSetWindowBoundsTool } from "./builtin/desktopSetWindowBoundsTool";
 import { desktopOpenFileTool } from "./builtin/desktopOpenFileTool";
+import { desktopInspectWindowControlsTool } from "./builtin/desktopInspectWindowControlsTool";
 import { echoTool } from "./builtin/echoTool";
 import { fileDownloadToTempTool } from "./builtin/fileDownloadToTempTool";
 import { fileDownloadMediaPageTool } from "./builtin/fileDownloadMediaPageTool";
@@ -102,6 +103,7 @@ export function registerBuiltinTools() {
     desktopScreenshotTool,
     desktopSetWindowBoundsTool,
     desktopOpenFileTool,
+    desktopInspectWindowControlsTool,
     fileDownloadToTempTool,
     fileDownloadMediaPageTool,
     fileDownloadMediaTool,

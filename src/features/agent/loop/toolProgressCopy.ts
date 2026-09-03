@@ -32,6 +32,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "desktop.screenshot": "正在截取桌面…",
   "desktop.setWindowBounds": "正在调整窗口…",
   "desktop.openFile": "正在打开文件…",
+  "desktop.inspectWindowControls": "正在查看窗口控件…",
   "web.search": "正在全网搜索…",
   "web.fetch": "正在抓取网页…",
   "agent.todo": "正在更新任务清单…",

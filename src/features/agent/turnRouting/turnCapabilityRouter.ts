@@ -104,6 +104,9 @@ const DESKTOP_SYSTEM_INFO_TOOL_NAMES = ["desktop.getSystemInfo"];
 const DESKTOP_SCREENSHOT_TOOL_NAMES = ["desktop.screenshot"];
 const DESKTOP_WINDOW_BOUNDS_TOOL_NAMES = ["desktop.listWindows", "desktop.setWindowBounds"];
 const DESKTOP_OPEN_FILE_TOOL_NAMES = ["desktop.openFile"];
+const DESKTOP_INSPECT_CONTROLS_TOOL_NAMES = ["desktop.listWindows", "desktop.inspectWindowControls"];
+const DESKTOP_INSPECT_CONTROLS_PATTERN =
+  /(?:(?:查看|列出|分析).{0,12}(?:窗口|应用).{0,12}(?:控件|按钮|输入框|界面元素)|(?:控件|界面元素).{0,8}(?:有哪些|列表|是什么))/i;
 const RESEARCH_THEN_OPEN_TOOL_NAMES = [
   "web.search",
   "web.fetch",
@@ -657,6 +660,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (DESKTOP_WINDOW_BOUNDS_PATTERN.test(userInput)) {
     return createRoute("desktop", DESKTOP_WINDOW_BOUNDS_TOOL_NAMES);
+  }
+
+  if (DESKTOP_INSPECT_CONTROLS_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_INSPECT_CONTROLS_TOOL_NAMES);
   }
 
   if (DESKTOP_OPEN_FILE_PATTERN.test(userInput)) {

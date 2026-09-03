@@ -20,6 +20,7 @@ import { listInstalledApplications, launchApplicationByName } from "./desktopApp
 import { listWindows, focusWindow, closeWindow, getSystemInfo, setWindowBounds } from "./desktopWindowManager";
 import { takeDesktopScreenshot } from "./desktopScreenshotManager";
 import { desktopOpenManager } from "./desktopOpenManager";
+import { inspectWindowControls } from "./desktopUiaManager";
 import type {
   ClipboardReadData,
   ClipboardWriteData,
@@ -277,6 +278,20 @@ export async function handleDesktopHttpRequest(
       const path = typeof body.path === "string" ? body.path.trim() : "";
       if (!path) throw Object.assign(new Error("缺少 path"), { desktopCode: "INVALID_REQUEST" });
       return desktopOpenManager.openFile(path);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-desktop/inspect-window-controls") {
+    await withDesktopHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const hwnd = typeof body.hwnd === "string" ? body.hwnd.trim() : undefined;
+      const pid = typeof body.pid === "number" ? body.pid : typeof body.pid === "string" ? Number(body.pid) : undefined;
+      const title = typeof body.title === "string" ? body.title.trim() : undefined;
+      const depth = typeof body.depth === "number" ? body.depth : undefined;
+      const limit = typeof body.limit === "number" ? body.limit : undefined;
+      if (!hwnd && !pid && !title) throw Object.assign(new Error("需提供 hwnd/pid/title"), { desktopCode: "INVALID_REQUEST" });
+      return inspectWindowControls({ hwnd, pid, title, depth, limit });
     });
     return true;
   }
