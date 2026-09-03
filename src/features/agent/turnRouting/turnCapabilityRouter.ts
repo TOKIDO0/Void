@@ -26,6 +26,7 @@ export type TurnCapabilityRoute = {
  * 不塞入 openKnownLocation 等其它桌面能力。
  */
 const BROWSER_TOOL_NAMES = [
+  "web.search",
   "browser.open",
   "browser.search",
   "browser.selectTarget",
@@ -93,6 +94,7 @@ const DESKTOP_SCREENSHOT_TOOL_NAMES = ["desktop.screenshot"];
 const DESKTOP_WINDOW_BOUNDS_TOOL_NAMES = ["desktop.listWindows", "desktop.setWindowBounds"];
 const DESKTOP_OPEN_FILE_TOOL_NAMES = ["desktop.openFile"];
 const RESEARCH_THEN_OPEN_TOOL_NAMES = [
+  "web.search",
   "browser.search",
   "browser.open",
   "browser.extract",

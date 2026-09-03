@@ -32,6 +32,7 @@ import { handleCodeHttpRequest } from "./code/codeHttpHandlers";
 import { handleMemoryHttpRequest } from "./memory/memoryEmbeddingHandlers";
 import { handleSkillsHttpRequest } from "./skills/skillsHttpHandlers";
 import { handleSoftwareHttpRequest } from "./software/softwareHttpHandlers";
+import { handleWebHttpRequest } from "./web/webHttpHandlers";
 import { getProxyRuntimeStatus, handleModelProxy } from "./voidProxyMiddleware";
 
 // 默认端口：固定回环端口，前端在 Tauri 环境下直连此端口。
@@ -439,6 +440,12 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
   // 官方软件安装包：解析 + 安全下载（通用目录，非双软件专线）
   if (pathname.startsWith("/void-software")) {
     void handleSoftwareHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // Web 快轨搜索
+  if (pathname.startsWith("/void-web")) {
+    void handleWebHttpRequest(request, response, pathname);
     return;
   }
 

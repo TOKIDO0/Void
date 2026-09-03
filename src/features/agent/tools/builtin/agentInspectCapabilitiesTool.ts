@@ -100,6 +100,7 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
     summary: "搜索网页、打开页面、抽取页面内容，并在需要时点击、输入、切换标签页或用系统浏览器打开给用户看。",
     requiresBridge: true,
     toolNames: [
+      "web.search",
       "browser.open",
       "browser.search",
       "browser.selectTarget",
