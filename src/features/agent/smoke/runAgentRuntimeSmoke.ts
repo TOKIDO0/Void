@@ -79,11 +79,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   bootstrapAgentRuntime();
 
   const productionTools = listToolMetadata();
-  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + desktop 控件探针 1 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 = 68
-  if (productionTools.length !== 68 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 68 个工具，实际 ${productionTools.length}`);
+  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + desktop 控件探针 1 个 + desktop 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 = 70
+  if (productionTools.length !== 70 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 70 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("68 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("70 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -2569,6 +2569,47 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("P2 路由异常：待办/目标问询应走 agent 任务管理，待办清单导出 Excel 仍应走 file");
   } else {
     notes.push("P2 路由正确：待办/目标问询走 agent.todo + agent.goal，办公导出仍走 file");
+  }
+
+  // 2g) P3-B 后台投递契约 + 路由 + 缺参拦截（真投递走记事本真机验收，不进 smoke）
+  const setTextTool = productionTools.find((tool) => tool.name === "desktop.setControlText");
+  const invokeTool = productionTools.find((tool) => tool.name === "desktop.invokeControl");
+  const setTextContractOk = setTextTool
+    ? validateAgainstSchema(setTextTool.inputSchema, {
+      title: "记事本",
+      control: { controlType: "Edit" },
+      text: "hello"
+    }).valid
+    && !validateAgainstSchema(setTextTool.inputSchema, { title: "记事本" }).valid
+    : false;
+  const invokeContractOk = invokeTool
+    ? validateAgainstSchema(invokeTool.inputSchema, {
+      title: "微信",
+      control: { nameContains: "发送" }
+    }).valid
+    && !validateAgainstSchema(invokeTool.inputSchema, { control: {} }).valid
+    : false;
+  const appMessageRoute = resolveTurnCapability("给微信的文件传输助手发测试一下", []);
+  const appMessageRouteOk = appMessageRoute.capability === "desktop"
+    && appMessageRoute.allowedToolNames.includes("desktop.setControlText")
+    && appMessageRoute.allowedToolNames.includes("desktop.invokeControl")
+    && appMessageRoute.allowedToolNames.includes("desktop.inspectWindowControls");
+  // 缺 control 定位条件：工具层前置校验直接 SCHEMA_INVALID，不碰 bridge
+  const setTextMissingControl = await executeToolCall({
+    taskId: "smoke_p3b",
+    stepId: "s_p3b_missing",
+    toolName: "desktop.setControlText",
+    input: { title: "记事本", control: {}, text: "hi" },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.desktop.setControlText"])
+  });
+  if (!setTextTool || !invokeTool || !setTextContractOk || !invokeContractOk || !appMessageRouteOk) {
+    failures.push("P3-B 契约/路由异常：投递双工具契约或发消息路由未达预期");
+  } else if (setTextMissingControl.ok) {
+    failures.push("P3-B 缺参应拦截：control 无定位条件时不得执行投递");
+  } else {
+    notes.push("P3-B 契约路由正确：投递双工具契约有效，发消息路由含定位+投递+截图，缺参前置拦截");
   }
 
   // 3) 未注册工具明确拒绝

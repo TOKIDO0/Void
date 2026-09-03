@@ -28,7 +28,7 @@ export type UiaInspectResult = {
   inspectedAt: number;
 };
 
-const MAX_DEPTH = 3;
+const MAX_DEPTH = 5;
 const MAX_CONTROLS = 80;
 
 function ensureWindows(): void {

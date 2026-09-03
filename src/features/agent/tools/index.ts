@@ -225,6 +225,8 @@ export { desktopScreenshotTool } from "./builtin/desktopScreenshotTool";
 export { desktopSetWindowBoundsTool } from "./builtin/desktopSetWindowBoundsTool";
 export { desktopOpenFileTool } from "./builtin/desktopOpenFileTool";
 export { desktopInspectWindowControlsTool } from "./builtin/desktopInspectWindowControlsTool";
+export { desktopSetControlTextTool } from "./builtin/desktopSetControlTextTool";
+export { desktopInvokeControlTool } from "./builtin/desktopInvokeControlTool";
 export { webSearchTool } from "./builtin/webSearchTool";
 export { webFetchTool } from "./builtin/webFetchTool";
 export { agentTodoTool } from "./builtin/agentTodoTool";

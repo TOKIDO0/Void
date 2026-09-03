@@ -54,7 +54,7 @@ export const desktopInspectWindowControlsTool: ToolDefinition<
       hwnd: { type: "string", minLength: 1, maxLength: 32 },
       pid: { type: "number", minimum: 1 },
       title: { type: "string", minLength: 1, maxLength: 240 },
-      depth: { type: "number", minimum: 1, maximum: 3 },
+      depth: { type: "number", minimum: 1, maximum: 5 },
       limit: { type: "number", minimum: 1, maximum: 80 }
     },
     anyOf: [{ required: ["hwnd"] }, { required: ["pid"] }, { required: ["title"] }]

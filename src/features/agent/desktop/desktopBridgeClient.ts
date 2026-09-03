@@ -21,7 +21,10 @@ import type {
   DesktopScreenshotData,
   DesktopSetWindowBoundsData,
   DesktopOpenFileData,
-  DesktopInspectControlsData
+  DesktopInspectControlsData,
+  DesktopControlSelector,
+  DesktopSetControlTextData,
+  DesktopInvokeControlData
 } from "./desktopBridgeTypes";
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 
@@ -239,6 +242,20 @@ export async function inspectWindowControls(
   signal?: AbortSignal
 ): Promise<DesktopInspectControlsData> {
   return postDesktopApi<DesktopInspectControlsData>("/void-desktop/inspect-window-controls", input as Record<string, unknown>, signal);
+}
+
+export async function setControlText(
+  input: { hwnd?: string; pid?: number; title?: string; control: DesktopControlSelector; text: string },
+  signal?: AbortSignal
+): Promise<DesktopSetControlTextData> {
+  return postDesktopApi<DesktopSetControlTextData>("/void-desktop/set-control-text", input as Record<string, unknown>, signal);
+}
+
+export async function invokeControl(
+  input: { hwnd?: string; pid?: number; title?: string; control: DesktopControlSelector },
+  signal?: AbortSignal
+): Promise<DesktopInvokeControlData> {
+  return postDesktopApi<DesktopInvokeControlData>("/void-desktop/invoke-control", input as Record<string, unknown>, signal);
 }
 
 export function getDesktopBridgeErrorInfo(error: unknown): {

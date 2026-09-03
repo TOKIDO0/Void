@@ -107,6 +107,16 @@ const DESKTOP_OPEN_FILE_TOOL_NAMES = ["desktop.openFile"];
 const DESKTOP_INSPECT_CONTROLS_TOOL_NAMES = ["desktop.listWindows", "desktop.inspectWindowControls"];
 const DESKTOP_INSPECT_CONTROLS_PATTERN =
   /(?:(?:查看|列出|分析).{0,12}(?:窗口|应用).{0,12}(?:控件|按钮|输入框|界面元素)|(?:控件|界面元素).{0,8}(?:有哪些|列表|是什么))/i;
+// P3-B 应用内发消息：给微信/QQ/钉钉/飞书的某人发文本，直发模式，全程后台不抢焦点。
+const DESKTOP_APP_MESSAGE_TOOL_NAMES = [
+  "desktop.listWindows",
+  "desktop.inspectWindowControls",
+  "desktop.setControlText",
+  "desktop.invokeControl",
+  "desktop.screenshot"
+];
+const DESKTOP_APP_MESSAGE_PATTERN =
+  /给.{0,6}(微信|QQ|qq|钉钉|飞书).{0,12}[^，。！？\s]{1,20}发/i;
 const RESEARCH_THEN_OPEN_TOOL_NAMES = [
   "web.search",
   "web.fetch",
@@ -664,6 +674,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (DESKTOP_INSPECT_CONTROLS_PATTERN.test(userInput)) {
     return createRoute("desktop", DESKTOP_INSPECT_CONTROLS_TOOL_NAMES);
+  }
+
+  if (DESKTOP_APP_MESSAGE_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_APP_MESSAGE_TOOL_NAMES);
   }
 
   if (DESKTOP_OPEN_FILE_PATTERN.test(userInput)) {

@@ -177,6 +177,8 @@ const FILE_TOOL_USE_SUFFIX = [
 const DESKTOP_TOOL_USE_SUFFIX = [
   "本轮只允许使用受限桌面工具。",
   "用户要求打开「我的电脑 / 此电脑」时，只能调用 desktop.openKnownLocation 且 location=this_pc。",
+  "应用内发消息（微信/QQ/钉钉/飞书）必须走四步：desktop.inspectWindowControls 先定位联系人/输入框/发送按钮 → desktop.setControlText 填文本 → desktop.invokeControl 点发送 → desktop.screenshot 截图验证；全程后台不抢焦点，禁止全局键鼠盲打。",
+  "发消息硬纪律：联系人、文本内容必须双明确（同句给出），缺任一只能定位、不得发送；文本≤500字；完成后汇报收件人+内容摘要+截图路径，不复述敏感原文。",
   "禁止请求或声称执行任意程序、Shell、命令行或未注册系统位置。"
 ];
 

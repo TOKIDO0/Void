@@ -128,6 +128,28 @@ export type DesktopInspectControlsData = {
   inspectedAt: number;
 };
 
+export type DesktopControlSelector = {
+  automationId?: string;
+  nameContains?: string;
+  controlType?: string;
+};
+
+export type DesktopSetControlTextData = {
+  hwnd: string;
+  name: string;
+  controlType: string;
+  automationId: string;
+  actedAt: number;
+};
+
+export type DesktopInvokeControlData = {
+  hwnd: string;
+  name: string;
+  controlType: string;
+  automationId: string;
+  actedAt: number;
+};
+
 export type DesktopBridgeErrorCode =
   | "INVALID_REQUEST"
   | "UNSUPPORTED_PLATFORM"
