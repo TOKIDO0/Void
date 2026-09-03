@@ -27,7 +27,17 @@ import {
   type BehaviorDecision
 } from "../emotion/behaviorPolicy";
 import { getTool } from "./tools/toolRegistry";
+import { getAgentGoal } from "./tasks/agentGoalStore";
 import { getCurrentPermissionGrants } from "./permissions/permissionGrants";
+
+/** P2 Goal 快照：localStorage 缺失/损坏时回 null，绝不抛错污染 prompt 组装。 */
+function getAgentGoalSnapshot(): string | null {
+  try {
+    return getAgentGoal()?.goal ?? null;
+  } catch {
+    return null;
+  }
+}
 import { emitTurnDiagnostic } from "./debug/turnDiagnosticHook";
 import { appendExecutionLog } from "./observability";
 import { applyReplySpeechGuard } from "./loop/replySpeechGuard";
@@ -184,7 +194,7 @@ const SECURITY_TOOL_USE_SUFFIX = [
 ];
 
 const AGENT_TOOL_USE_SUFFIX = [
-  "本轮只允许使用 Agent 自检/预演工具：agent.inspectCapabilities、agent.planTaskRoute、agent.inspectToolContract、agent.inspectExtensionPolicy、agent.inspectSafetyHooks、agent.inspectPrivacyBoundaries、agent.inspectTaskPlaybooks 或 agent.inspectSkills。",
+  "本轮只允许使用 Agent 自检/预演/任务协作工具：agent.inspectCapabilities、agent.planTaskRoute、agent.inspectToolContract、agent.inspectExtensionPolicy、agent.inspectSafetyHooks、agent.inspectPrivacyBoundaries、agent.inspectTaskPlaybooks、agent.inspectSkills、agent.todo、agent.goal、agent.askUser 或 agent.spawnTask。",
   "用户问当前有哪些能力/工具/授权概况时，用 agent.inspectCapabilities；用户问某个任务会用哪些工具、有什么风险、先别执行只看计划时，用 agent.planTaskRoute；用户问某个具体工具的契约、权限、风险、资源、审计或输出来源时，用 agent.inspectToolContract；用户问插件/MCP/skills/hooks/subagents/扩展机制是否启用、安全边界或接入策略时，用 agent.inspectExtensionPolicy；用户问哪些动态安全规则会触发确认、为什么 localhost/.env/私网/敏感文件会升为 L2 时，用 agent.inspectSafetyHooks；用户问哪些数据会离开本机、会不会发云端、记忆/语音/模型上下文隐私边界时，用 agent.inspectPrivacyBoundaries；用户问有哪些任务模板、工作流、playbook、组合任务、用法示例或怎么更高效使用你时，用 agent.inspectTaskPlaybooks；用户问我有哪些技能/技能库/已安装的任务剧本/怎么用技能时，用 agent.inspectSkills 列出本机技能目录。",
   "必须根据工具返回的当前能力清单、预演结果或工具契约回答，不能编造未注册能力，也不能声称预演任务已经执行。",
   "agent.inspectSkills 只读列出本地任务剧本：available=false 的技能要如实说明原因（缺工具或 manifest 无效）；不得声称剧本已被执行；若用户想按某剧本行动，说明触发说法并等用户下一句自然发起（届时走对应能力组的既有工具与确认）。",
@@ -192,6 +202,7 @@ const AGENT_TOOL_USE_SUFFIX = [
   "agent.inspectSafetyHooks 只是只读规则说明；不得说成已经扫描端口、检查文件存在性或执行了被保护工具。",
   "agent.inspectPrivacyBoundaries 只是只读隐私边界说明；不得声称已经抓包、扫描硬盘、读取 API Key 或证明所有模型请求绝对不离开本机。",
   "agent.inspectTaskPlaybooks 只是只读任务范式目录；不得声称已经执行 playbook、加载插件、接入 MCP 或运行第三方脚本。",
+  "多步任务用 agent.todo 拆解并跟踪步骤；用户设定一句话目标时用 agent.goal 保持跨轮对账；拿不准必须用户拍板时用 agent.askUser 一次问清（最多 3 问，优先只问最关键的一个）；独立只读子调用可用 agent.spawnTask 隔离执行，主轮只收结论。",
   "回答要让新手听得懂：先说能做什么，再说明哪些操作需要确认，最后说明不能做通用 Shell、任意程序启动或越权读写。",
   "如果用户问的是某个具体任务能不能做，可以结合清单给出最短可行路径和边界。"
 ];
@@ -495,6 +506,16 @@ function buildSystemPrompt(
   if (memoryContext && memoryContext.trim()) {
     sections.push(memoryContext.trim());
   }
+
+  // P2 Goal 跨轮目标：设定后每轮自动对账进度，完成后提醒 clear；缺省零副作用。
+  try {
+    const activeGoal = getAgentGoalSnapshot();
+    if (activeGoal) {
+      sections.push(
+        `【本轮目标】${activeGoal}（用户设定的一句话跨轮目标；每轮先对账进度再行动，完成后提醒用户可清除。）`
+      );
+    }
+  } catch {}
 
   // 阶段 AD+ 姿态路由：Hermes coding_context 轻量移植，会话内冻结，零副作用
   try {

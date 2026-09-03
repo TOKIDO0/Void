@@ -79,11 +79,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   bootstrapAgentRuntime();
 
   const productionTools = listToolMetadata();
-  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + web 快轨搜索 1 个 + web 精读 1 个 = 63
-  if (productionTools.length !== 63 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 63 个工具，实际 ${productionTools.length}`);
+  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 = 67
+  if (productionTools.length !== 67 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 67 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("63 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + web 快轨搜索 1 个 + web 精读 1 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("67 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -2453,6 +2453,122 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push(`Schema 下发净化异常：emptyProps=${hasEmptyProps} trimmed=${hasTrimmed}`);
   } else {
     notes.push("Schema 下发净化：空 object 补 properties 且 required 已修剪");
+  }
+
+  // 2e) P2 任务协作：todo 落盘/goal 跨轮/askUser 澄清/spawnTask 隔离
+  const todoSetResult = await executeToolCall({
+    taskId: "smoke_p2_todo",
+    stepId: "s_p2_todo_set",
+    toolName: "agent.todo",
+    input: {
+      action: "set",
+      todos: [
+        { content: "搜最火网红", status: "in_progress" },
+        { content: "打开主页验证", status: "pending" }
+      ]
+    },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.agent.todo"])
+  });
+  const todoGetResult = todoSetResult.ok
+    ? await executeToolCall({
+      taskId: "smoke_p2_todo",
+      stepId: "s_p2_todo_get",
+      toolName: "agent.todo",
+      input: { action: "get" },
+      signal: new AbortController().signal,
+      attempt: 1,
+      permissionGrants: new Set(["tool.agent.todo"])
+    })
+    : todoSetResult;
+  const goalSetResult = await executeToolCall({
+    taskId: "smoke_p2_goal",
+    stepId: "s_p2_goal_set",
+    toolName: "agent.goal",
+    input: { action: "set", goal: "帮我盯着最火网红榜单" },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.agent.goal"])
+  });
+  const askResult = await executeToolCall({
+    taskId: "smoke_p2_ask",
+    stepId: "s_p2_ask",
+    toolName: "agent.askUser",
+    input: { questions: [{ question: "按哪个平台算最火？", options: ["YouTube", "抖音"] }] },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.agent.askUser"])
+  });
+  const spawnResult = await executeToolCall({
+    taskId: "smoke_p2_spawn",
+    stepId: "s_p2_spawn",
+    toolName: "agent.spawnTask",
+    input: { toolName: "echo", input: { message: "子任务探针" }, purpose: "隔离执行验证" },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.agent.spawnTask"])
+  });
+  const spawnRefused = await executeToolCall({
+    taskId: "smoke_p2_spawn_refuse",
+    stepId: "s_p2_spawn_refuse",
+    toolName: "agent.spawnTask",
+    input: { toolName: "file.writeText", input: { fileName: "x.md", content: "y" } },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.agent.spawnTask"])
+  });
+  const todoOk = todoSetResult.ok
+    && todoGetResult.ok
+    && (todoGetResult.data as { todos?: unknown[] }).todos?.length === 2;
+  const goalOk = goalSetResult.ok
+    && (goalSetResult.data as { goal?: unknown }).goal === "帮我盯着最火网红榜单";
+  const askOk = askResult.ok
+    && (askResult.data as { questions?: unknown[] }).questions?.length === 1;
+  const spawnOk = spawnResult.ok
+    && (spawnResult.data as { status?: unknown }).status === "done";
+  const spawnRefuseOk = !spawnRefused.ok;
+  if (!todoOk || !goalOk || !askOk || !spawnOk || !spawnRefuseOk) {
+    failures.push(`P2 任务协作异常：todo=${todoOk} goal=${goalOk} ask=${askOk} spawn=${spawnOk} spawnRefuse=${spawnRefuseOk}`);
+  } else {
+    notes.push("P2 任务协作：todo 落盘/恢复、goal 设定、askUser 澄清、spawnTask 隔离执行与 L2 拒绝均正确");
+  }
+  // 用完清理，避免污染后续用例与用户本地
+  await executeToolCall({
+    taskId: "smoke_p2_cleanup",
+    stepId: "s_p2_cleanup_todo",
+    toolName: "agent.todo",
+    input: { action: "clear" },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.agent.todo"])
+  });
+  await executeToolCall({
+    taskId: "smoke_p2_cleanup",
+    stepId: "s_p2_cleanup_goal",
+    toolName: "agent.goal",
+    input: { action: "clear" },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.agent.goal"])
+  });
+
+  // 2f) P2 路由：待办/目标问询走 agent.todo + agent.goal，办公导出仍走 file
+  const todoRoute = resolveTurnCapability("帮我记一下待办事项", []);
+  const goalRoute = resolveTurnCapability("帮我设定一个目标", []);
+  const todoOfficeNegative = resolveTurnCapability("把待办清单整理成 Excel 表格", []);
+  if (
+    todoRoute.capability !== "agent"
+    || !todoRoute.allowedToolNames.includes("agent.todo")
+    || !todoRoute.allowedToolNames.includes("agent.goal")
+    || goalRoute.capability !== "agent"
+    || !goalRoute.allowedToolNames.includes("agent.goal")
+    || todoOfficeNegative.capability !== "file"
+    || !todoOfficeNegative.allowedToolNames.includes("file.createExcel")
+  ) {
+    failures.push("P2 路由异常：待办/目标问询应走 agent 任务管理，待办清单导出 Excel 仍应走 file");
+  } else {
+    notes.push("P2 路由正确：待办/目标问询走 agent.todo + agent.goal，办公导出仍走 file");
   }
 
   // 3) 未注册工具明确拒绝

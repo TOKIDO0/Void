@@ -62,6 +62,10 @@ import { agentInspectTaskPlaybooksTool } from "./builtin/agentInspectTaskPlayboo
 import { agentInspectWorkspaceTool } from "./builtin/agentInspectWorkspaceTool";
 import { webSearchTool } from "./builtin/webSearchTool";
 import { webFetchTool } from "./builtin/webFetchTool";
+import { agentTodoTool } from "./builtin/agentTodoTool";
+import { agentGoalTool } from "./builtin/agentGoalTool";
+import { agentAskUserTool } from "./builtin/agentAskUserTool";
+import { agentSpawnTaskTool } from "./builtin/agentSpawnTaskTool";
 import { agentRunCodeTool } from "./builtin/agentRunCodeTool";
 import { hasTool, registerTool } from "./toolRegistry";
 
@@ -132,6 +136,10 @@ export function registerBuiltinTools() {
     agentInspectWorkspaceTool,
     webSearchTool,
     webFetchTool,
+    agentTodoTool,
+    agentGoalTool,
+    agentAskUserTool,
+    agentSpawnTaskTool,
     agentInspectSkillsTool,
     agentInspectMemoryVerificationTool
   ] as const;

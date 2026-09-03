@@ -226,3 +226,7 @@ export { desktopSetWindowBoundsTool } from "./builtin/desktopSetWindowBoundsTool
 export { desktopOpenFileTool } from "./builtin/desktopOpenFileTool";
 export { webSearchTool } from "./builtin/webSearchTool";
 export { webFetchTool } from "./builtin/webFetchTool";
+export { agentTodoTool } from "./builtin/agentTodoTool";
+export { agentGoalTool } from "./builtin/agentGoalTool";
+export { agentAskUserTool } from "./builtin/agentAskUserTool";
+export { agentSpawnTaskTool } from "./builtin/agentSpawnTaskTool";

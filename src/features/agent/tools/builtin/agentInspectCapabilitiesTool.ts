@@ -90,6 +90,10 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
       "agent.inspectTaskPlaybooks",
       "agent.runCode",
       "agent.inspectWorkspace",
+      "agent.todo",
+      "agent.goal",
+      "agent.askUser",
+      "agent.spawnTask",
       "agent.inspectSkills",
       "agent.inspectMemoryVerification"
     ]

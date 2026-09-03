@@ -25,6 +25,14 @@ export type TurnCapabilityRoute = {
  * T3.c：附带 desktop.revealPath，使 place+verify 成功后可在同一回合打开落盘位置；
  * 不塞入 openKnownLocation 等其它桌面能力。
  */
+// P2 任务协作工具：多步任务回合内可用的 todo/goal/askUser/spawnTask（随主能力组暴露）。
+const TASK_COLLAB_TOOL_NAMES = [
+  "agent.todo",
+  "agent.goal",
+  "agent.askUser",
+  "agent.spawnTask"
+];
+
 const BROWSER_TOOL_NAMES = [
   "web.search",
   "web.fetch",
@@ -39,6 +47,7 @@ const BROWSER_TOOL_NAMES = [
   "browser.extract",
   "browser.tabs",
   "browser.switchTab",
+  ...TASK_COLLAB_TOOL_NAMES,
   "file.downloadToTemp",
   "file.downloadMediaPage",
   "file.downloadMedia",
@@ -77,7 +86,8 @@ const FILE_TOOL_NAMES = [
   "file.move",
   "file.writeText",
   "file.verify",
-  "desktop.revealPath"
+  "desktop.revealPath",
+  ...TASK_COLLAB_TOOL_NAMES
 ];
 
 const DESKTOP_TOOL_NAMES = [
@@ -324,6 +334,11 @@ const AGENT_TASK_PREFLIGHT_TOOL_NAMES = [
   "agent.planTaskRoute"
 ];
 
+const AGENT_TASK_MANAGE_TOOL_NAMES = [
+  "agent.todo",
+  "agent.goal"
+];
+
 const AGENT_TOOL_CONTRACT_TOOL_NAMES = [
   "agent.inspectToolContract"
 ];
@@ -433,6 +448,11 @@ const AGENT_TASK_PLAYBOOK_PATTERN =
   /(?:(?:VOID|void|agent|Agent|你).{0,24}(?:任务模板|任务范式|工作流|playbook|recipes?|slash\s*commands?|组合任务|自动化流程|常用流程|用法示例|使用示例).{0,36}(?:有哪些|是什么|列出|查看|说明|介绍|推荐|示例|例子|清单|怎么用)|(?:有哪些|推荐|列出|查看|说明|介绍).{0,24}(?:任务模板|任务范式|工作流|playbook|recipes?|组合任务|自动化流程|常用流程|用法示例|使用示例)|(?:怎么|如何).{0,12}(?:使用|用好|更高效地用|让).{0,20}(?:VOID|void|agent|Agent|你).{0,24}(?:做任务|完成任务|自动化|工作流|组合任务))/i;
 const WORKSPACE_SNAPSHOT_PATTERN =
   /(?:工作区|项目结构|目录结构|文件树|项目文件|仓库结构).{0,12}(?:看看|查看|列出|展示|快照|结构|有哪些|是什么)|(?:看看|查看|列出|展示).{0,12}(?:工作区|项目结构|目录结构|文件树|项目文件)/i;
+// P2 任务管理：待办/目标问询走 agent.todo + agent.goal；排除办公导出（整理/导出/生成/Excel 等走 file）。
+const AGENT_TASK_MANAGE_PATTERN =
+  /(?:待办事项|待办列表|我的待办|\btodo\b|设定.{0,4}目标|制定.{0,4}目标|我的目标|当前目标|清除目标|取消目标)/i;
+const TASK_MANAGE_OFFICE_GUARD =
+  /(?:整理|导出|生成|做成|保存|写入|Excel|Word|PPT|ppt|docx|xlsx|文档|报告|表格|检索|搜索)/i;
 // 技能库问询：中文「技能」+ 列举/查看/用法语义；不含执行动作词，不误伤「用日报技能搜新闻」这类后续真实任务。
 const AGENT_SKILLS_PATTERN =
   /(?:(?:我|你|VOID|void|agent|Agent).{0,8}(?:有哪些|有什么|装了|安装了|启用了?)(?:的)?技能|(?:列出|查看|看看|检查|说明|介绍|打开).{0,10}技能(?:库|列表|清单)|技能(?:库|列表|清单)(?:里|中|都有|有)?(?:有什么|有哪些|是什么|怎么样)|(?:怎么用|如何用|怎么使用).{0,8}技能)/;
@@ -582,6 +602,11 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (WORKSPACE_SNAPSHOT_PATTERN.test(userInput)) {
     return createRoute("agent", AGENT_WORKSPACE_TOOL_NAMES);
+  }
+
+  // P2 任务管理：待办/目标问询走 agent.todo + agent.goal；办公导出类优先走 file（守卫排除）。
+  if (AGENT_TASK_MANAGE_PATTERN.test(userInput) && !TASK_MANAGE_OFFICE_GUARD.test(userInput)) {
+    return createRoute("agent", AGENT_TASK_MANAGE_TOOL_NAMES);
   }
 
   if (AGENT_TASK_PLAYBOOK_PATTERN.test(userInput)) {

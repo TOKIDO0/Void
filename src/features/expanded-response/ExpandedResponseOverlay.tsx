@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { Icon } from "@iconify/react";
@@ -122,18 +122,19 @@ export function ExpandedResponseOverlay({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [playClose, shouldRender]);
 
-  useEffect(() => {
+  // P0 首帧直达：打开瞬间同步定位到底部（layout 前），零动画；本地数据无需等 RAF。
+  // 勿改回 requestAnimationFrame + smooth，否则大消息量会先白后从顶滚到底。
+  useLayoutEffect(() => {
     if (!shouldRender || !isOpen) {
       return;
     }
 
-    window.requestAnimationFrame(() => {
-      if (shouldStickToBottomRef.current) {
-        scrollMessagesToBottom("auto");
-      }
-      updateScrollButtonVisibility();
-    });
-  }, [isOpen, messages, scrollMessagesToBottom, shouldRender, updateScrollButtonVisibility]);
+    const messagesElement = messagesRef.current;
+    if (messagesElement && shouldStickToBottomRef.current) {
+      messagesElement.scrollTop = messagesElement.scrollHeight;
+    }
+    updateScrollButtonVisibility();
+  }, [isOpen, messages, shouldRender, updateScrollButtonVisibility]);
 
   useEffect(() => {
     const buttonElement = scrollButtonRef.current;
@@ -186,13 +187,14 @@ export function ExpandedResponseOverlay({
         filter: "blur(0px)",
         duration: reduceMotion ? 0.01 : 0.62
       }, reduceMotion ? 0 : 0.44)
+      // P0 首帧直达：消息行取消 stagger 逐行播（大消息量会从顶滚到底），首帧即全量可见。
       .to(".expanded-dialogue-line", {
         autoAlpha: 1,
         y: 0,
         filter: "blur(0px)",
-        duration: reduceMotion ? 0.01 : 0.42,
-        stagger: reduceMotion ? 0 : 0.045
-      }, reduceMotion ? 0 : 0.64);
+        duration: 0.01,
+        stagger: 0
+      }, 0);
 
     return () => timeline.kill();
   }, { scope: rootRef, dependencies: [isOpen, shouldRender], revertOnUpdate: true });
