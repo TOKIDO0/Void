@@ -228,18 +228,27 @@ async function runAgentToolLoopInternal(
   const allowedToolNames = options.allowedToolNames
     ? new Set(options.allowedToolNames)
     : null;
+  // 根因修复：被情绪门禁挡住时，L0 只读工具仍应放行（如列应用、看窗口），避免一句道歉仍被卡
+  const isBlockedForTool = (tool: { riskLevel: string } | null | undefined) =>
+    blockedByAffect && tool?.riskLevel !== "L0";
   const tools = options.tools
     ? options.tools.filter((definition) => {
         const tool = getTool(fromModelToolName(definition.function.name));
         return Boolean(
-          !blockedByAffect
-          && tool
+          tool
           && (!allowedToolNames || allowedToolNames.has(tool.name))
           && hasToolPermissionGrants(tool, permissionGrants)
+          && !isBlockedForTool(tool)
         );
       })
     : blockedByAffect
-      ? []
+      ? listModelToolDefinitions(permissionGrants).filter((definition) => {
+          const tool = getTool(fromModelToolName(definition.function.name));
+          return (
+            (!allowedToolNames || allowedToolNames.has(fromModelToolName(definition.function.name)))
+            && !isBlockedForTool(tool)
+          );
+        })
       : listModelToolDefinitions(permissionGrants).filter((definition) =>
           !allowedToolNames
           || allowedToolNames.has(fromModelToolName(definition.function.name))
@@ -646,7 +655,12 @@ async function runSingleToolCall(params: {
   const toolName = params.toolName;
 
   // 执行前最后一道关系 gate：必须早于 schema、权限确认和 executeToolCall。
-  if (params.taskGate && isBehaviorToolGateBlocked(params.taskGate)) {
+  // 根因修复：L0 只读工具不因情绪门禁被拦，避免列应用这类无害操作被一句道歉仍卡住
+  const toolForGate = getTool(toolName);
+  const shouldBlockForThisTool = params.taskGate
+    ? isBehaviorToolGateBlocked(params.taskGate) && toolForGate?.riskLevel !== "L0"
+    : false;
+  if (shouldBlockForThisTool && params.taskGate) {
     appendExecutionLog({
       level: "warn",
       taskId: params.taskId,

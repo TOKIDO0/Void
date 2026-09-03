@@ -281,9 +281,9 @@ function applySocialEvent(
       break;
     }
     case "apology": {
-      // 加速消气，但不秒变舔狗
-      grievance = clampUnit(grievance - 0.32 * weight);
-      rapport = clampRapport(rapport + 0.14 * weight);
+      // 加速消气：一次诚恳道歉应明显降档，避免一句道歉仍被卡住
+      grievance = clampUnit(grievance - 0.55 * weight);
+      rapport = clampRapport(rapport + 0.22 * weight);
       mood = pickRecoverMood(grievance, grievance <= 0.2 ? "steady" : "sulky");
       intensity = clampUnit(grievance > 0.25 ? 0.35 : 0.25);
       break;

@@ -26,6 +26,7 @@ import {
   isBehaviorToolGateBlocked,
   type BehaviorDecision
 } from "../emotion/behaviorPolicy";
+import { getTool } from "./tools/toolRegistry";
 import { appendExecutionLog } from "./observability";
 import { applyReplySpeechGuard } from "./loop/replySpeechGuard";
 import {
@@ -269,12 +270,22 @@ export async function sendVoidMessage(
   };
   const taskGate = runtimeOptions.behaviorDecision?.taskGate;
   const blockedByAffect = taskGate ? isBehaviorToolGateBlocked(taskGate) : false;
-  const routeHasTools = turnRoute.allowedToolNames.length > 0;
-  const relationshipToolRefusal = blockedByAffect && routeHasTools;
+  // 根因修复：被情绪门禁挡住时，L0 只读工具仍应放行（如列应用、看窗口），避免一句道歉仍被卡
+  let effectiveAllowedToolNames = turnRoute.allowedToolNames;
+  let effectiveBlockedByAffect = blockedByAffect;
+  if (blockedByAffect && turnRoute.allowedToolNames.length > 0) {
+    const l0Only = turnRoute.allowedToolNames.filter((name) => getTool(name)?.riskLevel === "L0");
+    if (l0Only.length > 0) {
+      effectiveAllowedToolNames = l0Only;
+      effectiveBlockedByAffect = false;
+    }
+  }
+  const routeHasTools = effectiveAllowedToolNames.length > 0;
+  const relationshipToolRefusal = effectiveBlockedByAffect && routeHasTools;
   const enableTools = runtimeOptions.enableTools !== false
     && Boolean(provider.supportsTools)
     && routeHasTools
-    && !blockedByAffect;
+    && !effectiveBlockedByAffect;
 
   if (runtimeOptions.behaviorDecision) {
     appendTaskGateAudit(runtimeOptions.behaviorDecision, relationshipToolRefusal);
@@ -393,7 +404,7 @@ export async function sendVoidMessage(
         requestConfirmation: runtimeOptions.requestConfirmation,
         onProgress: runtimeOptions.onProgress,
         signal: runtimeOptions.signal,
-        allowedToolNames: turnRoute.allowedToolNames,
+        allowedToolNames: effectiveAllowedToolNames,
         taskGate
       });
       // 兼容旧调用方：若有 onToken，把最终文本整段推一次，便于显示层刷新
