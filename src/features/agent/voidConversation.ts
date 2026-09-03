@@ -101,7 +101,18 @@ export type VoidMessageRuntimeOptions = {
   behaviorDecision?: BehaviorDecision;
   /** 阶段 Y：命中本地技能时由调用方预取的剧本提示；缺省 null 零副作用。 */
   skillPromptHint?: string;
+  /** P2 语音入口：本轮用户输入 modality；缺省 text。voice 回合追加语音纪律（单问/短答/不朗读链接）。 */
+  inputMode?: "voice" | "text";
 };
+
+/** P2 语音回合纪律：供 runtime-smoke 断言；生产路径经 buildSystemPrompt 注入，勿直接调用。 */
+export function buildVoiceTurnSuffix(): string {
+  return [
+    "【本轮语音纪律】",
+    "本轮是语音对话，用户靠听理解：一次只问一个问题；回答用口语短句，不超过 3 句；不要朗读链接、路径、文件名清单，需要时只说一句“详情已放到屏幕上”。",
+    "工具进度不要逐条播报，只汇报最终结果；askUser 澄清必须收敛到最关键的一个问题。"
+  ].join("\n");
+}
 
 type StoredConversationPayload = {
   version: 1;
@@ -325,6 +336,7 @@ export async function sendVoidMessage(
   }
 
   // M2：先按无摘要拼一版 system 估 token，再裁历史；摘要段随后并入最终 system。
+  const inputMode = runtimeOptions.inputMode ?? "text";
   let baseSystemPrompt = buildSystemPrompt(
     effectiveModelConfig,
     emotionContext,
@@ -335,7 +347,9 @@ export async function sendVoidMessage(
     normalizedUserInput,
     taskGate,
     forceThinkingThisTurn,
-    runtimeOptions.skillPromptHint
+    runtimeOptions.skillPromptHint,
+    undefined,
+    inputMode
   );
   // 阶段 AD：上下文使用率感知（agent 自感知，用户无感；开源调研结论：内置映射表 + 阈值双档）
   {
@@ -359,7 +373,8 @@ export async function sendVoidMessage(
         taskGate,
         forceThinkingThisTurn,
         runtimeOptions.skillPromptHint,
-        hint
+        hint,
+        inputMode
       );
     }
   }
@@ -491,9 +506,15 @@ function buildSystemPrompt(
   taskGate?: BehaviorDecision["taskGate"],
   researchIntentThisTurn = false,
   skillPromptHint?: string,
-  contextUsageHint?: string
+  contextUsageHint?: string,
+  inputMode: "voice" | "text" = "text"
 ) {
   const sections = [VOID_SYSTEM_PROMPT];
+
+  // P2 语音入口：voice 回合追加语音纪律（单问/短答/不朗读链接），text 零副作用。
+  if (inputMode === "voice") {
+    sections.push(buildVoiceTurnSuffix());
+  }
 
   sections.push([
     "【本轮边界】",

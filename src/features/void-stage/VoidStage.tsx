@@ -687,7 +687,8 @@ export function VoidStage() {
     emotionSystemPromptSuffix: string,
     behaviorDecision: BehaviorDecision,
     signal: AbortSignal,
-    skillPromptHint?: string
+    skillPromptHint?: string,
+    inputMode: "voice" | "text" = "text"
   ) => {
     const modelConfig = {
       ...loadModelConfig(),
@@ -729,6 +730,7 @@ export function VoidStage() {
         behaviorDecision,
         signal,
         skillPromptHint,
+        inputMode,
         onProgress: (progressMessage) => {
           if (!progressMessage.trim()) {
             return;
@@ -1111,7 +1113,11 @@ export function VoidStage() {
     return false;
   }, [closeExpandedResponse, handleThinkingModeChange, openExpandedResponse, scheduleResponseLayerHide, showResponseLayer, stopVoicePlayback, updateVoicePreferences, voicePreferences]);
 
-  const handleTextMessage = useCallback(async (message: string, attachments: VoidConversationAttachment[]) => {
+  const handleTextMessage = useCallback(async (
+    message: string,
+    attachments: VoidConversationAttachment[],
+    inputMode: "voice" | "text" = "text"
+  ) => {
     // 确认门挂起时，短指令「好/取消」优先结算，不新开对话。
     if (attachments.length === 0 && trySettlePendingConfirmationByUtterance(message)) {
       return;
@@ -1187,7 +1193,8 @@ export function VoidStage() {
         emotionPolicy.behaviorDecision,
         signal,
         // 阶段 Y：命中本地技能剧本时注入提示；解析失败/超时为 null 零副作用
-        await resolveSkillPromptHint(message, signal)
+        await resolveSkillPromptHint(message, signal),
+        inputMode
       );
       if (activeExchangeIdRef.current !== exchangeId) {
         return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）
@@ -1379,7 +1386,8 @@ export function VoidStage() {
     }
     sentVoiceUtteranceNormalizedRef.current = normalized;
     lastVoiceCommitAtRef.current = Date.now();
-    void handleTextMessage(text, []);
+    // P2 语音入口：语音定稿标 voice，模型按语音纪律回应（单问/短答/不朗读链接）。
+    void handleTextMessage(text, [], "voice");
   }, [handleTextMessage, scheduleResponseLayerHide, showResponseLayer]);
 
   voiceInputCallbacksRef.current = {

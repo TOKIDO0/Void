@@ -54,7 +54,7 @@ import {
   doesTurnCapabilityRequireBridge,
   resolveTurnCapability
 } from "../turnRouting/turnCapabilityRouter";
-import { buildToolUseSystemSuffix } from "../voidConversation";
+import { buildToolUseSystemSuffix, buildVoiceTurnSuffix } from "../voidConversation";
 import { parseLocalUiCommand } from "../localCommands/localUiCommandParser";
 
 export type SmokeResult = {
@@ -1306,6 +1306,18 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("产物汇报纪律应同源拼入 file 与 browser 工具组后缀（三段式/口播友好/reveal 三档/自动命名/单次追问/忠实保存），且不得污染其它能力组");
   } else {
     notes.push("产物汇报纪律拼装正确：file/browser 同源包含三段式汇报、口播友好、reveal 三档、默认命名分层与单次追问规范");
+  }
+
+  // P2 语音入口：voice 回合纪律必须含单问/短答/不朗读链接，且与文本路径隔离
+  const voiceSuffix = buildVoiceTurnSuffix();
+  if (
+    !voiceSuffix.includes("一次只问一个问题")
+    || !voiceSuffix.includes("不超过 3 句")
+    || !voiceSuffix.includes("不要朗读链接")
+  ) {
+    failures.push("语音回合纪律缺失：应含单问/短答/不朗读链接");
+  } else {
+    notes.push("语音回合纪律正确：单问/短答/不朗读链接，askUser 在语音回合收敛到一个问题");
   }
 
   // 阶段 X（40 号文档）：安全面板窄指令正例，整句命中才开 UI
