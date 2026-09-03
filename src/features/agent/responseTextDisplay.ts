@@ -1,3 +1,5 @@
+import { stripProtocolMarkup } from "../../lib/model-providers/dsmlToolCallParser";
+
 // 回复文本显示层净化：剥离 AI 回复里形如「（我停顿了一下）」的情绪/动作旁白，
 // 但保留术语解释括号（如 RAG（Retrieval-Augmented Generation，检索增强生成））。
 //
@@ -9,7 +11,9 @@
 // 与 TTS 的 sanitizeTextForSpeech 分工：那个无差别剥全部括号（供合成，不影响显示）；
 // 本函数供显示层，须精细区分旁白与术语。二者互不复用，各自单一职责。
 export function stripStageDirections(text: string): string {
-  const withoutStageDirections = text
+  // 兜底：正文内工具协议（DSML/tool_calls）整块删除，用户永远看不见协议原文。
+  const withoutProtocol = stripProtocolMarkup(text);
+  const withoutStageDirections = withoutProtocol
     .split("\n")
     .map((line) => {
       const trimmedLine = line.trim();

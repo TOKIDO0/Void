@@ -2658,6 +2658,50 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push("file.editText 契约路由正确：L2 确认，改文件内容走 readText + editText 专线");
   }
 
+  // 2i) DSML 协议泄漏闭环：正文内协议必须解析成真调用，剥离后不得残留，纯文本不受影响
+  const { parseDsmlToolCalls, stripProtocolMarkup: stripProtocolForSmoke, hasProtocolMarkup } = await import("../../../lib/model-providers/dsmlToolCallParser");
+  const { openAiCompatibleProvider: compatProviderForSmoke } = await import("../../../lib/model-providers/openAiCompatibleProvider");
+  const dsmlSample = [
+    "好，我来拉网页。为了确保是 Metacritic 官方页面而不是搜索引擎中转，我先快速核对地址，再打开。",
+    "",
+    "<|DSML|tool_calls|>",
+    "<|DSML|invoke name=\"web_search\"|>",
+    "<|DSML|parameter name=\"query\" string=\"true\"|>Metacritic best video games of all time website metacritic.com browse games score metascore sort<|/DSML|parameter|>",
+    "<|/DSML|invoke|>",
+    "<|DSML|invoke name=\"web_search\"|>",
+    "<|DSML|parameter name=\"query\" string=\"true\"|>metacritic.com lowest scored video games list worst all time<|/DSML|parameter|>",
+    "<|/DSML|invoke|>",
+    "<|/DSML|tool_calls|>"
+  ].join("\n");
+  const dsmlParsed = parseDsmlToolCalls(dsmlSample);
+  const dsmlStripped = stripProtocolForSmoke(dsmlSample);
+  const dsmlNormalized = compatProviderForSmoke.normalizeResponse({
+    choices: [{ message: { content: dsmlSample }, finish_reason: "stop" }]
+  });
+  const dsmlArgsOk = dsmlNormalized.toolCalls
+    ?.every((call) => {
+      try {
+        return typeof JSON.parse(call.function.arguments).query === "string";
+      } catch {
+        return false;
+      }
+    }) ?? false;
+  if (
+    dsmlParsed.length !== 2
+    || dsmlParsed.some((call) => call.name !== "web_search")
+    || !hasProtocolMarkup(dsmlSample)
+    || hasProtocolMarkup(dsmlStripped)
+    || dsmlStripped.includes("DSML")
+    || !dsmlStripped.includes("好，我来拉网页")
+    || dsmlNormalized.toolCalls?.length !== 2
+    || !dsmlArgsOk
+    || stripProtocolForSmoke("纯文本你好") !== "纯文本你好"
+  ) {
+    failures.push("DSML 闭环异常：解析/剥离/normalize 三处至少一处未达预期");
+  } else {
+    notes.push("DSML 闭环正确：正文协议解析成 2 个真 web_search 调用，剥离后只剩人类正文，纯文本零误伤");
+  }
+
   // 3) 未注册工具明确拒绝
   const missing = await executeToolCall({
     taskId: "smoke_missing",

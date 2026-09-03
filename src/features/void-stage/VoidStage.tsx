@@ -39,6 +39,7 @@ import { VoicePlaybackController } from "../voice/tts/voicePlaybackController";
 import type { VoiceSynthesisResult } from "../voice/tts/voiceTtsContract";
 import { stripLinksForSpeech } from "../voice/tts/speechTextSanitizer";
 import { ProviderRequestError } from "../../lib/model-providers/providerErrors";
+import { stripProtocolMarkup } from "../../lib/model-providers/dsmlToolCallParser";
 import { recognizeUserEmotion } from "../emotion/userEmotionRecognizer";
 import { evolveAgentEmotion } from "../emotion/agentEmotionEngine";
 import {
@@ -1731,7 +1732,8 @@ function resolveChunkMinChars(chunkIndex: number) {
 // 朗读文本净化：AI 回复中形如「（轻声）」「(笑)」的括号情绪/动作标注，显示时保留（用户可见其情绪），
 // 但 TTS 合成前必须剥离，否则会被逐字读出。仅用于送入合成的文本，绝不改动显示层。
 function sanitizeTextForSpeech(text: string) {
-  return stripLinksForSpeech(stripStageDirections(text))
+  // 兜底：协议原文（含 DSML）绝不进 TTS，先整块删除再做常规净化。
+  return stripLinksForSpeech(stripStageDirections(stripProtocolMarkup(text)))
     // 成对括号及其内容：中文（）、英文 ()、【】、[]
     .replace(/（[^（）]*）/g, "")
     .replace(/\([^()]*\)/g, "")

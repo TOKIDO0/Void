@@ -48,6 +48,7 @@ import {
   formatToolProgressMessage
 } from "./toolProgressCopy";
 import { buildToolResultRelay } from "./toolResultRelay";
+import { hasProtocolMarkup, stripProtocolMarkup } from "../../../lib/model-providers/dsmlToolCallParser";
 import { sanitizeToolErrorMessage } from "../tools/sanitizeToolError";
 import {
   formatBehaviorToolRefusal,
@@ -336,10 +337,12 @@ async function runAgentToolLoopInternal(
 
     const toolCalls = forceFinalText ? [] : (response.toolCalls ?? []);
     if (toolCalls.length === 0) {
-      let content = (response.content ?? "").trim();
-      // 部分 OpenAI-compatible 模型会在 toolChoice=none 时把工具协议写进正文。
-      // 终态已成功后禁止把内部协议展示给用户，也禁止把它当作新的工具调用执行。
-      if (forceFinalText && lastTerminalSuccess && containsToolProtocolMarkup(content)) {
+      const rawContent = response.content ?? "";
+      const leakedProtocol = hasProtocolMarkup(rawContent);
+      // 协议原文永不下沉为最终回复：先剥离，绝不展示、绝不朗读。
+      let content = stripProtocolMarkup(rawContent);
+      // 终态已成功后，有协议残留或正文被剥空都用终态摘要收口。
+      if (forceFinalText && lastTerminalSuccess && (leakedProtocol || !content)) {
         content = lastTerminalSuccess.summary;
       }
       if (!content && lastTerminalSuccess) {
@@ -350,6 +353,15 @@ async function runAgentToolLoopInternal(
         content = ensureStreakCloseContent(content, sameToolStreakClose);
       }
       if (!content) {
+        // 协议被剥光且无可用正文：若本轮给了工具，说明模型只发了协议没发真调用，
+        // 纠偏后继续循环（受 maxRounds 约束），绝不把空/垃圾返回给用户。
+        if (!forceFinalText && tools.length > 0) {
+          messages.push({
+            role: "system",
+            content: "你刚才把工具调用协议写进了正文，没有发起真正的工具调用。请用标准 tool_calls 发起调用，把协议放在结构化字段里，不要写进正文。"
+          });
+          continue;
+        }
         throw new Error("模型没有返回有效内容。");
       }
       content = applyReplySpeechGuard(content, {
@@ -384,9 +396,12 @@ async function runAgentToolLoopInternal(
     }
 
     usedTools = true;
+    // 存入历史的 assistant 消息同步剥离协议原文，避免污染后续轮次上下文；
+    // 纯协议无正文时存 null（意图已由 tool_calls 承载）。
+    const relayableContent = stripProtocolMarkup(response.content ?? "");
     messages.push({
       role: "assistant",
-      content: response.content?.trim() ? response.content : null,
+      content: relayableContent || null,
       tool_calls: toolCalls
     });
 
@@ -991,9 +1006,7 @@ function safeParseJson(text: string): Record<string, unknown> | null {
 }
 
 function containsToolProtocolMarkup(content: string): boolean {
-  return /(?:<[^>]*DSML[^>]*tool_calls>|<tool_calls>|<function_calls>|<[^>]*tool_calls[^>]*>)/i.test(
-    content
-  );
+  return hasProtocolMarkup(content);
 }
 
 /** 判断一次工具结果是否为「桥接不可达」失败（sidecar 未启动） */

@@ -6,6 +6,7 @@ import type {
   ProviderToolCall,
   ProviderValidationResult
 } from "./providerContract";
+import { parseDsmlToolCalls } from "./dsmlToolCallParser";
 import type { ModelConfig } from "../../features/settings/modelConfig";
 import { ProviderRequestError, createHttpStatusError } from "./providerErrors";
 import { buildFetchTarget, buildProviderEndpointUrl, fetchWithProxyFallback } from "./providerUrl";
@@ -168,7 +169,23 @@ export const openAiCompatibleProvider: ModelProvider = {
     const rawContent = message?.content;
     const content =
       typeof rawContent === "string" ? rawContent.trim() : "";
-    const toolCalls = normalizeToolCalls(message?.tool_calls);
+    let toolCalls = normalizeToolCalls(message?.tool_calls);
+
+    // 根因修复：部分模型把工具调用以 DSML 文本写进正文而 tool_calls 为空。
+    // 在此解析成真 tool_calls 去执行，绝不让协议原文下沉为最终回复。
+    if (toolCalls.length === 0 && content) {
+      const dsmlCalls = parseDsmlToolCalls(content);
+      if (dsmlCalls.length > 0) {
+        toolCalls = dsmlCalls.map((call, index) => ({
+          id: `call_dsml_${index + 1}`,
+          type: "function" as const,
+          function: {
+            name: call.name,
+            arguments: JSON.stringify(call.args)
+          }
+        }));
+      }
+    }
 
     if (!content && toolCalls.length === 0) {
       // 推理模型（reasoning model）专用诊断：思考过程吃光输出额度时 content 为空，
