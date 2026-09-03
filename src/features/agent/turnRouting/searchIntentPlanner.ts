@@ -74,6 +74,10 @@ export function planBrowserSearchIntent(userInput: string): BrowserSearchIntentP
 }
 
 function detectPlatform(text: string): SearchPlatform {
+  // 模糊全球榜单：最牛网红等跨平台，不默认 B 站
+  if (/(?:最牛|最强|最厉害|最红|最火).{0,10}(?:网红|博主|主播)/.test(text)) {
+    return "web";
+  }
   if (/(?:B\s*站|哔哩哔哩|bilibili|up主|BV[\w]+)/i.test(text)) {
     return "bilibili";
   }
@@ -134,6 +138,11 @@ function buildQueryCandidates(
     } else {
       candidates.push("搞笑博主", "有趣创作者");
     }
+  }
+
+  // 模糊“最牛/最火网红”类：展开为跨平台榜单检索词，避免模型空搜
+  if (/(?:最牛|最强|最厉害|最红|最火|最热门).{0,10}(?:网红|博主|主播|up主)/.test(text)) {
+    candidates.push("全球 YouTube 订阅最多网红 2024", "MrBeast YouTube channel", "抖音最火网红排行");
   }
 
   if (action === "open_latest_video") {

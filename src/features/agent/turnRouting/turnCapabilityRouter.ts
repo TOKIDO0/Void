@@ -92,6 +92,14 @@ const DESKTOP_SYSTEM_INFO_TOOL_NAMES = ["desktop.getSystemInfo"];
 const DESKTOP_SCREENSHOT_TOOL_NAMES = ["desktop.screenshot"];
 const DESKTOP_WINDOW_BOUNDS_TOOL_NAMES = ["desktop.listWindows", "desktop.setWindowBounds"];
 const DESKTOP_OPEN_FILE_TOOL_NAMES = ["desktop.openFile"];
+const RESEARCH_THEN_OPEN_TOOL_NAMES = [
+  "browser.search",
+  "browser.open",
+  "browser.extract",
+  "browser.revealInSystemBrowser",
+  "browser.tabs",
+  "browser.switchTab"
+];
 const DESKTOP_FULL_TOOL_NAMES = [
   "desktop.openKnownLocation",
   "desktop.listInstalledApplications",
@@ -369,6 +377,7 @@ const DESKTOP_OPEN_FILE_PATTERN = /(?:(?:打开|看看|查看).{0,16}(?:文件|�
 const DESKTOP_SIMPLE_LAUNCH_PATTERN = /(?:^|[^\w\u4e00-\u9fa5])(?:给我|帮我)?(?:打开|启动|运行)\s*([A-Za-z0-9\u4e00-\u9fa5]{1,20})(?:\s*(?:，|,|然后|再|和|；|;|。|\s|$))/;
 // 复合桌面意图兜底：只要句中出现桌面关键词，即视为桌面
 const DESKTOP_COMPOUND_PATTERN = /(?:打开\s*(?:微信|qq|QQ|钉钉|飞书)|桌面.*应用|应用.*桌面)/i;
+const RESEARCH_THEN_OPEN_PATTERN = /(?:(?:给我)?打开).{0,20}(?:最.{0,8}(?:牛|强|火|红|厉害|热门)|排行|第一|是谁).{0,20}(?:网红|博主|主播|up主).{0,20}(?:视频|主页|频道)/i;
 const DESKTOP_LAUNCH_BLOCKLIST = ["网页", "网站", "链接", "浏览器", "文件", "文件夹", "目录", "路径", "下载", "http", "https"];
 const THIS_PC_PATTERN = /(?:打开|进入|显示|启动).{0,6}(?:我的电脑|此电脑|这台电脑)/;
 const CLIPBOARD_PATTERN = /(?:(?:读取|查看|看看|写入|复制到|放到|清空).{0,6}(?:剪贴板|粘贴板)|(?:剪贴板|粘贴板).{0,6}(?:有什么|内容|读取|查看|写入|清空))/;
@@ -585,6 +594,11 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (LOCAL_RUNTIME_SECURITY_PATTERN.test(userInput)) {
     return createRoute("security", SECURITY_TOOL_NAMES);
+  }
+
+  // 研究后打开：模糊“最牛网红是谁”+“打开主页”应先搜后开，给全量浏览器工具
+  if (RESEARCH_THEN_OPEN_PATTERN.test(userInput)) {
+    return createRoute("browser", RESEARCH_THEN_OPEN_TOOL_NAMES);
   }
 
   // 复合桌面意图兜底：多步“打开微信+打开qq+列桌面应用”应一次给全量桌面工具，避免窄路由只给4个而报没权限
