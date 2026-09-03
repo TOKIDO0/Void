@@ -11,6 +11,7 @@ export {
   moveFile,
   inspectWriteTarget,
   writeText,
+  editText,
   verifyFile,
   getFileBridgeErrorInfo
 } from "./fileBridgeClient";
@@ -30,6 +31,7 @@ export type {
   FileInspectWriteTargetData,
   FileMoveData,
   FileWriteTextData,
+  FileEditTextData,
   TextWriteConflictPolicy,
   MoveConflictPolicy,
   FileVerifyData,

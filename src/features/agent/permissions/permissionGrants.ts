@@ -64,6 +64,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.file.createDirectory",
   "tool.file.move",
   "tool.file.writeText",
+  "tool.file.editText",
   "tool.file.organizeDirectory",
   "tool.file.createExcel",
   "tool.file.createPptx",

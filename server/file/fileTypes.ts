@@ -281,6 +281,15 @@ export type FileWriteTextData = {
   writtenAt: number;
 };
 
+export type FileEditTextData = {
+  path: string;
+  fileName: string;
+  bytes: number;
+  characters: number;
+  replacements: number;
+  editedAt: number;
+};
+
 export type FileOrganizeDirectoryRequest = {
   path?: string;
   dryRun?: boolean;

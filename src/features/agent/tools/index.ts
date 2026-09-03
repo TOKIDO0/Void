@@ -112,6 +112,7 @@ export { fileInspectWriteTargetTool } from "./builtin/fileInspectWriteTargetTool
 export { fileCreateDirectoryTool } from "./builtin/fileCreateDirectoryTool";
 export { fileMoveTool } from "./builtin/fileMoveTool";
 export { fileWriteTextTool } from "./builtin/fileWriteTextTool";
+export { fileEditTextTool } from "./builtin/fileEditTextTool";
 export { securityInspectLocalRuntimeTool } from "./builtin/securityInspectLocalRuntimeTool";
 export { agentInspectCapabilitiesTool } from "./builtin/agentInspectCapabilitiesTool";
 export { agentPlanTaskRouteTool } from "./builtin/agentPlanTaskRouteTool";
@@ -161,6 +162,10 @@ export type {
   FileWriteTextToolInput,
   FileWriteTextToolOutput
 } from "./builtin/fileWriteTextTool";
+export type {
+  FileEditTextToolInput,
+  FileEditTextToolOutput
+} from "./builtin/fileEditTextTool";
 export type {
   FileSearchTextToolInput,
   FileSearchTextToolOutput

@@ -154,6 +154,20 @@ export function mapFileErrorToToolError(error: unknown): ToolError {
         withKind("write_failed", info.details),
         false
       );
+    case "EDIT_TARGET_NOT_FOUND":
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withKind("edit_target_not_found", info.details),
+        false
+      );
+    case "EDIT_AMBIGUOUS":
+      return createToolError(
+        "EXECUTION_FAILED",
+        info.message,
+        withKind("edit_ambiguous", info.details),
+        false
+      );
     case "VERIFY_FAILED":
       return createToolError(
         "EXECUTION_FAILED",

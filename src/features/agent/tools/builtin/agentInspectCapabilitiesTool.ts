@@ -122,7 +122,7 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
   {
     id: "file",
     label: "本地文件",
-    summary: "在允许根内列目录、预检路径元数据、按名称查找文件、查看默认目录最近产物、读取文本/PDF/DOCX、全文搜索、预检写入目标、写入文本、创建一层目录、移动/重命名和校验文件。",
+    summary: "在允许根内列目录、预检路径元数据、按名称查找文件、查看默认目录最近产物、读取文本/PDF/DOCX、全文搜索、预检写入目标、写入文本、行级编辑、创建一层目录、移动/重命名和校验文件。",
     requiresBridge: true,
     toolNames: [
       "file.listDirectory",
@@ -133,6 +133,7 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
       "file.searchText",
       "file.inspectWriteTarget",
       "file.writeText",
+      "file.editText",
       "file.createDirectory",
       "file.move",
       "file.verify",

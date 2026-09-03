@@ -40,6 +40,7 @@ import type {
   FileSearchTextData,
   FileVerifyData,
   FileWriteTextData,
+  FileEditTextData,
   TextWriteConflictPolicy,
   OverwritePolicy
 } from "./fileTypes";
@@ -510,6 +511,23 @@ export async function handleFileHttpRequest(
           ? "refuse"
           : parseTextWriteConflictPolicy(body.conflictPolicy)
       );
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/edit-text") {
+    await withFileHandler<FileEditTextData>(response, async () => {
+      const body = asRecord(await readJsonBody(request, 768 * 1024));
+      const path = resolveTextWritePath(body);
+      const oldText = readRawString(body, "oldText");
+      const newText = readRawString(body, "newText");
+      if (oldText === undefined) {
+        throw createInvalidFileRequest("缺少 oldText");
+      }
+      if (newText === undefined) {
+        throw createInvalidFileRequest("缺少 newText");
+      }
+      return fileMutationManager.editText(path, oldText, newText);
     });
     return true;
   }

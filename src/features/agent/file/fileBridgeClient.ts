@@ -24,6 +24,7 @@ import type {
   FileMoveData,
   MoveConflictPolicy,
   FileWriteTextData,
+  FileEditTextData,
   TextWriteConflictPolicy,
   FileVerifyData,
   OverwritePolicy
@@ -360,6 +361,17 @@ export async function writeText(
   signal?: AbortSignal
 ): Promise<FileWriteTextData> {
   return postFileApi<FileWriteTextData>("/void-file/write-text", input, signal);
+}
+
+export async function editText(
+  input: {
+    path: string;
+    oldText: string;
+    newText: string;
+  },
+  signal?: AbortSignal
+): Promise<FileEditTextData> {
+  return postFileApi<FileEditTextData>("/void-file/edit-text", input, signal);
 }
 
 export async function inspectWriteTarget(

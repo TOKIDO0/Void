@@ -136,6 +136,8 @@ export function createFileError(
     | "FILE_NOT_FOUND"
     | "MOVE_FAILED"
     | "WRITE_FAILED"
+    | "EDIT_TARGET_NOT_FOUND"
+    | "EDIT_AMBIGUOUS"
     | "OVERWRITE_REFUSED"
     | "VERIFY_FAILED"
     | "FILE_TOO_LARGE"
@@ -169,6 +171,8 @@ export function getFileErrorPayload(error: unknown): {
     | "FILE_NOT_FOUND"
     | "MOVE_FAILED"
     | "WRITE_FAILED"
+    | "EDIT_TARGET_NOT_FOUND"
+    | "EDIT_AMBIGUOUS"
     | "OVERWRITE_REFUSED"
     | "VERIFY_FAILED"
     | "FILE_TOO_LARGE"
@@ -190,7 +194,7 @@ export function getFileErrorPayload(error: unknown): {
     && "fileCode" in error
     && typeof (error as { fileCode?: unknown }).fileCode === "string"
   ) {
-    const coded = error as Error & {
+      const coded = error as Error & {
       fileCode:
         | "INVALID_REQUEST"
         | "PATH_NOT_ALLOWED"
@@ -199,6 +203,8 @@ export function getFileErrorPayload(error: unknown): {
         | "FILE_NOT_FOUND"
         | "MOVE_FAILED"
         | "WRITE_FAILED"
+        | "EDIT_TARGET_NOT_FOUND"
+        | "EDIT_AMBIGUOUS"
         | "OVERWRITE_REFUSED"
         | "VERIFY_FAILED"
         | "FILE_TOO_LARGE"

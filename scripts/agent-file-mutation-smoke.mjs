@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -139,6 +139,47 @@ async function main() {
     expectFileError(
       () => fileMutationManager.inspectTextWriteTarget(path.join(workspace, "blocked.exe"), "refuse"),
       "INVALID_REQUEST"
+    );
+
+    const editFile = path.join(workspace, "edit-me.md");
+    writeFileSync(editFile, "# Title\nhello world\nbye world\n", "utf8");
+    expectFileError(
+      () => fileMutationManager.editText(editFile, "world", "x"),
+      "EDIT_AMBIGUOUS"
+    );
+    assert(
+      readFileSync(editFile, "utf8") === "# Title\nhello world\nbye world\n",
+      "歧义拒绝后文件必须保持不变"
+    );
+    const edited = fileMutationManager.editText(editFile, "hello world", "hello VOID");
+    assert(edited.replacements === 1, "行级编辑应恰好替换一处");
+    assert(
+      readFileSync(editFile, "utf8") === "# Title\nhello VOID\nbye world\n",
+      "行级编辑后文件内容应正确且其余部分不动"
+    );
+    expectFileError(
+      () => fileMutationManager.editText(editFile, "missing-needle-xyz", "x"),
+      "EDIT_TARGET_NOT_FOUND"
+    );
+    assert(
+      readFileSync(editFile, "utf8").includes("hello VOID"),
+      "未命中拒绝后文件必须保持不变"
+    );
+    const blockedEdit = path.join(workspace, "blocked-edit.exe");
+    writeFileSync(blockedEdit, "binary-ish", "utf8");
+    expectFileError(
+      () => fileMutationManager.editText(blockedEdit, "a", "b"),
+      "INVALID_REQUEST"
+    );
+    const outsideEdit = path.join(outsideRoot, "outside.txt");
+    writeFileSync(outsideEdit, "outside", "utf8");
+    expectFileError(
+      () => fileMutationManager.editText(outsideEdit, "outside", "x"),
+      "PATH_NOT_ALLOWED"
+    );
+    assert(
+      readFileSync(outsideEdit, "utf8") === "outside",
+      "根外拒绝后外部文件必须保持不变"
     );
 
     const inspectNote = path.join(workspace, "inspect-note.md");
@@ -354,6 +395,7 @@ async function main() {
 
     console.log("[agent-file-mutation-smoke] PASSED");
     console.log(" - 创建/移动/重命名成功；写入目标预检零写盘；冲突/根外/链接逃逸/深层创建均零写入拒绝");
+    console.log(" - 行级编辑恰好一处替换；歧义/未命中/非文本扩展名/根外均拒绝且文件不变");
     console.log(" - 路径元数据预检零读正文：文件/目录/缺失/敏感名/junction/根外路径均按边界处理");
     console.log(" - 文件名查找只返回元数据：文件/目录/嵌套/结果上限/kind 过滤/junction/根外路径均按边界处理");
     console.log(" - 私网下载默认拦截，显式 host:port allowlist 后逐跳放行，错端口仍拒绝");

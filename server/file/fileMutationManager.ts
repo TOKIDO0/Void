@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, parse } from "node:path";
 import { assertAllowedFilePath } from "./filePathPolicy";
 import { createFileError } from "./fileRuntimePaths";
 import { guessMediaKind } from "./fileDownloadManager";
 import type {
   FileCreateDirectoryData,
+  FileEditTextData,
   FileInspectWriteTargetData,
   FileMoveData,
   FileWriteTextData,
@@ -212,6 +213,60 @@ export class FileMutationManager {
       overwritten,
       renamedForConflict,
       writtenAt: Date.now()
+    };
+  }
+
+  /**
+   * 行级编辑：oldText 必须在文件中恰好出现一次，否则拒绝（0 次报 EDIT_TARGET_NOT_FOUND，
+   * 多次报 EDIT_AMBIGUOUS 并给出命中数）。只改一处，不做模糊匹配。
+   */
+  editText(pathValue: string, oldText: string, newText: string): FileEditTextData {
+    const path = assertAllowedFilePath(pathValue);
+    assertTextLikePath(path);
+    if (!existsSync(path) || !statSync(path).isFile()) {
+      throw createFileError("FILE_NOT_FOUND", `文件不存在：${path}`);
+    }
+    if (!oldText) {
+      throw createFileError("INVALID_REQUEST", "oldText 不能为空");
+    }
+    if (oldText.length > 20_000 || newText.length > 200_000) {
+      throw createFileError("INVALID_REQUEST", "oldText 不得超过 20000 字符，newText 不得超过 200000 字符");
+    }
+    if (newText.includes("\0")) {
+      throw createFileError("BINARY_FILE", "文本写入拒绝包含 NUL 字符的内容");
+    }
+    const stat = statSync(path);
+    if (stat.size > MAX_TEXT_WRITE_BYTES) {
+      throw createFileError("FILE_TOO_LARGE", `文件过大（${stat.size} bytes），拒绝行级编辑`);
+    }
+    const content = readFileSync(path, "utf8");
+    if (content.includes("\0")) {
+      throw createFileError("BINARY_FILE", "二进制文件拒绝行级编辑");
+    }
+    const hits = content.split(oldText).length - 1;
+    if (hits === 0) {
+      throw createFileError("EDIT_TARGET_NOT_FOUND", "oldText 在文件中没有命中，请先 readText 确认原文");
+    }
+    if (hits > 1) {
+      throw createFileError("EDIT_AMBIGUOUS", `oldText 命中 ${hits} 处，请加长上下文使之唯一`, { hits });
+    }
+    const next = content.replace(oldText, () => newText);
+    const buffer = Buffer.from(next, "utf8");
+    if (buffer.byteLength > MAX_TEXT_WRITE_BYTES) {
+      throw createFileError("FILE_TOO_LARGE", "编辑后内容超过 512KB 上限");
+    }
+    try {
+      writeFileSync(path, buffer);
+    } catch (error) {
+      throw createFileError("WRITE_FAILED", error instanceof Error ? error.message : "文本写入失败", { destinationPath: path });
+    }
+    return {
+      path,
+      fileName: basename(path),
+      bytes: buffer.byteLength,
+      characters: next.length,
+      replacements: 1,
+      editedAt: Date.now()
     };
   }
 

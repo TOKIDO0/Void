@@ -85,10 +85,20 @@ const FILE_TOOL_NAMES = [
   "file.createDirectory",
   "file.move",
   "file.writeText",
+  "file.editText",
   "file.verify",
   "desktop.revealPath",
   ...TASK_COLLAB_TOOL_NAMES
 ];
+
+// file.editText 专线：修改/替换文件中指定内容（先 readText 再 editText，同轮可用）
+const FILE_EDIT_TEXT_TOOL_NAMES = [
+  "file.readText",
+  "file.editText",
+  "file.verify"
+];
+const FILE_EDIT_TEXT_PATTERN =
+  /(?:把|将|帮我把|请把).{0,24}(?:文件|文档|配置|代码).{0,16}(?:修改|替换|改一下|更新一下)|(?:修改|替换).{0,16}(?:文件|文档|配置|代码).{0,12}(?:内容|文字|某行|一行)?/i;
 
 const DESKTOP_TOOL_NAMES = [
   "desktop.openKnownLocation",
@@ -823,6 +833,11 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
   // 本地资料/文档检索闭环：让「在本地资料里搜并整理成报告」稳定进入 file 工具组。
   if (isLocalKnowledgeFileIntent(userInput)) {
     return createRoute("file", FILE_TOOL_NAMES);
+  }
+
+  // 行级编辑专线：「把XX文件里的XX改成XX」先读后改，同轮可用 readText + editText + verify
+  if (FILE_EDIT_TEXT_PATTERN.test(userInput)) {
+    return createRoute("file", FILE_EDIT_TEXT_TOOL_NAMES);
   }
 
   // 先看 file 模式，但「下载并整理」类必须升级到 browser（含 createDirectory/move）

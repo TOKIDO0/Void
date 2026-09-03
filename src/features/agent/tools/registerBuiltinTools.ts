@@ -45,6 +45,7 @@ import { fileInspectWriteTargetTool } from "./builtin/fileInspectWriteTargetTool
 import { fileCreateDirectoryTool } from "./builtin/fileCreateDirectoryTool";
 import { fileMoveTool } from "./builtin/fileMoveTool";
 import { fileWriteTextTool } from "./builtin/fileWriteTextTool";
+import { fileEditTextTool } from "./builtin/fileEditTextTool";
 import { fileOrganizeDirectoryTool } from "./builtin/fileOrganizeDirectoryTool";
 import { fileCreateExcelTool } from "./builtin/fileCreateExcelTool";
 import { fileCreatePptxTool } from "./builtin/fileCreatePptxTool";
@@ -123,6 +124,7 @@ export function registerBuiltinTools() {
     fileCreateDirectoryTool,
     fileMoveTool,
     fileWriteTextTool,
+    fileEditTextTool,
     fileOrganizeDirectoryTool,
     fileCreateExcelTool,
     fileCreatePptxTool,

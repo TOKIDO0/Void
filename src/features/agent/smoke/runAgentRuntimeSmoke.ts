@@ -79,11 +79,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   bootstrapAgentRuntime();
 
   const productionTools = listToolMetadata();
-  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + desktop 控件探针 1 个 + desktop 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 = 70
-  if (productionTools.length !== 70 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 70 个工具，实际 ${productionTools.length}`);
+  // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + desktop 控件探针 1 个 + desktop 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 = 71
+  if (productionTools.length !== 71 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 71 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("70 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("71 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -2622,6 +2622,40 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("P3-B 缺参应拦截：control 无定位条件时不得执行投递");
   } else {
     notes.push("P3-B 契约路由正确：投递双工具契约有效，发消息路由含定位+投递+截图，缺参前置拦截");
+  }
+
+  // 2h) file.editText 契约 + 路由（真改走 file-mutation 真机 E2E，不进本冒烟）
+  const editTextTool = productionTools.find((tool) => tool.name === "file.editText");
+  const editTextContractOk = editTextTool
+    ? validateAgainstSchema(editTextTool.inputSchema, {
+      path: "D:\\AI\\void-runtime\\downloads\\note.md",
+      oldText: "hello",
+      newText: "hi"
+    }).valid
+    && !validateAgainstSchema(editTextTool.inputSchema, { path: "D:\\AI\\void-runtime\\x.md" }).valid
+    : false;
+  const editTextOutputOk = editTextTool
+    ? validateAgainstSchema(editTextTool.outputSchema, {
+      path: "D:\\AI\\void-runtime\\downloads\\note.md",
+      fileName: "note.md",
+      bytes: 10,
+      characters: 8,
+      replacements: 1,
+      editedAt: Date.now()
+    }).valid
+    : false;
+  const editTextRoute = resolveTurnCapability("把这个文件里的错字改一下", []);
+  const editTextRouteOk = editTextRoute.capability === "file"
+    && editTextRoute.allowedToolNames.includes("file.readText")
+    && editTextRoute.allowedToolNames.includes("file.editText");
+  if (!editTextTool || !editTextContractOk || !editTextOutputOk) {
+    failures.push("file.editText 契约应要求 path/oldText/newText 并输出单处替换结果");
+  } else if (!editTextRouteOk) {
+    failures.push("行级编辑口语应路由到 file.readText + file.editText 专线");
+  } else if (editTextTool.riskLevel !== "L2") {
+    failures.push("file.editText 应为 L2，需用户确认");
+  } else {
+    notes.push("file.editText 契约路由正确：L2 确认，改文件内容走 readText + editText 专线");
   }
 
   // 3) 未注册工具明确拒绝
