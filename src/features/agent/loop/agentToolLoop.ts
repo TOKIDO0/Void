@@ -699,7 +699,16 @@ async function runSingleToolCall(params: {
     );
   }
 
-  const input = injectTaskId(parsedInput, params.taskId);
+  // 根因修复：仅当工具 schema 允许 taskId 时才注入，避免 L0 严格工具因额外字段报 SCHEMA_INVALID
+  const shouldInjectTaskId = (() => {
+    const props = (tool as { inputSchema?: { properties?: Record<string, unknown>; additionalProperties?: boolean } })?.inputSchema;
+    if (!props) return false;
+    if (props.properties && "taskId" in props.properties) return true;
+    if (props.additionalProperties === true) return true;
+    // additionalProperties 未显式声明时（默认允许），但为安全起见，仅当工具明确需要 taskId 的已知列表才注入
+    return false;
+  })();
+  const input = shouldInjectTaskId ? injectTaskId(parsedInput, params.taskId) : parsedInput;
   const safetyReview = inspectToolInputSafety(toolName, input);
   const riskLevel: RiskLevel = resolveHighestRiskLevel(tool.riskLevel, safetyReview.riskLevel);
 
