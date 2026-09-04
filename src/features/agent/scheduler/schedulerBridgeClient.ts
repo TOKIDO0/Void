@@ -223,6 +223,7 @@ export type ScheduleCreateRequest = {
   allowedToolNames?: string[];
   timeoutMs?: number;
   speakOnDeliver?: boolean;
+  when?: string;
 };
 
 export async function createScheduledJob(input: ScheduleCreateRequest, signal?: AbortSignal): Promise<SchedulerJobView> {

@@ -4,6 +4,7 @@
  */
 
 import { Cron } from "croner";
+import { parseNaturalSchedule } from "./scheduleTimeParser";
 import {
   DEFAULT_UNATTENDED_TOOL_NAMES,
   createScheduleError,
@@ -74,6 +75,24 @@ export function validateCreateInput(raw: ScheduleCreateInput, nowMs: number): Om
   }
   if (prompt.length > MAX_PROMPT_CHARS) {
     throw createScheduleError("INVALID_REQUEST", `prompt 不得超过 ${MAX_PROMPT_CHARS} 字`);
+  }
+  // B 自然语言时间：when 与 at/every/expr 二选一（同时给直接拒绝，不猜优先级）。
+  if (raw.when !== undefined) {
+    if (raw.at !== undefined || raw.every !== undefined || raw.expr !== undefined) {
+      throw createScheduleError("INVALID_REQUEST", "when 与 at/every/expr 二选一");
+    }
+    const parsed = parseNaturalSchedule(raw.when, nowMs);
+    if (!parsed) {
+      throw createScheduleError("INVALID_REQUEST", "时间理解失败：请用明确时间（如 明天下午3点 / 每天早上8点 / 每隔10分钟）");
+    }
+    if (raw.kind !== parsed.kind) {
+      throw createScheduleError("INVALID_REQUEST", `when 解析为 ${parsed.kind}，与 kind=${raw.kind} 不一致`);
+    }
+    raw = parsed.kind === "at"
+      ? { ...raw, at: parsed.atMs }
+      : parsed.kind === "every"
+        ? { ...raw, every: parsed.everyMs }
+        : { ...raw, expr: parsed.expr };
   }
   const name = (raw.name ?? "").trim().slice(0, MAX_NAME_CHARS) || prompt.slice(0, 40);
   const timeoutMs = raw.timeoutMs === undefined

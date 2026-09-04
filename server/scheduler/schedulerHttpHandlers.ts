@@ -136,6 +136,7 @@ export async function handleSchedulerHttpRequest(
             : undefined,
           timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : undefined,
           speakOnDeliver: body.speakOnDeliver === true,
+          when: typeof body.when === "string" ? body.when : undefined,
         },
         now
       );

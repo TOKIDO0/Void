@@ -227,6 +227,65 @@ async function main() {
       assert(badAnchor.ok === false, "非法 anchor 应拒绝");
       await postJson("/void-scheduler/jobs/remove", { id: anchored.data.id });
 
+      // B 自然语言时间表（参考周三 2026-09-02 10:00 本地，与 TZ 无关）
+      const { parseNaturalSchedule } = await import(
+        pathToFileURL(path.join(projectRoot, "server/scheduler/scheduleTimeParser.ts")).href
+      );
+      const refNow = new Date(2026, 8, 2, 10, 0, 0, 0).getTime();
+      const local = (month, day, hour, minute) => new Date(2026, month, day, hour, minute, 0, 0).getTime();
+      const timeCases = [
+        ["10分钟后", { kind: "at", atMs: refNow + 600_000 }],
+        ["半小时后", { kind: "at", atMs: refNow + 1800_000 }],
+        ["明天下午3点", { kind: "at", atMs: local(8, 3, 15, 0) }],
+        ["今天下午3点", { kind: "at", atMs: local(8, 2, 15, 0) }],
+        ["周五上午9点", { kind: "at", atMs: local(8, 4, 9, 0) }],
+        ["周三下午3点", { kind: "at", atMs: local(8, 2, 15, 0) }],
+        ["周一下午3点", { kind: "at", atMs: local(8, 7, 15, 0) }],
+        ["下周三上午9点", { kind: "at", atMs: local(8, 9, 9, 0) }],
+        ["下周三", { kind: "at", atMs: local(8, 9, 9, 0) }],
+        ["5号上午9点", { kind: "at", atMs: local(8, 5, 9, 0) }],
+        ["1号上午9点", { kind: "at", atMs: local(9, 1, 9, 0) }],
+        ["每天早上8点", { kind: "cron", expr: "0 8 * * *" }],
+        ["工作日早上8点", { kind: "cron", expr: "0 8 * * 1-5" }],
+        ["每周一下午3点", { kind: "cron", expr: "0 15 * * 1" }],
+        ["每月1号上午9点", { kind: "cron", expr: "0 9 1 * *" }],
+        ["每隔10分钟", { kind: "every", everyMs: 600_000 }],
+        ["每2小时", { kind: "every", everyMs: 7200_000 }]
+      ];
+      for (const [text, expected] of timeCases) {
+        const got = parseNaturalSchedule(text, refNow);
+        assert(got !== null && got.kind === expected.kind, `解析失败：${text}`);
+        if (expected.kind === "at") {
+          assert(got.atMs === expected.atMs, `at 不准：${text} 期望 ${expected.atMs} 实际 ${got.atMs}`);
+        } else if (expected.kind === "every") {
+          assert(got.everyMs === expected.everyMs, `every 不准：${text}`);
+        } else {
+          assert(got.expr === expected.expr, `cron 不准：${text} 实际 ${got.expr}`);
+        }
+      }
+      for (const text of ["今天上午9点", "瞎说八道", "上周三下午3点", ""]) {
+        assert(parseNaturalSchedule(text, refNow) === null, `应拒绝：${text}`);
+      }
+
+      // when 端到端：归一 + 二选一 + kind 一致
+      const whenJob = await postJson("/void-scheduler/jobs/create", {
+        name: "smoke-when", prompt: "hi", kind: "every", when: "每隔1小时"
+      });
+      assert(whenJob.ok === true && whenJob.data.everyMs === 3600_000, "when 应归一为 every");
+      await postJson("/void-scheduler/jobs/remove", { id: whenJob.data.id });
+      const whenClash = await postJson("/void-scheduler/jobs/create", {
+        prompt: "hi", kind: "at", when: "每隔1小时"
+      });
+      assert(whenClash.ok === false, "when 与 kind 冲突应拒绝");
+      const whenBoth = await postJson("/void-scheduler/jobs/create", {
+        prompt: "hi", kind: "every", every: "1h", when: "每隔1小时"
+      });
+      assert(whenBoth.ok === false, "when 与 every 同给应拒绝");
+      const whenGarbage = await postJson("/void-scheduler/jobs/create", {
+        prompt: "hi", kind: "every", when: "瞎说八道"
+      });
+      assert(whenGarbage.ok === false, "无法理解的 when 应拒绝");
+
       // A2 启动播报：过期 at 进 sweep 即记 missed run（未投递），供投递轮询播报
       const { schedulerStore } = await import(
         pathToFileURL(path.join(projectRoot, "server/scheduler/schedulerStore.ts")).href
@@ -307,6 +366,7 @@ async function main() {
     }
 
     console.log("[agent-scheduler-smoke] PASSED");
+    console.log(" - 自然时间：17例归一（上下午/半/上下周/号/每天cron/间隔）+4例拒绝+when归一/冲突/二选一/垃圾拒绝");
     console.log(" - 条件通知：首行NO_NOTIFY免打扰落账且不进pending，有异常正常投递");
     console.log(" - 启动播报：过期任务记 missed run 进 pending，可 ack");
     console.log(" - 预授权：scope内静态L2放行/L0与scope外与L3与未知拒绝；anchor决定下次，非法anchor拒绝");

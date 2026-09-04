@@ -77,6 +77,8 @@ export type ScheduleCreateInput = {
   expr?: string;
   /** cron 可选时区 IANA 名（如 Asia/Shanghai）；缺省宿主时区。 */
   tz?: string;
+  /** B 自然语言时间（如 下周三下午三点 / 每天早上8点 / 每隔10分钟）；与 at/every/expr 二选一。 */
+  when?: string;
   /** every 可选锚点（ISO 或毫秒时间戳）：缺省为创建时间。每日 8 点类用 every 24h + 锚明日 8 点。 */
   anchor?: string | number;
   /** 投递播报开关（可选，默认 false）。 */

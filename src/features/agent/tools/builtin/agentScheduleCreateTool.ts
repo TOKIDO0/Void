@@ -19,6 +19,7 @@ export type AgentScheduleCreateToolInput = {
   allowedToolNames?: string[];
   timeoutMs?: number;
   speakOnDeliver?: boolean;
+  when?: string;
 };
 
 const JOB_VIEW_SCHEMA = {
@@ -52,7 +53,7 @@ const JOB_VIEW_SCHEMA = {
 export const agentScheduleCreateTool: ToolDefinition<AgentScheduleCreateToolInput, Record<string, unknown>> = {
   name: "agent.scheduleCreate",
   description:
-    "创建后台定时任务（一次 at / 间隔 every / 日历 cron）：到期由 sidecar 隔离执行并落账，需 L2 确认一次授 scope；Key 仅内存。适合提醒、定时检查、到点播报。",
+    "创建后台定时任务（一次 at / 间隔 every / 日历 cron / 自然语言 when）：到期由 sidecar 隔离执行并落账，需 L2 确认一次授 scope；Key 仅内存。适合提醒、定时检查、到点播报。",
   version: "1.0.0",
   riskLevel: "L2",
   inputSchema: {
@@ -85,7 +86,8 @@ export const agentScheduleCreateTool: ToolDefinition<AgentScheduleCreateToolInpu
       tz: { type: "string", minLength: 1, maxLength: 64 },
       allowedToolNames: { type: "array", maxItems: 20, items: { type: "string", minLength: 1, maxLength: 80 } },
       timeoutMs: { type: "number", minimum: 60000, maximum: 3600000 },
-      speakOnDeliver: { type: "boolean" }
+      speakOnDeliver: { type: "boolean" },
+      when: { type: "string", minLength: 1, maxLength: 64 }
     }
   },
   outputSchema: JOB_VIEW_SCHEMA,
@@ -133,6 +135,7 @@ export const agentScheduleCreateTool: ToolDefinition<AgentScheduleCreateToolInpu
           speakOnDeliver: input.speakOnDeliver,
           expr: input.expr?.trim() || undefined,
           tz: input.tz?.trim() || undefined,
+          when: input.when?.trim() || undefined,
         },
         context.signal
       ) as unknown as Record<string, unknown>;
