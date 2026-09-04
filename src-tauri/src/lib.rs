@@ -4,6 +4,7 @@ use tauri::tray::TrayIconBuilder;
 use tauri::WindowEvent;
 
 mod takeover;
+mod ocr;
 
 // 桥接 sidecar 仅在正式构建（release）由 Rust 拉起 SEA 可执行文件；
  // 开发（debug）时 sidecar 由 `npm run dev:all` 用 tsx 热跑，Rust 不介入，
@@ -153,7 +154,8 @@ pub fn run() {
             takeover::takeover_start,
             takeover::takeover_stop,
             takeover::takeover_status,
-            takeover::takeover_input
+            takeover::takeover_input,
+            ocr::ocr_image_file
         ])
         .setup(move |app| {
             if cfg!(debug_assertions) {

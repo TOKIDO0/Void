@@ -759,19 +759,19 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     id: "screen-qa",
     category: "agent",
     label: "看屏问答",
-    summary: "截取当前屏幕，用视觉模型解读报错、页面或表格并回答；纯文本模型自动降级为只描述截图动作。",
-    userValue: "适合“这个报错什么意思”“屏幕上有什么”，截图即问即答，不用来回传文件。",
+    summary: "截取当前屏幕：先用本机 OCR 读出文字直接答；版式/图表/看不懂的布局再走视觉模型。",
+    userValue: "适合“这个报错什么意思”“屏幕上有什么”，文字类不依赖视觉模型，截图即问即答。",
     exampleRequests: [
       "看看这个报错什么意思",
-      "截个图看看屏幕上有什么"
+      "识别一下截图里的文字"
     ],
-    requiredToolNames: ["desktop.screenshot"],
+    requiredToolNames: ["desktop.screenshot", "desktop.readScreenText"],
     optionalToolNames: ["agent.scheduleInspect", "desktop.revealPath"],
     expectedMaxRiskLevel: "L0",
     requiresBridge: true,
     requiresConfirmation: false,
     safetyBoundaries: [
-      "需要视觉模型 preset（如 deepseek-v4-flash-vision-exp + 有效 Key）；纯文本模型只走文本降级，不伪装看懂。",
+      "文字类优先本机 OCR（离线免费），不经过视觉模型；版式/图表才走视觉模型 preset（如 deepseek-vision + 有效 Key）。",
       "截图落盘在 desktop-screenshots 运行时目录，不上传第三方，只送当前模型。"
     ]
   }

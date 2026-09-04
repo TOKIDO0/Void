@@ -65,6 +65,7 @@ import { desktopTakeoverStartTool } from "./builtin/desktopTakeoverStartTool";
 import { desktopTakeoverStopTool } from "./builtin/desktopTakeoverStopTool";
 import { desktopTakeoverInputTool } from "./builtin/desktopTakeoverInputTool";
 import { desktopTakeoverStatusTool } from "./builtin/desktopTakeoverStatusTool";
+import { desktopReadScreenTextTool } from "./builtin/desktopReadScreenTextTool";
 import { agentInspectToolContractTool } from "./builtin/agentInspectToolContractTool";
 import { agentInspectExtensionPolicyTool } from "./builtin/agentInspectExtensionPolicyTool";
 import { agentInspectSkillsTool } from "./builtin/agentInspectSkillsTool";
@@ -153,6 +154,7 @@ export function registerBuiltinTools() {
     desktopTakeoverStopTool,
     desktopTakeoverInputTool,
     desktopTakeoverStatusTool,
+    desktopReadScreenTextTool,
     agentInspectToolContractTool,
     agentInspectExtensionPolicyTool,
     agentInspectSafetyHooksTool,

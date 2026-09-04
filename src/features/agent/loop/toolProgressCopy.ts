@@ -85,6 +85,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "desktop.takeoverStop": "正在停止键鼠接管…",
   "desktop.takeoverInput": "正在执行接管输入…",
   "desktop.takeoverStatus": "正在查看接管状态…",
+  "desktop.readScreenText": "正在识别屏幕文字…",
   echo: "正在执行内部校验…"
 };
 

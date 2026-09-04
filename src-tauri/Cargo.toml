@@ -31,3 +31,11 @@ tauri-plugin-sql = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
 enigo = "0.6"
+windows = { version = "0.61", features = [
+  "Media_Ocr",
+  "Globalization",
+  "Graphics_Imaging",
+  "Foundation",
+  "Storage",
+  "Storage_Streams",
+] }

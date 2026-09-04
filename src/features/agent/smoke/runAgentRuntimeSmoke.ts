@@ -80,10 +80,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
 
   const productionTools = listToolMetadata();
   // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + desktop 控件探针 1 个 + desktop 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 = 71
-  if (productionTools.length !== 80 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 80 个工具，实际 ${productionTools.length}`);
+  if (productionTools.length !== 81 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 81 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("80 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + 接管会话/输入/状态/停止 4 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 + agent.scheduleCreate/remove/runNow/list/inspect 后台调度 5 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("81 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 读屏 OCR 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + 接管会话/输入/状态/停止 4 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 + agent.scheduleCreate/remove/runNow/list/inspect 后台调度 5 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -1133,6 +1133,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || !data.playbooks?.find((p) => p.id === "daily-brief")?.requiredToolNames?.includes("agent.scheduleCreate")
       || !data.playbooks?.find((p) => p.id === "daily-brief")?.requiredToolNames?.includes("file.writeText")
       || !data.playbooks?.find((p) => p.id === "screen-qa")?.requiredToolNames?.includes("desktop.screenshot")
+      || !data.playbooks?.find((p) => p.id === "screen-qa")?.requiredToolNames?.includes("desktop.readScreenText")
       || !codeTransform?.requiredToolNames?.includes("agent.runCode")
       || codeTransform.requiresConfirmation !== true
       || !data.safetyBoundaries?.some((item) => typeof item === "string" && item.includes("不是插件执行器"))
@@ -2787,6 +2788,32 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("看屏问询应路由到 desktop 截图，且纯代码报错不得劫持");
   } else {
     notes.push("看屏路由正确：看看报错→desktop.screenshot，代码报错不劫持");
+  }
+
+  // AQ 读屏 OCR 契约 + 路由（真机识别走桌面真机验收，不进冒烟）
+  const readScreenTextTool = productionTools.find((tool) => tool.name === "desktop.readScreenText");
+  const readScreenTextOk = readScreenTextTool
+    ? validateAgainstSchema(readScreenTextTool.inputSchema, { path: "D:\\AI\\void-runtime\\desktop-screenshots\\s.png" }).valid
+    && !validateAgainstSchema(readScreenTextTool.inputSchema, {}).valid
+    && (readScreenTextTool as { riskLevel?: string }).riskLevel === "L0"
+    : false;
+  if (!readScreenTextTool || !readScreenTextOk) {
+    failures.push("AQ 读屏工具契约异常：desktop.readScreenText 契约或风险等级未达预期");
+  } else {
+    notes.push("AQ 读屏契约正确：L0 只读，缺参前置拦截");
+  }
+
+  const ocrRoute = resolveTurnCapability("识别一下截图里的文字", []);
+  const ocrNegativeRoute = resolveTurnCapability("查看剪贴板有什么", []);
+  if (
+    ocrRoute.capability !== "desktop"
+    || !ocrRoute.allowedToolNames.includes("desktop.readScreenText")
+    || !ocrRoute.allowedToolNames.includes("desktop.screenshot")
+    || ocrNegativeRoute.capability === "desktop"
+  ) {
+    failures.push("读屏问询应路由到 desktop 读屏工具组，且剪贴板查看不得劫持");
+  } else {
+    notes.push("读屏路由正确：识别图中文字→screenshot + readScreenText 同轮可用");
   }
 
   const { resolveModelMediaCapability } = await import("../../settings/providerCapabilities");

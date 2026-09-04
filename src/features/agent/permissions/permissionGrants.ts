@@ -27,6 +27,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.desktop.takeoverStop",
   "tool.desktop.takeoverInput",
   "tool.desktop.takeoverStatus",
+  "tool.desktop.readScreenText",
   "tool.browser.open",
   "tool.browser.search",
   "tool.browser.readResult",
