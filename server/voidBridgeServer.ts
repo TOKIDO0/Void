@@ -30,6 +30,8 @@ import { handleFileHttpRequest } from "./file/fileHttpHandlers";
 import { ensureRuntimeDirectories } from "./file/fileRuntimePaths";
 import { handleCodeHttpRequest } from "./code/codeHttpHandlers";
 import { handleMemoryHttpRequest } from "./memory/memoryEmbeddingHandlers";
+import { handleSchedulerHttpRequest } from "./scheduler/schedulerHttpHandlers";
+import { startScheduler, stopScheduler } from "./scheduler/schedulerRunner";
 import { handleSkillsHttpRequest } from "./skills/skillsHttpHandlers";
 import { handleSoftwareHttpRequest } from "./software/softwareHttpHandlers";
 import { handleWebHttpRequest } from "./web/webHttpHandlers";
@@ -473,6 +475,12 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
     return;
   }
 
+  // P4 后台调度器（sidecar 进程内计时 + 隔离执行；Key 仅内存）
+  if (pathname.startsWith("/void-scheduler")) {
+    void handleSchedulerHttpRequest(request, response, pathname);
+    return;
+  }
+
   // 健康检查：供 Tauri 后端确认 sidecar 已就绪
   if (pathname === "/void-bridge/health") {
     response.statusCode = 200;
@@ -499,6 +507,7 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
 
 export function startBridgeServer(options: VoidBridgeServerOptions = {}): Promise<VoidBridgeServerHandle> {
   ensureRuntimeDirectories();
+  startScheduler();
   const port = resolvePort(options.port);
   const host = resolveListenHost(options.host);
   activeBridgeHost = host;
@@ -515,6 +524,7 @@ export function startBridgeServer(options: VoidBridgeServerOptions = {}): Promis
       return;
     }
     shutdownStarted = true;
+    stopScheduler();
     await browserSessionManager.dispose();
     await new Promise<void>((resolve, reject) => {
       httpServer.close((error) => {
