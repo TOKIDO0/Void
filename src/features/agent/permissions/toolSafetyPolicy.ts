@@ -1,4 +1,5 @@
 import type { RiskLevel } from "../tools";
+import { getTool } from "../tools/toolRegistry";
 
 export type ToolSafetyReview = {
   riskLevel?: RiskLevel;
@@ -125,6 +126,10 @@ const PATH_RELEVANT_TOOL_NAMES = [
  * 当前覆盖本地/私网 URL 与敏感文件读取，避免模型被外部内容诱导探测端口或读取密钥。
  */
 export function inspectToolInputSafety(toolName: string, input: unknown): ToolSafetyReview {
+  if (toolName === "agent.spawnTask") {
+    return reviewSpawnTaskBatch(input);
+  }
+
   const urlRule = SENSITIVE_URL_TOOL_RULES.get(toolName);
   if (urlRule) {
     const url = readStringField(input, urlRule.urlField);
@@ -170,6 +175,80 @@ export function inspectToolInputSafety(toolName: string, input: unknown): ToolSa
   }
 
   return {};
+}
+
+/**
+ * B spawnTask 整批确认：子调用各自无确认通道，风险必须在派生前一次收齐。
+ * 整批最高风险（含子调用动态抬升）即本批风险；L3 直接由执行期拒绝，这里不抬。
+ */
+export function reviewSpawnTaskBatch(input: unknown): ToolSafetyReview {
+  const calls = normalizeSpawnCalls(input);
+  if (!calls) {
+    return {};
+  }
+  let highest: RiskLevel | null = null;
+  const lines: string[] = [];
+  for (const call of calls) {
+    const target = getTool(call.toolName);
+    if (!target || target.enabled === false) {
+      continue;
+    }
+    if (target.riskLevel === "L3") {
+      continue;
+    }
+    const nested = inspectToolInputSafety(call.toolName, call.input ?? {});
+    const level = resolveHighestRiskLevel(target.riskLevel, nested.riskLevel ?? "L0");
+    if (!highest || RISK_ORDER[level] > RISK_ORDER[highest]) {
+      highest = level;
+    }
+    lines.push(`· ${call.toolName}${call.purpose ? `：${call.purpose.slice(0, 60)}` : ""}（${level}）`);
+  }
+  if (!highest || RISK_ORDER[highest] < RISK_ORDER.L2) {
+    return {};
+  }
+  return {
+    riskLevel: "L2",
+    reason: "spawn-batch-has-l2",
+    confirmationTitle: "确认派生含 L2 操作的子任务组",
+    confirmationDescription: [
+      `子任务组共 ${calls.length} 个调用，最高风险 L2，执行中不再逐个确认：`,
+      ...lines,
+      "拒绝则整组不执行。"
+    ].join("\n")
+  };
+}
+
+function normalizeSpawnCalls(input: unknown): Array<{ toolName: string; input?: unknown; purpose?: string }> | null {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return null;
+  }
+  const record = input as Record<string, unknown>;
+  if (Array.isArray(record.calls)) {
+    const calls: Array<{ toolName: string; input?: unknown; purpose?: string }> = [];
+    for (const item of record.calls) {
+      if (typeof item !== "object" || item === null || Array.isArray(item)) {
+        return null;
+      }
+      const call = item as Record<string, unknown>;
+      if (typeof call.toolName !== "string" || !call.toolName.trim()) {
+        return null;
+      }
+      calls.push({
+        toolName: call.toolName.trim(),
+        input: (call.input ?? {}) as unknown,
+        purpose: typeof call.purpose === "string" ? call.purpose : undefined
+      });
+    }
+    return calls;
+  }
+  if (typeof record.toolName === "string" && record.toolName.trim()) {
+    return [{
+      toolName: record.toolName.trim(),
+      input: (record.input ?? {}) as unknown,
+      purpose: typeof record.purpose === "string" ? record.purpose : undefined
+    }];
+  }
+  return null;
 }
 
 export function listToolSafetyHookDefinitions(): ToolSafetyHookDefinition[] {

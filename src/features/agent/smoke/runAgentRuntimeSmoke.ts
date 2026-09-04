@@ -48,6 +48,7 @@ import {
   isLoopbackBridgeUrl
 } from "../../../lib/runtime/voidBridgeAuth";
 import { planBatchConcurrency, runAgentToolLoop } from "../loop/agentToolLoop";
+import { inspectToolInputSafety } from "../permissions/toolSafetyPolicy";
 import { formatSameToolStreakCloseMessage } from "../loop/toolProgressCopy";
 import { buildToolResultRelay } from "../loop/toolResultRelay";
 import {
@@ -2550,7 +2551,40 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     taskId: "smoke_p2_spawn_refuse",
     stepId: "s_p2_spawn_refuse",
     toolName: "agent.spawnTask",
-    input: { toolName: "file.writeText", input: { fileName: "x.md", content: "y" } },
+    input: { toolName: "desktop.takeoverStart", input: { allowProcesses: ["notepad"] } },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.agent.spawnTask"])
+  });
+  const spawnBatchResult = await executeToolCall({
+    taskId: "smoke_p2_spawn_batch",
+    stepId: "s_p2_spawn_batch",
+    toolName: "agent.spawnTask",
+    input: { calls: [
+      { toolName: "echo", input: { message: "a" }, purpose: "第一" },
+      { toolName: "echo", input: { message: "b" }, purpose: "第二" }
+    ] },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.agent.spawnTask"])
+  });
+  const spawnPartialResult = await executeToolCall({
+    taskId: "smoke_p2_spawn_partial",
+    stepId: "s_p2_spawn_partial",
+    toolName: "agent.spawnTask",
+    input: { calls: [
+      { toolName: "echo", input: { message: "ok" } },
+      { toolName: "echo", input: { message: 123 } }
+    ] },
+    signal: new AbortController().signal,
+    attempt: 1,
+    permissionGrants: new Set(["tool.agent.spawnTask"])
+  });
+  const spawnOverflowResult = await executeToolCall({
+    taskId: "smoke_p2_spawn_overflow",
+    stepId: "s_p2_spawn_overflow",
+    toolName: "agent.spawnTask",
+    input: { calls: [1, 2, 3, 4, 5, 6].map((index) => ({ toolName: "echo", input: { message: `m${index}` } })) },
     signal: new AbortController().signal,
     attempt: 1,
     permissionGrants: new Set(["tool.agent.spawnTask"])
@@ -2565,10 +2599,26 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   const spawnOk = spawnResult.ok
     && (spawnResult.data as { status?: unknown }).status === "done";
   const spawnRefuseOk = !spawnRefused.ok;
-  if (!todoOk || !goalOk || !askOk || !spawnOk || !spawnRefuseOk) {
-    failures.push(`P2 任务协作异常：todo=${todoOk} goal=${goalOk} ask=${askOk} spawn=${spawnOk} spawnRefuse=${spawnRefuseOk}`);
+  const spawnBatchOk = spawnBatchResult.ok
+    && ((spawnBatchResult.data as { status?: unknown }).status === "done")
+    && Array.isArray((spawnBatchResult.data as { results?: unknown }).results)
+    && ((spawnBatchResult.data as { results?: unknown[] }).results?.length === 2);
+  const spawnPartialOk = spawnPartialResult.ok
+    && ((spawnPartialResult.data as { status?: unknown }).status === "partial");
+  const spawnOverflowOk = !spawnOverflowResult.ok;
+  // B 整批提级：L2 子调用派生前抬 L2，纯 L0 不抬（执行期 L3 仍硬拒绝，见 spawnRefuseOk）
+  const spawnHookL2 = inspectToolInputSafety("agent.spawnTask", {
+    calls: [{ toolName: "file.writeText", input: { fileName: "x.md", content: "y" } }]
+  });
+  const spawnHookL0 = inspectToolInputSafety("agent.spawnTask", {
+    calls: [{ toolName: "echo", input: { message: "hi" } }]
+  });
+  const spawnHookOk = spawnHookL2.riskLevel === "L2" && spawnHookL0.riskLevel === undefined;
+  if (!todoOk || !goalOk || !askOk || !spawnOk || !spawnRefuseOk
+    || !spawnBatchOk || !spawnPartialOk || !spawnOverflowOk || !spawnHookOk) {
+    failures.push(`P2 任务协作异常：todo=${todoOk} goal=${goalOk} ask=${askOk} spawn=${spawnOk} spawnRefuse=${spawnRefuseOk} spawnBatch=${spawnBatchOk} spawnPartial=${spawnPartialOk} spawnOverflow=${spawnOverflowOk} spawnHook=${spawnHookOk}`);
   } else {
-    notes.push("P2 任务协作：todo 落盘/恢复、goal 设定、askUser 澄清、spawnTask 隔离执行与 L2 拒绝均正确");
+    notes.push("P2 任务协作：todo 落盘/恢复、goal 设定、askUser 澄清、spawnTask 批量隔离（done/partial/L3 整批拒绝/超限拦截/整批提级）均正确");
   }
   // 用完清理，避免污染后续用例与用户本地
   await executeToolCall({
