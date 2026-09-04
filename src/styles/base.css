@@ -228,6 +228,41 @@ body {
   text-align: left;
 }
 
+/* P1 整窗拖拽提示：OS 文件拖入窗口任意位置时显形，纯展示不拦截事件。 */
+.window-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(4, 10, 24, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.window-drop-overlay__frame {
+  border: 1px dashed rgba(146, 220, 255, 0.55);
+  border-radius: 18px;
+  padding: 34px 52px;
+  text-align: center;
+  background: rgba(10, 22, 42, 0.66);
+}
+
+.window-drop-overlay__title {
+  color: rgba(232, 245, 255, 0.95);
+  font-size: 17px;
+  letter-spacing: 2px;
+}
+
+.window-drop-overlay__hint {
+  margin-top: 10px;
+  color: rgba(170, 205, 235, 0.72);
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
 .luminous-text-entry__input {
   display: block;
   width: 100%;

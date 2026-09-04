@@ -209,6 +209,8 @@ export function LuminousTextEntry({
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<VoidConversationAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
+  const [isWindowDragging, setIsWindowDragging] = useState(false);
+  const windowDragDepthRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // 菜单文案随设置语言实时切换（默认中文；设置面板切英文才显示英文）。
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
@@ -656,6 +658,60 @@ export function LuminousTextEntry({
     }
   }, [attachments]);
 
+  // P1 整窗拖拽：OS 文件拖到窗口任意位置 → 同 appendFiles 管道进附件位。
+  // Tauri 侧已配 dragDropEnabled:false（否则壳会吞掉文件拖拽）；浏览器侧原生即有。
+  useEffect(() => {
+    const hasFiles = (event: DragEvent) => {
+      const types = event.dataTransfer?.types;
+      return !!types && Array.from(types).includes("Files");
+    };
+    const handleWindowDragEnter = (event: DragEvent) => {
+      if (!hasFiles(event)) {
+        return;
+      }
+      event.preventDefault();
+      windowDragDepthRef.current += 1;
+      setIsWindowDragging(true);
+    };
+    const handleWindowDragOver = (event: DragEvent) => {
+      if (!hasFiles(event)) {
+        return;
+      }
+      event.preventDefault();
+    };
+    const handleWindowDragLeave = (event: DragEvent) => {
+      if (!hasFiles(event)) {
+        return;
+      }
+      windowDragDepthRef.current = Math.max(0, windowDragDepthRef.current - 1);
+      if (windowDragDepthRef.current === 0) {
+        setIsWindowDragging(false);
+      }
+    };
+    const handleWindowDrop = (event: DragEvent) => {
+      if (!hasFiles(event)) {
+        return;
+      }
+      event.preventDefault();
+      windowDragDepthRef.current = 0;
+      setIsWindowDragging(false);
+      const files = event.dataTransfer?.files;
+      if (files?.length) {
+        void appendFiles(files);
+      }
+    };
+    window.addEventListener("dragenter", handleWindowDragEnter);
+    window.addEventListener("dragover", handleWindowDragOver);
+    window.addEventListener("dragleave", handleWindowDragLeave);
+    window.addEventListener("drop", handleWindowDrop);
+    return () => {
+      window.removeEventListener("dragenter", handleWindowDragEnter);
+      window.removeEventListener("dragover", handleWindowDragOver);
+      window.removeEventListener("dragleave", handleWindowDragLeave);
+      window.removeEventListener("drop", handleWindowDrop);
+    };
+  }, [appendFiles]);
+
   const handleFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = event.target.files;
     if (!selectedFiles?.length) {
@@ -823,6 +879,14 @@ export function LuminousTextEntry({
           onBlur={handleBlur}
         />
       </div>
+      {isWindowDragging && (
+        <div className="window-drop-overlay" aria-hidden="true">
+          <div className="window-drop-overlay__frame">
+            <div className="window-drop-overlay__title">松开以上传文件</div>
+            <div className="window-drop-overlay__hint">图片 / PDF / DOCX / 文本，随消息一起发送</div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }
