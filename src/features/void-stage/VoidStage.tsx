@@ -1595,6 +1595,7 @@ export function VoidStage() {
   }, []);
 
   // P4d 后台投递：每 60s 拉未投递终态 runs，系统通知后 ack；窗口隐藏时同样生效。
+  // A3：通知点击打开主窗口（注册一次）。
   useEffect(() => {
     let cancelled = false;
     let timer = 0;
@@ -1603,7 +1604,10 @@ export function VoidStage() {
         return;
       }
       try {
-        const { pollSchedulerDeliveries } = await import("../agent/scheduler/schedulerDeliveryPoller");
+        const { initDeliveryInteractions, pollSchedulerDeliveries } = await import(
+          "../agent/scheduler/schedulerDeliveryPoller"
+        );
+        await initDeliveryInteractions();
         await pollSchedulerDeliveries();
       } catch {
         // 桥接未起/网络抖动静默跳过，下轮继续

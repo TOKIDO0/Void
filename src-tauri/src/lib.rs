@@ -24,6 +24,22 @@ fn get_bridge_token(state: tauri::State<'_, BridgeTokenState>) -> String {
     state.0.clone()
 }
 
+/// A1 未读角标：托盘 tooltip 显示未投递数（零素材方案）；0 条回 VOID。
+#[tauri::command]
+fn tray_set_unread(app: tauri::AppHandle, count: u32) -> Result<(), String> {
+    let tray = app
+        .tray_by_id("void-tray")
+        .ok_or_else(|| "托盘不存在".to_string())?;
+    let tooltip = if count == 0 {
+        "VOID".to_string()
+    } else {
+        format!("VOID（{count} 条未读）")
+    };
+    tray.set_tooltip(Some(tooltip))
+        .map_err(|error| format!("设置托盘提示失败：{error}"))?;
+    Ok(())
+}
+
 #[cfg(not(debug_assertions))]
 fn generate_bridge_token() -> String {
     let mut bytes = [0_u8; 32];
@@ -92,7 +108,7 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let open_item = MenuItem::with_id(app, "tray-open", "打开 VOID", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "tray-quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
-    let mut builder = TrayIconBuilder::new()
+    let mut builder = TrayIconBuilder::with_id("void-tray")
         .menu(&menu)
         .tooltip("VOID")
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -133,6 +149,7 @@ pub fn run() {
         .manage(BridgeTokenState(bridge_token.clone()))
         .invoke_handler(tauri::generate_handler![
             get_bridge_token,
+            tray_set_unread,
             takeover::takeover_start,
             takeover::takeover_stop,
             takeover::takeover_status,

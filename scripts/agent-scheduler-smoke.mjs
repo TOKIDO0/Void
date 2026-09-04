@@ -227,6 +227,26 @@ async function main() {
       assert(badAnchor.ok === false, "非法 anchor 应拒绝");
       await postJson("/void-scheduler/jobs/remove", { id: anchored.data.id });
 
+      // A2 启动播报：过期 at 进 sweep 即记 missed run（未投递），供投递轮询播报
+      const { schedulerStore } = await import(
+        pathToFileURL(path.join(projectRoot, "server/scheduler/schedulerStore.ts")).href
+      );
+      const expired = schedulerStore.insertJob({
+        name: "smoke-expired", prompt: "hi", kind: "at", atMs: Date.now() - 3600_000,
+        allowedToolNames: ["web.search"], timeoutMs: 60000, enabled: true, missedCount: 0, failStreak: 0
+      });
+      runner.startScheduler();
+      try {
+        const pendingMissed = await getJson("/void-scheduler/runs/pending");
+        const missedRun = pendingMissed.data.find((run) => run.jobId === expired.id);
+        assert(missedRun !== undefined && missedRun.status === "missed", "过期任务启动即记 missed run");
+        const ackMissed = await postJson("/void-scheduler/runs/ack", { runIds: [missedRun.id] });
+        assert(ackMissed.data.acknowledged === 1, "missed run 可 ack");
+      } finally {
+        runner.stopScheduler();
+        schedulerStore.removeJob(expired.id);
+      }
+
       // cron：表达式归一化 + 非法拒绝 + 下次严格未来 + 落盘恢复
       const badExpr = await postJson("/void-scheduler/jobs/create", { prompt: "hi", kind: "cron", expr: "not-a-cron" });
       assert(badExpr.ok === false, "非法 expr 应拒绝");
@@ -248,6 +268,7 @@ async function main() {
     }
 
     console.log("[agent-scheduler-smoke] PASSED");
+    console.log(" - 启动播报：过期任务记 missed run 进 pending，可 ack");
     console.log(" - 预授权：scope内静态L2放行/L0与scope外与L3与未知拒绝；anchor决定下次，非法anchor拒绝");
     console.log(" - 投递：完成run进pending→ack确认1条→不再pending");
     console.log(" - 端点E2E：unlock不回显Key→创建/列表→手动触发隔离turn成功→at自删→未解锁pause→删幂等");

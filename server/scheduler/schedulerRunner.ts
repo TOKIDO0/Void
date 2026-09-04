@@ -92,6 +92,19 @@ export function startScheduler(): { dueNow: string[]; missed: string[] } {
   for (const id of sweep.dueNow) {
     enqueue(id);
   }
+  // A2 启动播报：过期 missed 落 run 记录（未投递），前端投递轮询即播报"错过摘要"。
+  for (const id of sweep.missed) {
+    const job = jobs.find((item) => item.id === id);
+    schedulerStore.appendRun({
+      jobId: id,
+      jobName: job?.name ?? "",
+      startedAt: now,
+      finishedAt: now,
+      status: "missed",
+      summary: "过期未执行（应用未运行），已停用留查。",
+      delivered: false
+    });
+  }
   armTimer();
   return sweep;
 }

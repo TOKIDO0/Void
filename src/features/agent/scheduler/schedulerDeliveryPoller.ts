@@ -51,7 +51,41 @@ async function notifyRun(run: SchedulerRunView): Promise<void> {
   }
 }
 
-/** 拉取并投递，返回本次投递条数（失败不抛）。 */
+/** A3：通知点击打开主窗口（注册一次；非桌面静默跳过）。 */
+let interactionsReady = false;
+
+export async function initDeliveryInteractions(): Promise<void> {
+  if (interactionsReady) {
+    return;
+  }
+  interactionsReady = true;
+  try {
+    const { onAction } = await import("@tauri-apps/plugin-notification");
+    await onAction(() => {
+      void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
+        try {
+          const window = getCurrentWindow();
+          await window.show();
+          await window.setFocus();
+        } catch {
+          // 显示失败静默
+        }
+      });
+    });
+  } catch {
+    // 非桌面无通知动作能力
+  }
+}
+
+/** A1：托盘 tooltip 同步未投递数（失败静默，不挡投递）。 */
+async function syncTrayUnread(count: number): Promise<void> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("tray_set_unread", { count });
+  } catch {
+    // 非桌面无托盘
+  }
+}
 export async function pollSchedulerDeliveries(): Promise<number> {
   try {
     const reachable = await isVoidBridgeReachable().catch(() => false);
@@ -59,6 +93,7 @@ export async function pollSchedulerDeliveries(): Promise<number> {
       return 0;
     }
     const pending = await fetchPendingRuns().catch((): SchedulerRunView[] => []);
+    await syncTrayUnread(pending.length);
     if (!pending.length) {
       return 0;
     }
