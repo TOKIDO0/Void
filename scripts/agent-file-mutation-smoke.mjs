@@ -87,6 +87,9 @@ async function main() {
     const { fetchWithPublicDownloadGuard } = await import(
       pathToFileURL(path.join(projectRoot, "server/file/httpDownloadSafety.ts")).href
     );
+    const { ensureRuntimeDirectories, resolveInboxRoot, resolveRuntimeRoot } = await import(
+      pathToFileURL(path.join(projectRoot, "server/file/fileRuntimePaths.ts")).href
+    );
 
     const workspace = path.join(runtimeRoot, "workspace");
     mkdirSync(workspace);
@@ -393,7 +396,24 @@ async function main() {
       await downloadFixture.close();
     }
 
+    // P5-A 人控机收件箱闭环：隔离运行时根内落盘→可见→读出→归档，全程零触碰真实用户目录
+    assert(resolveRuntimeRoot() === runtimeRoot, "隔离断言：运行时根应为本轮临时目录");
+    ensureRuntimeDirectories();
+    const inboxRoot = resolveInboxRoot();
+    const inboxProcessed = path.join(inboxRoot, "processed");
+    assert(existsSync(inboxRoot) && existsSync(inboxProcessed), "收件箱 inbox/ 与 processed/ 应由运行时目录契约创建");
+    const inboxTask = path.join(inboxRoot, "task-smoke.md");
+    writeFileSync(inboxTask, "# smoke task\n请列出下载目录\n", "utf8");
+    const inboxListing = fileAccessManager.listDirectory(inboxRoot);
+    assert(inboxListing.entries.some((entry) => entry.name === "task-smoke.md" && entry.kind === "file"), "收件箱落盘后 listDirectory 应可见");
+    const inboxContent = await fileAccessManager.readText(inboxTask);
+    assert(inboxContent.content.includes("请列出下载目录"), "收件箱 readText 应读出指令正文");
+    const archivedPath = path.join(inboxProcessed, "task-smoke.md");
+    fileMutationManager.move(inboxTask, archivedPath, "refuse");
+    assert(!existsSync(inboxTask) && fileDownloadManager.verify(archivedPath).exists, "归档后源消失且 processed 内可验证");
+
     console.log("[agent-file-mutation-smoke] PASSED");
+    console.log(" - 收件箱闭环：隔离根内 inbox 落盘→listDirectory 可见→readText 读出→move 归档 processed 可验证");
     console.log(" - 创建/移动/重命名成功；写入目标预检零写盘；冲突/根外/链接逃逸/深层创建均零写入拒绝");
     console.log(" - 行级编辑恰好一处替换；歧义/未命中/非文本扩展名/根外均拒绝且文件不变");
     console.log(" - 路径元数据预检零读正文：文件/目录/缺失/敏感名/junction/根外路径均按边界处理");

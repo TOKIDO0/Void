@@ -32,6 +32,18 @@ export function resolveDownloadFinalRoot(): string {
 }
 
 /**
+ * P5-A 人控机收件箱：微信转贴/文件 drop 的指令落盘处（可用 VOID_INBOX_DIR 覆盖）。
+ * 显式触发 + L2 确认后执行并归档到 processed，不做常驻后台轮询。
+ */
+export function resolveInboxRoot(): string {
+  const fromEnv = process.env.VOID_INBOX_DIR?.trim();
+  if (fromEnv) {
+    return normalize(fromEnv);
+  }
+  return join(resolveRuntimeRoot(), "inbox");
+}
+
+/**
  * 允许的最终落盘根目录白名单。
  * 默认仅 D:\\AI\\void-runtime\\downloads；可用 VOID_DOWNLOAD_ALLOW_ROOTS 以 ; 分隔追加。
  */
@@ -53,6 +65,8 @@ export function ensureRuntimeDirectories() {
   mkdirSync(resolveDownloadTempRoot(), { recursive: true });
   mkdirSync(resolveDownloadFinalRoot(), { recursive: true });
   mkdirSync(join(resolveRuntimeRoot(), "browser-screenshots"), { recursive: true });
+  mkdirSync(resolveInboxRoot(), { recursive: true });
+  mkdirSync(join(resolveInboxRoot(), "processed"), { recursive: true });
 }
 
 /**

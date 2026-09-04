@@ -1054,11 +1054,12 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const directExcel = data.playbooks?.find((playbook) => playbook.id === "direct-excel-generate");
     const directPptx = data.playbooks?.find((playbook) => playbook.id === "direct-pptx-generate");
     const localCodeOffice = data.playbooks?.find((playbook) => playbook.id === "local-code-office");
+    const inboxExec = data.playbooks?.find((playbook) => playbook.id === "inbox-command-execution");
     const codeCalc = data.playbooks?.find((playbook) => playbook.id === "code-calculation");
     const codeTransform = data.playbooks?.find((playbook) => playbook.id === "code-data-transform");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount !== 31
+      || data.playbookCount !== 32
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1122,6 +1123,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || !codeCalc?.requiredToolNames?.includes("agent.runCode")
       || codeCalc.requiresConfirmation !== true
       || codeCalc.maxRiskLevel !== "L2"
+      || !inboxExec?.requiredToolNames?.includes("file.listDirectory")
+      || !inboxExec.requiredToolNames.includes("file.readText")
+      || !inboxExec.requiredToolNames.includes("file.move")
+      || inboxExec.requiresConfirmation !== true
+      || inboxExec.maxRiskLevel !== "L2"
       || !codeTransform?.requiredToolNames?.includes("agent.runCode")
       || codeTransform.requiresConfirmation !== true
       || !data.safetyBoundaries?.some((item) => typeof item === "string" && item.includes("不是插件执行器"))
@@ -2055,6 +2061,19 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("本地目录关键词搜索应路由到 file 工具组，并暴露 file.searchText");
   } else {
     notes.push("本地目录关键词搜索路由正确：file.searchText 可用且不暴露浏览器搜索");
+  }
+
+  const inboxCommandRoute = resolveTurnCapability("看看收件箱有没有新指令", []);
+  if (
+    inboxCommandRoute.capability !== "file"
+    || !inboxCommandRoute.allowedToolNames.includes("file.listDirectory")
+    || !inboxCommandRoute.allowedToolNames.includes("file.readText")
+    || !inboxCommandRoute.allowedToolNames.includes("file.move")
+    || inboxCommandRoute.allowedToolNames.includes("browser.search")
+  ) {
+    failures.push("收件箱指令问询应路由到 file 工具组，并暴露 listDirectory/readText/move");
+  } else {
+    notes.push("收件箱指令路由正确：listDirectory → readText → move 同轮可用，不暴露浏览器搜索");
   }
 
   const localKnowledgeSaveRoute = resolveTurnCapability("在本地资料里搜索 bridge token，并整理摘要保存成 markdown 文件", []);

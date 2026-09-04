@@ -440,6 +440,9 @@ const FILE_RECENT_ARTIFACT_PATTERN =
   /(?:(?:刚才|最近|最新|上次).{0,16}(?:保存|下载|写入|导出|生成).{0,20}(?:文件|产物|报告|结果|位置|在哪|哪里)|(?:保存|下载|写入|导出|生成).{0,16}(?:的文件|的产物|的报告|的结果).{0,20}(?:在哪|哪里|位置|列表|列出|查看|看看|打开所在位置|显示)|(?:列出|查看|看看|显示).{0,16}(?:最近|最新).{0,16}(?:文件|下载|保存|产物|报告|结果))/i;
 const FILE_ORGANIZE_PATTERN =
   /(?:整理|归档|分类).{0,12}下载(?:文件夹|目录|文件)?|下载(?:文件夹|目录|文件)?.{0,12}(?:整理|归档|分类)|(?:把|将).{0,12}下载.{0,12}(?:整理|归档|分类)/i;
+// P5-A 人控机收件箱：微信转贴/文件 drop 的指令落盘，显式触发才进 file 闭环，不做常驻轮询
+const FILE_INBOX_PATTERN =
+  /(?:收件箱|inbox).{0,16}(?:指令|任务|有没有|查看|看看|执行|处理|列表|新文件|内容)|(?:查看|看看|执行|处理|列出).{0,12}(?:收件箱|inbox)/i;
 const FILE_CREATE_EXCEL_PATTERN =
   /(?:生成|做成|创建|导出|整理).{0,16}(?:excel|xlsx|表格|报表)|(?:excel|xlsx|表格|报表).{0,16}(?:生成|做成|创建|导出|整理)/i;
 const FILE_CREATE_PPTX_PATTERN =
@@ -838,6 +841,11 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
   // 行级编辑专线：「把XX文件里的XX改成XX」先读后改，同轮可用 readText + editText + verify
   if (FILE_EDIT_TEXT_PATTERN.test(userInput)) {
     return createRoute("file", FILE_EDIT_TEXT_TOOL_NAMES);
+  }
+
+  // P5-A 人控机收件箱：显式触发才进 file 闭环（list→read→move 归档），优先于通用 file 模式
+  if (FILE_INBOX_PATTERN.test(userInput)) {
+    return createRoute("file", FILE_TOOL_NAMES);
   }
 
   // 先看 file 模式，但「下载并整理」类必须升级到 browser（含 createDirectory/move）
