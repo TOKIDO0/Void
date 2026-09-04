@@ -125,6 +125,16 @@ const TERMINAL_SUCCESS_TOOLS = new Set([
 ]);
 
 /**
+ * P3 回合内续跑纪律：空口承诺（稍后/后台交付）识别。单一归属，禁他处私写。
+ * 命中条件另三项在终态分支判定：已调工具、无终态成功、非预算末轮。
+ */
+const DEFERRED_PROMISE_PATTERN = /(?:做好|做完|完成|跑完|查完|下完).{0,12}(?:后|了|之后).{0,12}(?:告诉你|给你|通知你|发你)|(?:稍后|稍候|回头|待会儿|等一下).{0,16}(?:告诉你|给你|通知|发你|结果)|(?:后台|默默).{0,12}(?:运行|执行|处理|继续)/;
+
+function hasDeferredPromise(content: string): boolean {
+  return DEFERRED_PROMISE_PATTERN.test(content);
+}
+
+/**
  * 运行一轮「可调工具」的对话循环，返回最终对用户的自然语言回复。
  */
 export async function runAgentToolLoop(
@@ -363,6 +373,16 @@ async function runAgentToolLoopInternal(
           continue;
         }
         throw new Error("模型没有返回有效内容。");
+      }
+      // P3 回合内续跑纪律：调了工具、无终态成功，却承诺稍后/后台交付时不收口，
+      // 逼模型当轮继续做完或收回承诺（受 maxRounds 约束；预算末轮不拦）。
+      if (!forceFinalText && usedTools && !lastTerminalSuccess && hasDeferredPromise(content)) {
+        messages.push({ role: "assistant", content });
+        messages.push({
+          role: "system",
+          content: "你刚才承诺了稍后/后台交付结果，但本轮没有完成可交付的终态，也没有创建后台任务。禁止空口承诺：要么现在继续调用工具把任务做完，要么如实说明卡在哪里、需要用户提供什么。不要重复承诺。"
+        });
+        continue;
       }
       content = applyReplySpeechGuard(content, {
         usedTools,

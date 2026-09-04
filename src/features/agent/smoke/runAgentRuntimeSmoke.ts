@@ -3216,6 +3216,13 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push(...streakProbe.notes);
   }
 
+  const deferredProbe = await runDeferredPromiseProbe();
+  if (!deferredProbe.ok) {
+    failures.push(...deferredProbe.failures);
+  } else {
+    notes.push(...deferredProbe.notes);
+  }
+
   const modelFailureProbe = await runModelFailureProbe();
   if (!modelFailureProbe.ok) {
     failures.push(...modelFailureProbe.failures);
@@ -3360,6 +3367,126 @@ async function runSameToolStreakCloseProbe(): Promise<SmokeResult> {
     ok: failures.length === 0,
     failures,
     notes
+  };
+}
+
+/**
+ * P3 回合内续跑纪律：调工具后空口承诺稍后/后台交付时不收口，须继续循环。
+ * 假 provider：第 1 轮 echo 成功（非终态工具）→ 第 2 轮空口承诺 → 第 3 轮干净收尾。
+ */
+async function runDeferredPromiseProbe(): Promise<SmokeResult> {
+  const failures: string[] = [];
+  const notes: string[] = [];
+  const originalProvider = getModelProvider("openai-compatible");
+  const uninstall = installModelProviderOverride(
+    "openai-compatible",
+    createDeferredPromiseStubProvider(originalProvider)
+  );
+  clearExecutionObservability();
+  clearAllResourceLocks();
+
+  try {
+    const loopResult = await runAgentToolLoop({
+      messages: [{ role: "user", content: "去后台跑一下再告诉我" }],
+      modelConfig: {
+        provider: "openai-compatible",
+        presetId: "smoke",
+        apiKey: "smoke-key",
+        baseUrl: "http://127.0.0.1:9",
+        modelName: "smoke-model",
+        modelStrength: "middle",
+        thinkingModeEnabled: false,
+        temperature: 0,
+        maxOutputTokens: 256,
+        streamEnabled: false
+      },
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "echo",
+            description: "smoke echo",
+            parameters: {
+              type: "object",
+              properties: {
+                message: { type: "string" }
+              },
+              required: ["message"]
+            }
+          }
+        }
+      ],
+      maxRounds: 6,
+      maxToolInvocations: 8
+    });
+
+    const content = loopResult.content ?? "";
+    if (loopResult.rounds < 3) {
+      failures.push(`空口承诺应触发继续循环，实际仅 ${loopResult.rounds} 轮`);
+    }
+    if (/(?:做完|完成).{0,8}(?:后|了).{0,8}(?:告诉你|给你)|稍后.{0,8}(?:告诉你|给你)|后台.{0,8}(?:运行|告诉你)/.test(content)) {
+      failures.push(`最终回复仍含空口承诺：${content.slice(0, 80)}`);
+    }
+    if (!content.includes("已完成")) {
+      failures.push(`最终回复应为干净收尾：${content.slice(0, 80)}`);
+    }
+    if (failures.length === 0) {
+      notes.push(`空口承诺拦截正确：续跑至 ${loopResult.rounds} 轮并干净收尾`);
+    }
+  } catch (error) {
+    failures.push(
+      `空口承诺探测崩溃：${error instanceof Error ? error.message : String(error)}`
+    );
+  } finally {
+    uninstall();
+  }
+
+  return {
+    ok: failures.length === 0,
+    failures,
+    notes
+  };
+}
+
+/**
+ * 假 provider：
+ * 1) 第 1 次带 tools 时返回 echo 合法调用（成功但非终态工具）
+ * 2) 第 2 次返回空口承诺正文（应触发 P3 续跑纠偏）
+ * 3) 第 3 次起返回干净收尾；强制纯文本轮同样干净收尾
+ */
+function createDeferredPromiseStubProvider(base: ModelProvider): ModelProvider {
+  let callCount = 0;
+  return {
+    ...base,
+    supportsTools: true,
+    async sendMessage(request): Promise<ProviderResponse> {
+      callCount += 1;
+      const hasTools = Boolean(request.tools && request.tools.length > 0);
+      if (!hasTools) {
+        return { content: "任务已完成，结果是 hello。" };
+      }
+      if (callCount === 1) {
+        const toolCall: ProviderToolCall = {
+          id: "call_deferred_1",
+          type: "function",
+          function: {
+            name: "echo",
+            arguments: JSON.stringify({ message: "hello" })
+          }
+        };
+        return {
+          content: "",
+          toolCalls: [toolCall]
+        };
+      }
+      if (callCount === 2) {
+        return { content: "我去后台跑一下，做完后告诉你。" };
+      }
+      return { content: "任务已完成，结果是 hello。" };
+    },
+    mapError(error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
   };
 }
 
