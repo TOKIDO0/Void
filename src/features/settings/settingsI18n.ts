@@ -76,6 +76,8 @@ type SettingsCopy = {
   menuSettings: string;
   /** 设置模态顶部页签：安全状态（2026-08-24 信息架构调整：从操作栏迁入设置中心）。 */
   securityTab: string;
+  /** 设置模态顶部页签：后台任务台账（调度任务 + 接管会话）。 */
+  tasksTab: string;
 };
 
 export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
@@ -151,7 +153,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuHistory: "历史记录",
     menuMemory: "记忆面板",
     menuSettings: "设置",
-    securityTab: "安全状态"
+    securityTab: "安全状态",
+    tasksTab: "任务台账"
   },
   "en-US": {
     settings: "Settings",
@@ -225,7 +228,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuHistory: "History",
     menuMemory: "Memory",
     menuSettings: "Settings",
-    securityTab: "Security"
+    securityTab: "Security",
+    tasksTab: "Tasks"
   }
 };
 

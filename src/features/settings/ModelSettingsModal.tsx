@@ -28,6 +28,7 @@ import {
 import { isSemanticSearchEnabled, setSemanticSearchEnabled } from "../memory/memorySemanticConfig";
 import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
 import { SecurityStatusContent } from "../agent/security/SecurityStatusContent";
+import { TasksContent } from "../agent/scheduler/TasksContent";
 import { isHighPermissionMode, setHighPermissionMode } from "./highPermissionMode";
 import { SETTINGS_COPY as SHARED_SETTINGS_COPY } from "./settingsI18n";
 
@@ -35,7 +36,7 @@ import { SETTINGS_COPY as SHARED_SETTINGS_COPY } from "./settingsI18n";
 type CatalogStatus = "idle" | "loading" | "error" | "ready";
 
 /** 设置模态顶部页签：模型设置（默认）/ 安全状态 / 高级等系统级不常用功能（2026-08-24 信息架构调整）。 */
-export type SettingsTab = "model" | "security" | "advanced";
+export type SettingsTab = "model" | "security" | "tasks" | "advanced";
 
 type ModelSettingsModalProps = {
   isOpen: boolean;
@@ -362,6 +363,14 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
       </button>
       <button
         type="button"
+        className={`model-settings-modal__tab${activeTab === "tasks" ? " is-active" : ""}`}
+        aria-pressed={activeTab === "tasks"}
+        onClick={() => setActiveTab("tasks")}
+      >
+        {SHARED_SETTINGS_COPY[language].tasksTab}
+      </button>
+      <button
+        type="button"
         className={`model-settings-modal__tab${activeTab === "advanced" ? " is-active" : ""}`}
         aria-pressed={activeTab === "advanced"}
         onClick={() => setActiveTab("advanced")}
@@ -408,6 +417,39 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
           </div>
           <div className="model-settings-modal__body model-settings-modal__body--single">
             <SecurityStatusContent />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 任务台账页签：与安全状态同形，独立早退渲染。
+  if (activeTab === "tasks") {
+    return (
+      <div className="model-settings-modal" role="presentation" onMouseDown={onClose}>
+        <div
+          className="model-settings-modal__panel"
+          role="dialog"
+          aria-label={SHARED_SETTINGS_COPY[language].tasksTab}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="model-settings-modal__header">
+            <div className="model-settings-modal__title-group">
+              <div>
+                <p className="model-settings-modal__eyebrow">{copy.settings}</p>
+                <h2>{SHARED_SETTINGS_COPY[language].tasksTab}</h2>
+              </div>
+            </div>
+            {settingsTabsNode}
+            <button
+              className="model-settings-modal__close"
+              type="button"
+              aria-label={copy.closeSettings}
+              onClick={onClose}
+            />
+          </div>
+          <div className="model-settings-modal__body model-settings-modal__body--single">
+            <TasksContent />
           </div>
         </div>
       </div>
