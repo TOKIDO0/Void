@@ -56,6 +56,10 @@ import { softwareResolveInstallerTool } from "./builtin/softwareResolveInstaller
 import { softwareDownloadInstallerTool } from "./builtin/softwareDownloadInstallerTool";
 import { agentInspectCapabilitiesTool } from "./builtin/agentInspectCapabilitiesTool";
 import { agentPlanTaskRouteTool } from "./builtin/agentPlanTaskRouteTool";
+import { agentScheduleCreateTool } from "./builtin/agentScheduleCreateTool";
+import { agentScheduleListTool } from "./builtin/agentScheduleListTool";
+import { agentScheduleRemoveTool } from "./builtin/agentScheduleRemoveTool";
+import { agentScheduleRunNowTool } from "./builtin/agentScheduleRunNowTool";
 import { agentInspectToolContractTool } from "./builtin/agentInspectToolContractTool";
 import { agentInspectExtensionPolicyTool } from "./builtin/agentInspectExtensionPolicyTool";
 import { agentInspectSkillsTool } from "./builtin/agentInspectSkillsTool";
@@ -135,6 +139,10 @@ export function registerBuiltinTools() {
     softwareDownloadInstallerTool,
     agentInspectCapabilitiesTool,
     agentPlanTaskRouteTool,
+    agentScheduleCreateTool,
+    agentScheduleListTool,
+    agentScheduleRemoveTool,
+    agentScheduleRunNowTool,
     agentInspectToolContractTool,
     agentInspectExtensionPolicyTool,
     agentInspectSafetyHooksTool,

@@ -95,7 +95,11 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
       "agent.askUser",
       "agent.spawnTask",
       "agent.inspectSkills",
-      "agent.inspectMemoryVerification"
+      "agent.inspectMemoryVerification",
+      "agent.scheduleCreate",
+      "agent.scheduleList",
+      "agent.scheduleRemove",
+      "agent.scheduleRunNow"
     ]
   },
   {

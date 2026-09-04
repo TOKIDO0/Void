@@ -489,6 +489,17 @@ const AGENT_TASK_PREFLIGHT_PATTERN =
 const REQUEST_SAFETY_PREFLIGHT_PATTERN =
   /(?:(?:这个|这条|这个操作|这件事|这个请求|这一步|链接|URL|路径|文件).{0,48}(?:安全吗|是否安全|风险|会不会泄露|需要确认|为什么要确认)|(?:打开|访问|下载|读取|读|保存|写入).{0,80}(?:https?:\/\/|localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[01])\.|\.env|id_rsa|\.pem|\.key).{0,48}(?:安全吗|是否安全|风险|需要确认|会不会)|(?:检查|评估|看看|看下).{0,80}(?:https?:\/\/|localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[01])\.|\.env|id_rsa|\.pem|\.key).{0,80}(?:安全|风险|需要确认|泄露))/i;
 
+// P4 后台调度：定时/到点/周期提醒才进 agent 调度工具组；纯新闻检索不命中
+const AGENT_SCHEDULE_PATTERN =
+  /(?:(?:定时|到点).{0,12}(?:提醒|执行|告诉我|发|检查|播报|汇总)|(?:每天|每小时|每隔|每\d+[分时天周]).{0,16}(?:提醒|告诉我|发给我|检查|执行|播报|汇总)|提醒我.{0,16}(?:每天|每小时|到点|定时)|cron)/i;
+
+const AGENT_SCHEDULE_TOOL_NAMES = [
+  "agent.scheduleCreate",
+  "agent.scheduleList",
+  "agent.scheduleRemove",
+  "agent.scheduleRunNow"
+];
+
 const BRIDGE_REQUIRED_CAPABILITIES: ReadonlySet<TurnCapability> = new Set([
   "browser",
   "file",
@@ -641,6 +652,11 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (AGENT_TASK_PREFLIGHT_PATTERN.test(userInput) || REQUEST_SAFETY_PREFLIGHT_PATTERN.test(userInput)) {
     return createRoute("agent", AGENT_TASK_PREFLIGHT_TOOL_NAMES);
+  }
+
+  // P4 后台调度：显式定时语义才进调度工具组，优先于通用 agent 问询
+  if (AGENT_SCHEDULE_PATTERN.test(userInput)) {
+    return createRoute("agent", AGENT_SCHEDULE_TOOL_NAMES);
   }
 
   if (AGENT_CAPABILITY_INSPECT_PATTERN.test(userInput)) {
