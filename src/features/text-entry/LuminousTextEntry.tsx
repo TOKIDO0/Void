@@ -658,6 +658,70 @@ export function LuminousTextEntry({
     }
   }, [attachments]);
 
+  // C 文件夹拖拽：DataTransferItem entry 递归展开（上限 50 个，多出截断；后续仍走 appendFiles 限额）。
+  // 纯文件拖拽走 files 快捷路径；只有含目录时才走 entry 遍历。
+  const collectDroppedFiles = useCallback(async (dataTransfer: DataTransfer | null): Promise<File[]> => {
+    if (!dataTransfer) {
+      return [];
+    }
+    const directFiles = Array.from(dataTransfer.files ?? []);
+    const items = Array.from(dataTransfer.items ?? []);
+    const mayHaveDirectory = items.some((item) => {
+      const entry = typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null;
+      return entry !== null && entry.isDirectory;
+    });
+    if (!mayHaveDirectory) {
+      return directFiles;
+    }
+    const collected: File[] = [];
+    const readEntry = (entry: FileSystemEntry): Promise<void> => new Promise((resolve) => {
+      if (entry.isFile) {
+        (entry as FileSystemFileEntry).file(
+          (file) => {
+            collected.push(file);
+            resolve();
+          },
+          () => resolve()
+        );
+        return;
+      }
+      if (entry.isDirectory) {
+        const reader = (entry as FileSystemDirectoryEntry).createReader();
+        const drain = () => {
+          reader.readEntries((entries) => {
+            if (!entries.length) {
+              resolve();
+              return;
+            }
+            void Promise.all(entries.map((child) => readEntry(child))).then(drain);
+          }, () => resolve());
+        };
+        drain();
+        return;
+      }
+      resolve();
+    });
+    const roots: FileSystemEntry[] = [];
+    for (const item of items) {
+      if (collected.length + roots.length >= 50) {
+        break;
+      }
+      const entry = typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null;
+      if (entry) {
+        roots.push(entry);
+      }
+    }
+    await Promise.all(roots.map((root) => readEntry(root)));
+    const seen = new Set(directFiles);
+    for (const file of collected.slice(0, 50)) {
+      if (!seen.has(file)) {
+        directFiles.push(file);
+        seen.add(file);
+      }
+    }
+    return directFiles;
+  }, []);
+
   // P1 整窗拖拽：OS 文件拖到窗口任意位置 → 同 appendFiles 管道进附件位。
   // Tauri 侧已配 dragDropEnabled:false（否则壳会吞掉文件拖拽）；浏览器侧原生即有。
   useEffect(() => {
@@ -695,10 +759,15 @@ export function LuminousTextEntry({
       event.preventDefault();
       windowDragDepthRef.current = 0;
       setIsWindowDragging(false);
-      const files = event.dataTransfer?.files;
-      if (files?.length) {
-        void appendFiles(files);
+      const transfer = event.dataTransfer;
+      if (!transfer) {
+        return;
       }
+      void collectDroppedFiles(transfer).then((files) => {
+        if (files.length) {
+          void appendFiles(files);
+        }
+      });
     };
     window.addEventListener("dragenter", handleWindowDragEnter);
     window.addEventListener("dragover", handleWindowDragOver);
@@ -710,7 +779,7 @@ export function LuminousTextEntry({
       window.removeEventListener("dragleave", handleWindowDragLeave);
       window.removeEventListener("drop", handleWindowDrop);
     };
-  }, [appendFiles]);
+  }, [appendFiles, collectDroppedFiles]);
 
   const handleFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = event.target.files;
@@ -754,7 +823,11 @@ export function LuminousTextEntry({
       }}
       onDrop={(event) => {
         event.preventDefault();
-        void appendFiles(event.dataTransfer.files);
+        void collectDroppedFiles(event.dataTransfer).then((files) => {
+          if (files.length) {
+            void appendFiles(files);
+          }
+        });
       }}
     >
       <input
