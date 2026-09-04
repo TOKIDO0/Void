@@ -47,7 +47,7 @@ import {
   bridgeAuthHeadersForUrl,
   isLoopbackBridgeUrl
 } from "../../../lib/runtime/voidBridgeAuth";
-import { runAgentToolLoop } from "../loop/agentToolLoop";
+import { planBatchConcurrency, runAgentToolLoop } from "../loop/agentToolLoop";
 import { formatSameToolStreakCloseMessage } from "../loop/toolProgressCopy";
 import { buildToolResultRelay } from "../loop/toolResultRelay";
 import {
@@ -3284,6 +3284,13 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push(...deferredProbe.notes);
   }
 
+  const batchProbe = await runBatchConcurrencyProbe();
+  if (!batchProbe.ok) {
+    failures.push(...batchProbe.failures);
+  } else {
+    notes.push(...batchProbe.notes);
+  }
+
   const modelFailureProbe = await runModelFailureProbe();
   if (!modelFailureProbe.ok) {
     failures.push(...modelFailureProbe.failures);
@@ -3429,6 +3436,113 @@ async function runSameToolStreakCloseProbe(): Promise<SmokeResult> {
     failures,
     notes
   };
+}
+
+/**
+ * P5 并行扇出：装箱单测（L0+不抬升+资源键不交集才并发；L2/抬升/同管线/cap 上限旁路）
+ * + 集成（同轮 3×echo 一轮收齐）。
+ */
+async function runBatchConcurrencyProbe(): Promise<SmokeResult> {
+  const failures: string[] = [];
+  const notes: string[] = [];
+  const call = (id: string, name: string, args: unknown): ProviderToolCall => ({
+    id,
+    type: "function",
+    function: { name, arguments: JSON.stringify(args) }
+  });
+  try {
+    const plan = planBatchConcurrency([
+      call("c0", "echo", { message: "a" }),
+      call("c1", "file.writeText", { path: "D:\\AI\\void-runtime\\downloads\\x.md", content: "hi" }),
+      call("c2", "web.search", { query: "void" }),
+      call("c3", "file.readText", { path: "D:\\AI\\void-runtime\\downloads\\note.md" }),
+      call("c4", "desktop.listWindows", {}),
+      call("c5", "file.readText", { path: "D:\\AI\\void-runtime\\.env" })
+    ], 8);
+    const picked = [...plan].sort((a, b) => a - b);
+    // 期望 {0,2,3}：L2 跳过；web/file/desktop 键不交集全收；cap3 截断；.env 动态抬升跳过
+    if (JSON.stringify(picked) !== JSON.stringify([0, 2, 3])) {
+      failures.push(`装箱结果异常，期望 [0,2,3] 实际 [${picked.join(",")}]`);
+    }
+    if (planBatchConcurrency([], 8).size !== 0 || planBatchConcurrency([
+      call("c0", "echo", { message: "a" })
+    ], 0).size !== 0) {
+      failures.push("空批/零预算应返回空集");
+    }
+
+    if (failures.length === 0) {
+      const originalProvider = getModelProvider("openai-compatible");
+      let batchCalls = 0;
+      const uninstall = installModelProviderOverride("openai-compatible", {
+        ...originalProvider,
+        supportsTools: true,
+        async sendMessage(request): Promise<ProviderResponse> {
+          batchCalls += 1;
+          if (request.tools?.length && batchCalls === 1) {
+            return {
+              content: "",
+              toolCalls: ["a", "b", "c"].map((message, index) => ({
+                id: `call_batch_${index}`,
+                type: "function",
+                function: { name: "echo", arguments: JSON.stringify({ message }) }
+              }))
+            };
+          }
+          return { content: "三项查询均已完成。" };
+        },
+        mapError(error) {
+          return error instanceof Error ? error : new Error(String(error));
+        }
+      });
+      try {
+        const loopResult = await runAgentToolLoop({
+          messages: [{ role: "user", content: "并行查三项" }],
+          modelConfig: {
+            provider: "openai-compatible",
+            presetId: "smoke",
+            apiKey: "smoke-key",
+            baseUrl: "http://127.0.0.1:9",
+            modelName: "smoke-model",
+            modelStrength: "middle",
+            thinkingModeEnabled: false,
+            temperature: 0,
+            maxOutputTokens: 256,
+            streamEnabled: false
+          },
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "echo",
+                description: "smoke echo",
+                parameters: {
+                  type: "object",
+                  properties: { message: { type: "string" } },
+                  required: ["message"]
+                }
+              }
+            }
+          ],
+          maxRounds: 6,
+          maxToolInvocations: 8
+        });
+        if (loopResult.rounds !== 2) {
+          failures.push(`同轮 3×echo 应 2 轮收齐，实际 ${loopResult.rounds} 轮`);
+        }
+        if (!loopResult.content.includes("已完成")) {
+          failures.push(`集成收尾异常：${loopResult.content.slice(0, 80)}`);
+        }
+      } finally {
+        uninstall();
+      }
+    }
+    if (failures.length === 0) {
+      notes.push("并行扇出正确：装箱 [0,2,3]（L2/抬升/同键/cap 旁路），同轮 3×echo 2 轮收齐");
+    }
+  } catch (error) {
+    failures.push(`并行扇出探测崩溃：${error instanceof Error ? error.message : String(error)}`);
+  }
+  return { ok: failures.length === 0, failures, notes };
 }
 
 /**

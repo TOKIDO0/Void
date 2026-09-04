@@ -134,6 +134,64 @@ function hasDeferredPromise(content: string): boolean {
   return DEFERRED_PROMISE_PATTERN.test(content);
 }
 
+/** P5 并行扇出上限：同批最多并发数。 */
+const MAX_BATCH_CONCURRENCY = 3;
+
+/**
+ * P5 装箱：静态 L0 + 动态不抬升 + exclusive 资源键互不相交才可同批并发。
+ * 同管线（同 kind+key exclusive，如浏览器同页/下载管线）保持串行 —— 这些是刻意不变量，不强行并行。
+ * 返回可并发的下标集合（按原顺序挑，cap 3，并预留预算）。
+ */
+export function planBatchConcurrency(toolCalls: ProviderToolCall[], budgetLeft: number): Set<number> {
+  const picked = new Set<number>();
+  if (budgetLeft <= 0) {
+    return picked;
+  }
+  const takenExclusive = new Set<string>();
+  const cap = Math.min(MAX_BATCH_CONCURRENCY, budgetLeft);
+  for (let index = 0; index < toolCalls.length && picked.size < cap; index += 1) {
+    const toolName = classifyBatchCandidate(toolCalls[index]);
+    if (!toolName) {
+      continue;
+    }
+    const tool = getTool(toolName);
+    const exclusiveKeys = (tool?.requiredResources ?? [])
+      .filter((resource) => resource.mode === "exclusive")
+      .map((resource) => `${resource.kind}:${resource.key}`);
+    if (exclusiveKeys.some((key) => takenExclusive.has(key))) {
+      continue;
+    }
+    for (const key of exclusiveKeys) {
+      takenExclusive.add(key);
+    }
+    picked.add(index);
+  }
+  return picked;
+}
+
+function classifyBatchCandidate(toolCall: ProviderToolCall): string | null {
+  const modelToolName = toolCall.function?.name?.trim() || "";
+  if (!modelToolName) {
+    return null;
+  }
+  const toolName = fromModelToolName(modelToolName);
+  const tool = getTool(toolName);
+  if (!tool || tool.riskLevel !== "L0") {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(toolCall.function?.arguments ?? "{}");
+  } catch {
+    return null;
+  }
+  const safetyReview = inspectToolInputSafety(toolName, parsed);
+  if (resolveHighestRiskLevel(tool.riskLevel, safetyReview.riskLevel) !== "L0") {
+    return null;
+  }
+  return toolName;
+}
+
 /**
  * 运行一轮「可调工具」的对话循环，返回最终对用户的自然语言回复。
  */
@@ -428,7 +486,36 @@ async function runAgentToolLoopInternal(
     // 本轮是否有工具因桥接不可达失败（sidecar 未启动），用于回灌一次如实兜底话术
     let sawBridgeUnreachableThisRound = false;
 
-    for (const toolCall of toolCalls) {
+    // P5 并行扇出：同批 L0 纯只读（静态 L0 + 动态不抬升 + exclusive 资源键互不相交）先并发执行；
+    // 预算/熔断/证据/终态/回灌记账仍按原顺序串行，语义与纯串行一致。
+    const batchPlan = planBatchConcurrency(toolCalls, maxToolInvocations - toolInvocationCount);
+    const batchResults = new Map<number, string>();
+    if (batchPlan.size > 0) {
+      if (options.signal?.aborted) {
+        throw createAbortedError();
+      }
+      await Promise.all([...batchPlan].map(async (batchIndex) => {
+        const batchCall = toolCalls[batchIndex];
+        const batchModelName = batchCall.function?.name?.trim() || "";
+        const batchToolName = fromModelToolName(batchModelName);
+        const batchStepId = batchCall.id || `step_${rounds}_${batchToolName}`;
+        const payload = await runSingleToolCall({
+          taskId,
+          stepId: batchStepId,
+          toolName: batchToolName,
+          toolCall: batchCall,
+          requestConfirmation: options.requestConfirmation,
+          signal: options.signal,
+          onProgress: options.onProgress,
+          permissionGrants,
+          taskGate: options.taskGate
+        });
+        batchResults.set(batchIndex, payload);
+      }));
+    }
+
+    for (let index = 0; index < toolCalls.length; index += 1) {
+      const toolCall = toolCalls[index];
       if (options.signal?.aborted) {
         throw createAbortedError();
       }
@@ -487,17 +574,20 @@ async function runAgentToolLoopInternal(
         updatedAt: Date.now()
       });
 
-      const toolResultPayload = await runSingleToolCall({
-        taskId,
-        stepId,
-        toolName,
-        toolCall,
-        requestConfirmation: options.requestConfirmation,
-        signal: options.signal,
-        onProgress: options.onProgress,
-        permissionGrants,
-        taskGate: options.taskGate
-      });
+      const batchedPayload = batchResults.get(index);
+      const toolResultPayload = batchedPayload !== undefined
+        ? batchedPayload
+        : await runSingleToolCall({
+          taskId,
+          stepId,
+          toolName,
+          toolCall,
+          requestConfirmation: options.requestConfirmation,
+          signal: options.signal,
+          onProgress: options.onProgress,
+          permissionGrants,
+          taskGate: options.taskGate
+        });
 
       toolInvocationCount += 1;
 
