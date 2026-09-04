@@ -214,6 +214,7 @@ export type ScheduleCreateRequest = {
   kind: "at" | "every";
   at?: string | number;
   every?: number | string;
+  anchor?: string | number;
   allowedToolNames?: string[];
   timeoutMs?: number;
 };

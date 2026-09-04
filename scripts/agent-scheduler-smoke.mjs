@@ -209,12 +209,29 @@ async function main() {
       assert(ack.ok === true && ack.data.acknowledged === 1, "ack 应确认1条并忽略不存在 id");
       const pending1 = await getJson("/void-scheduler/runs/pending");
       assert(!pending1.data.some((run) => run.id === firstRunId), "ack 后不再 pending");
+
+      // 预授权判定 + anchor 锚点
+      const { shouldPreApprove } = runner;
+      assert(shouldPreApprove("file.writeText", ["file.writeText", "web.search"]) === true, "scope 内静态 L2 应预授权");
+      assert(shouldPreApprove("file.readText", ["file.readText"]) === false, "静态 L0 不走预授权（本来 auto）");
+      assert(shouldPreApprove("file.writeText", ["web.search"]) === false, "scope 外应拒绝");
+      assert(shouldPreApprove("desktop.takeoverStart", ["desktop.takeoverStart"]) === false, "L3 永不预授权");
+      assert(shouldPreApprove("nope.tool", ["nope.tool"]) === false, "未知工具拒绝");
+
+      const anchored = await postJson("/void-scheduler/jobs/create", {
+        name: "smoke-anchor", prompt: "hi", kind: "every", every: "24h", anchor: new Date(Date.now() + 3600_000).toISOString()
+      });
+      assert(anchored.ok === true && anchored.data.anchorMs > Date.now() && anchored.data.nextRunAtMs === anchored.data.anchorMs, "anchor 应决定下次触发");
+      const badAnchor = await postJson("/void-scheduler/jobs/create", { prompt: "hi", kind: "every", every: "1h", anchor: "not-a-time" });
+      assert(badAnchor.ok === false, "非法 anchor 应拒绝");
+      await postJson("/void-scheduler/jobs/remove", { id: anchored.data.id });
     } finally {
       runner.stopScheduler();
       await new Promise((resolve) => httpServer.close(resolve));
     }
 
     console.log("[agent-scheduler-smoke] PASSED");
+    console.log(" - 预授权：scope内静态L2放行/L0与scope外与L3与未知拒绝；anchor决定下次，非法anchor拒绝");
     console.log(" - 投递：完成run进pending→ack确认1条→不再pending");
     console.log(" - 端点E2E：unlock不回显Key→创建/列表→手动触发隔离turn成功→at自删→未解锁pause→删幂等");
     console.log(" - at/every 归一化与非法拒绝；下次触发严格递增；宽限补跑/超限missed/不补跑风暴");

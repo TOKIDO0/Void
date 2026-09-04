@@ -67,6 +67,8 @@ export type ScheduleCreateInput = {
   at?: string | number;
   /** every 必填：毫秒或 "10m/1h/1d" 简写。 */
   every?: number | string;
+  /** every 可选锚点（ISO 或毫秒时间戳）：缺省为创建时间。每日 8 点类用 every 24h + 锚明日 8 点。 */
+  anchor?: string | number;
   allowedToolNames?: string[];
   timeoutMs?: number;
 };

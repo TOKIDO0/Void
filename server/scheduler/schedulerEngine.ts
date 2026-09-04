@@ -112,7 +112,15 @@ export function validateCreateInput(raw: ScheduleCreateInput, nowMs: number): Om
     if (everyMs === null || everyMs < MIN_EVERY_MS || everyMs > MAX_EVERY_MS) {
       throw createScheduleError("INVALID_REQUEST", `every 间隔非法（60s～30d，支持 10m/1h/1d 简写）`);
     }
-    return { name, prompt, kind: "every", everyMs, anchorMs: nowMs, allowedToolNames, timeoutMs, enabled: true, missedCount: 0, failStreak: 0 };
+    let anchorMs = nowMs;
+    if (raw.anchor !== undefined) {
+      const parsedAnchor = parseAtMs(raw.anchor);
+      if (parsedAnchor === null) {
+        throw createScheduleError("INVALID_REQUEST", "anchor 无法解析（ISO 或毫秒时间戳）");
+      }
+      anchorMs = parsedAnchor;
+    }
+    return { name, prompt, kind: "every", everyMs, anchorMs, allowedToolNames, timeoutMs, enabled: true, missedCount: 0, failStreak: 0 };
   }
   throw createScheduleError("INVALID_REQUEST", `未知调度种类（仅 at/every）：${String((raw as { kind?: unknown }).kind)}`);
 }

@@ -733,6 +733,26 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
       "监测条件与动作必须双明确；无人值守 run 不再确认，创建时一次授 scope。",
       "键鼠直控仅限接管会话白名单内，反作弊进程永不豁免；随时可停。"
     ]
+  },
+  {
+    id: "daily-brief",
+    category: "agent",
+    label: "每日管家早报",
+    summary: "每天固定时间读记忆待办、搜天气新闻，生成早报落盘并通知；TTS 整段播报为 v2。",
+    userValue: "适合每天早上自动收到天气、新闻、待办、健康提醒与日报文件，全程无人值守、可审计。",
+    exampleRequests: [
+      "每天早上8点给我做早报",
+      "订一份每日晨报"
+    ],
+    requiredToolNames: ["agent.scheduleCreate", "browser.search", "file.writeText", "agent.todo"],
+    optionalToolNames: ["agent.scheduleInspect", "browser.extract", "file.verify", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L2",
+    requiresBridge: true,
+    requiresConfirmation: true,
+    safetyBoundaries: [
+      "写盘 file.writeText 靠创建时 L2 授 scope 放行；动态抬升（私网/.env）照样拒绝。",
+      "用 every 24h + 锚点实现每日固定时刻；落盘冲突用 rename，绝不覆盖。"
+    ]
   }
 ];
 

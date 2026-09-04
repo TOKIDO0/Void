@@ -13,6 +13,7 @@ export type AgentScheduleCreateToolInput = {
   kind: "at" | "every";
   at?: string | number;
   every?: number | string;
+  anchor?: string | number;
   allowedToolNames?: string[];
   timeoutMs?: number;
 };
@@ -68,6 +69,12 @@ export const agentScheduleCreateTool: ToolDefinition<AgentScheduleCreateToolInpu
           { type: "number" }
         ]
       },
+      anchor: {
+        anyOf: [
+          { type: "string", minLength: 1, maxLength: 64 },
+          { type: "number" }
+        ]
+      },
       allowedToolNames: { type: "array", maxItems: 20, items: { type: "string", minLength: 1, maxLength: 80 } },
       timeoutMs: { type: "number", minimum: 60000, maximum: 3600000 }
     }
@@ -108,6 +115,7 @@ export const agentScheduleCreateTool: ToolDefinition<AgentScheduleCreateToolInpu
           kind: input.kind,
           at: input.at,
           every: input.every,
+          anchor: input.anchor,
           allowedToolNames: input.allowedToolNames,
           timeoutMs: input.timeoutMs
         },

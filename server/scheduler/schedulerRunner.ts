@@ -5,6 +5,7 @@
  */
 
 import { runAgentToolLoop } from "../../src/features/agent/loop/agentToolLoop";
+import { getTool } from "../../src/features/agent/tools/toolRegistry";
 import type { ModelConfig } from "../../src/features/settings/modelConfig";
 import {
   AT_GRACE_MS,
@@ -66,6 +67,18 @@ export function hasSchedulerModelKey(): boolean {
 
 export function schedulerRunningCount(): number {
   return running;
+}
+
+/**
+ * P4 补丁（早报）：创建时 L2 确认前移 —— scope 内静态 L2 放行，动态抬升照样拒绝。
+ * 原理：confirmer 被调用 ⟺ 需要确认 ⟺ 静态 L2+ 或动态抬升；静态 L0/L1 本来 auto 不会到这。
+ * 因此：静态风险恰为 L2 且在 scope 内 → 放行；其余（含动态抬升的 L0 工具、L3、scope 外）→ 拒绝。
+ */
+export function shouldPreApprove(toolName: string, scope: readonly string[]): boolean {
+  if (!scope.includes(toolName)) {
+    return false;
+  }
+  return getTool(toolName)?.riskLevel === "L2";
 }
 
 export function startScheduler(): { dueNow: string[]; missed: string[] } {
@@ -238,8 +251,16 @@ async function runJobById(id: string): Promise<void> {
       messages: [{ role: "user", content: job.prompt }],
       modelConfig: { ...key },
       allowedToolNames: [...job.allowedToolNames],
-      // 无人值守 fail-closed：任何确认请求自动拒绝并计数，终态记 paused_needs_user。
+      // 无人值守 fail-closed + 创建时授 scope：scope 内静态 L2 放行，其余自动拒绝并计数。
       requestConfirmation: async (request) => {
+        if (shouldPreApprove(request.toolName, job.allowedToolNames)) {
+          return {
+            requestId: request.id,
+            approved: true,
+            decidedAt: Date.now(),
+            note: "创建时 L2 已授 scope，静态风险内放行"
+          };
+        }
         confirmationBlocks += 1;
         return {
           requestId: request.id,

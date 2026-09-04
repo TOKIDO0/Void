@@ -125,6 +125,7 @@ export async function handleSchedulerHttpRequest(
           kind: body.kind as ScheduleCreateInput["kind"],
           at: (typeof body.at === "string" || typeof body.at === "number") ? body.at : undefined,
           every: (typeof body.every === "string" || typeof body.every === "number") ? body.every : undefined,
+          anchor: (typeof body.anchor === "string" || typeof body.anchor === "number") ? body.anchor : undefined,
           allowedToolNames: Array.isArray(body.allowedToolNames)
             ? body.allowedToolNames.filter((x): x is string => typeof x === "string")
             : undefined,

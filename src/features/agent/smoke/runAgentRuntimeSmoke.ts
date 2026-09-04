@@ -1059,7 +1059,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const codeTransform = data.playbooks?.find((playbook) => playbook.id === "code-data-transform");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount !== 33
+      || data.playbookCount !== 34
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1130,6 +1130,8 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || inboxExec.maxRiskLevel !== "L2"
       || !data.playbooks?.find((p) => p.id === "desktop-watch-and-act")?.requiredToolNames?.includes("agent.scheduleCreate")
       || !data.playbooks?.find((p) => p.id === "desktop-watch-and-act")?.requiredToolNames?.includes("desktop.invokeControl")
+      || !data.playbooks?.find((p) => p.id === "daily-brief")?.requiredToolNames?.includes("agent.scheduleCreate")
+      || !data.playbooks?.find((p) => p.id === "daily-brief")?.requiredToolNames?.includes("file.writeText")
       || !codeTransform?.requiredToolNames?.includes("agent.runCode")
       || codeTransform.requiresConfirmation !== true
       || !data.safetyBoundaries?.some((item) => typeof item === "string" && item.includes("不是插件执行器"))
@@ -2694,16 +2696,21 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
 
   const scheduleRoute = resolveTurnCapability("每天早上8点提醒我喝水", []);
   const scheduleNegativeRoute = resolveTurnCapability("每天有什么新闻", []);
+  const briefRoute = resolveTurnCapability("每天早上8点给我做早报", []);
+  const briefNegativeRoute = resolveTurnCapability("今天早报有什么新闻", []);
   if (
     scheduleRoute.capability !== "agent"
     || !scheduleRoute.allowedToolNames.includes("agent.scheduleCreate")
     || !scheduleRoute.allowedToolNames.includes("agent.scheduleList")
     || scheduleRoute.allowedToolNames.includes("browser.search")
     || scheduleNegativeRoute.capability === "agent"
+    || briefRoute.capability !== "agent"
+    || !briefRoute.allowedToolNames.includes("agent.scheduleCreate")
+    || briefNegativeRoute.capability === "agent"
   ) {
-    failures.push("定时提醒问询应路由到 agent 调度工具组，且纯新闻检索不得劫持");
+    failures.push("定时提醒/早报问询应路由到 agent 调度工具组，且纯新闻检索不得劫持");
   } else {
-    notes.push("调度路由正确：定时提醒→agent.scheduleCreate/List 同轮可用，新闻检索不劫持");
+    notes.push("调度路由正确：定时提醒/早报→agent.scheduleCreate/List 同轮可用，新闻检索不劫持");
   }
 
   // P6 接管工具契约 + 路由（真机键鼠走桌面真机验收，不进冒烟）
