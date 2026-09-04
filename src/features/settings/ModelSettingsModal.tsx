@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   MAX_OUTPUT_LEVELS,
   MODEL_PRESETS,
@@ -51,6 +51,9 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
   const [activeTab, setActiveTab] = useState<SettingsTab>("model");
   const [highPermissionEnabled, setHighPermissionEnabled] = useState(() => isHighPermissionMode());
   const [showHighPermissionConfirm, setShowHighPermissionConfirm] = useState(false);
+  // AL 开机自启：默认关；本机 OS 登录项，打开设置即读一次真实状态。
+  const [autostartEnabled, setAutostartEnabled] = useState(false);
+  const [autostartLoaded, setAutostartLoaded] = useState(false);
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
   const [voiceRuntimeConfig, setVoiceRuntimeConfig] = useState(() => loadVoiceRuntimeConfig());
   const [semanticSearchDraft, setSemanticSearchDraft] = useState(() => isSemanticSearchEnabled());
@@ -101,6 +104,51 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     setHighPermissionEnabled(isHighPermissionMode());
     setShowHighPermissionConfirm(false);
   }, [isOpen, initialTab]);
+
+  // AL 开机自启：打开设置即读一次 OS 真实状态；失败（纯 Web 预览）保持关闭态。
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    let cancelled = false;
+    setAutostartLoaded(false);
+    void import("@tauri-apps/plugin-autostart")
+      .then(async ({ isEnabled }) => {
+        try {
+          const enabled = await isEnabled();
+          if (!cancelled) {
+            setAutostartEnabled(enabled);
+            setAutostartLoaded(true);
+          }
+        } catch {
+          if (!cancelled) {
+            setAutostartLoaded(true);
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAutostartLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  const handleAutostartToggle = useCallback(async (next: boolean) => {
+    try {
+      const { enable, disable } = await import("@tauri-apps/plugin-autostart");
+      if (next) {
+        await enable();
+      } else {
+        await disable();
+      }
+      setAutostartEnabled(next);
+    } catch {
+      // 失败保持原态，不误显示
+    }
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -517,6 +565,23 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                       : "High permission is on: VOID will act more autonomously. Keep it on only for trusted tasks."}
                   </p>
                 ) : null}
+              </section>
+              <section className="model-settings-modal__field">
+                <label className="model-settings-modal__advanced-toggle">
+                  <span>
+                    <strong>{language === "zh-CN" ? "开机自启动" : "Launch at login"}</strong>
+                    <p>{language === "zh-CN" ? "开机后自动启动 VOID（托盘常驻），关窗口不退出。默认关闭；开发预览下可能指向开发进程，以正式安装包为准。" : "Start VOID automatically at login (tray resident). Off by default; dev preview may point at the dev process."}</p>
+                  </span>
+                  <span className="model-settings-modal__switch">
+                    <input
+                      type="checkbox"
+                      checked={autostartEnabled}
+                      disabled={!autostartLoaded}
+                      onChange={(event) => void handleAutostartToggle(event.target.checked)}
+                    />
+                    <span className="model-settings-modal__switch-slider" />
+                  </span>
+                </label>
               </section>
               {showHighPermissionConfirm ? (
                 <div className="model-settings-modal__confirm" role="alertdialog" aria-modal="true">
