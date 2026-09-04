@@ -247,6 +247,45 @@ async function main() {
         schedulerStore.removeJob(expired.id);
       }
 
+      // C 条件通知：首行 NO_NOTIFY 免打扰（成功落账但不进 pending），其余正常投递
+      const { shouldSkipNotify } = runner;
+      assert(shouldSkipNotify("NO_NOTIFY\n一切正常") === true, "首行标记应免打扰");
+      assert(shouldSkipNotify("  NO_NOTIFY  ") === true, "首行前后空白应容忍");
+      assert(shouldSkipNotify("今天一切正常") === false, "无标记应投递");
+      assert(shouldSkipNotify("检查完成，NO_NOTIFY") === false, "非首行标记不免");
+      assert(shouldSkipNotify("") === false, "空串不免");
+
+      const quietBase = getModelProvider("openai-compatible");
+      const uninstallQuiet = installModelProviderOverride("openai-compatible", {
+        ...quietBase,
+        supportsTools: true,
+        async sendMessage() { return { content: "NO_NOTIFY\n巡检无异常。" }; },
+        mapError(error) { return error instanceof Error ? error : new Error(String(error)); }
+      });
+      try {
+        // 前序 locked 用例已清 Key，此处重新解锁（哑 Key，只走 stub 不出网）
+        await postJson("/void-scheduler/unlock", {
+          modelConfig: { provider: "openai-compatible", presetId: "smoke", apiKey: "sk-smoke-quiet", baseUrl: "http://127.0.0.1:9", modelName: "smoke-model", modelStrength: "middle", thinkingModeEnabled: false, temperature: 0, maxOutputTokens: 256, streamEnabled: false }
+        });
+        const quietJob = await postJson("/void-scheduler/jobs/create", {
+          name: "smoke-quiet", prompt: "巡检，无事首行回NO_NOTIFY。", kind: "at", at: Date.now() + 3600_000
+        });
+        const quietRun = await postJson("/void-scheduler/jobs/run", { id: quietJob.data.id });
+        let quietTerminal = null;
+        for (let i = 0; i < 40; i++) {
+          const runsResp = await getJson("/void-scheduler/runs?limit=10");
+          quietTerminal = runsResp.data.find((run) => run.id === quietRun.data.runId && run.status !== "running");
+          if (quietTerminal) break;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        assert(quietTerminal !== null && quietTerminal.status === "succeeded", "免打扰 run 应成功落账");
+        const pendingAfterQuiet = await getJson("/void-scheduler/runs/pending");
+        assert(!pendingAfterQuiet.data.some((run) => run.id === quietRun.data.runId), "免打扰 run 不进 pending");
+        assert(quietTerminal.delivered === true, "免打扰 run 直接记已投递");
+      } finally {
+        uninstallQuiet();
+      }
+
       // cron：表达式归一化 + 非法拒绝 + 下次严格未来 + 落盘恢复
       const badExpr = await postJson("/void-scheduler/jobs/create", { prompt: "hi", kind: "cron", expr: "not-a-cron" });
       assert(badExpr.ok === false, "非法 expr 应拒绝");
@@ -268,6 +307,7 @@ async function main() {
     }
 
     console.log("[agent-scheduler-smoke] PASSED");
+    console.log(" - 条件通知：首行NO_NOTIFY免打扰落账且不进pending，有异常正常投递");
     console.log(" - 启动播报：过期任务记 missed run 进 pending，可 ack");
     console.log(" - 预授权：scope内静态L2放行/L0与scope外与L3与未知拒绝；anchor决定下次，非法anchor拒绝");
     console.log(" - 投递：完成run进pending→ack确认1条→不再pending");

@@ -731,6 +731,7 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     requiresConfirmation: true,
     safetyBoundaries: [
       "监测条件与动作必须双明确；无人值守 run 不再确认，创建时一次授 scope。",
+      "巡检无异常首行回 NO_NOTIFY 免打扰（台账仍可见）；有异常正常汇报。",
       "键鼠直控仅限接管会话白名单内，反作弊进程永不豁免；随时可停。"
     ]
   },

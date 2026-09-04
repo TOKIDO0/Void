@@ -70,6 +70,23 @@ export function schedulerRunningCount(): number {
 }
 
 /**
+ * C 条件通知：无异常巡检首行回 NO_NOTIFY → 成功但免投递（台账仍可见）。
+ * 判定只看首行精确匹配，避免正文偶发 boujie 误杀。
+ */
+export function shouldSkipNotify(content: string): boolean {
+  const firstLine = (content ?? "").split(/\r?\n/, 1)[0]?.trim();
+  return firstLine === "NO_NOTIFY";
+}
+
+function stripNotifyMarker(summary: string): string {
+  const lines = summary.split(/\r?\n/);
+  if (lines.length > 1 && lines[0]?.trim() === "NO_NOTIFY") {
+    return lines.slice(1).join("\n").trim();
+  }
+  return summary;
+}
+
+/**
  * P4 补丁（早报）：创建时 L2 确认前移 —— scope 内静态 L2 放行，动态抬升照样拒绝。
  * 原理：confirmer 被调用 ⟺ 需要确认 ⟺ 静态 L2+ 或动态抬升；静态 L0/L1 本来 auto 不会到这。
  * 因此：静态风险恰为 L2 且在 scope 内 → 放行；其余（含动态抬升的 L0 工具、L3、scope 外）→ 拒绝。
@@ -293,6 +310,11 @@ async function runJobById(id: string): Promise<void> {
       finishRun(job, record, "paused_needs_user", `${result.content.slice(0, 300)}（另有 ${confirmationBlocks} 项需确认被自动拒绝）`);
     } else if (result.outcome === "failed") {
       finishRun(job, record, "failed", result.content.slice(0, 500));
+    } else if (shouldSkipNotify(result.content)) {
+      // C 条件通知：无异常免打扰 —— 成功落账但直接记已投递，不进通知。
+      const clean = stripNotifyMarker(result.content).slice(0, 500);
+      finishRun(job, record, "succeeded", clean || "巡检无异常（免打扰）。");
+      markRunDelivered(record.id);
     } else {
       finishRun(job, record, "succeeded", result.content.slice(0, 500));
     }
@@ -308,8 +330,14 @@ async function runJobById(id: string): Promise<void> {
   }
 }
 
-function finishRun(job: ScheduleJob, record: SchedulerRunRecord, status: SchedulerRunStatus, summary: string): void {
-  const now = Date.now();
+function markRunDelivered(runId: string): void {
+  const stored = schedulerStore.listRuns(MAX_RUN_RECORDS).find((item) => item.id === runId);
+  if (stored) {
+    schedulerStore.updateRun({ ...stored, delivered: true });
+  }
+}
+
+function finishRun(job: ScheduleJob, record: SchedulerRunRecord, status: SchedulerRunStatus, summary: string): void {  const now = Date.now();
   const fresh = schedulerStore.getJob(job.id);
   if (fresh) {
     const settled = settleRun(fresh, fresh.createdAt, status, now);
