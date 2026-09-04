@@ -146,7 +146,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None
         ))
-        .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(BridgeTokenState(bridge_token.clone()))
         .invoke_handler(tauri::generate_handler![
             get_bridge_token,
@@ -180,6 +180,28 @@ pub fn run() {
                         api.prevent_close();
                     }
                 });
+            }
+
+            // AR 全局热键：Ctrl+Alt+V 切换主窗口显隐（被占用记 warn 不崩）。
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+                let toggle = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV);
+                match app.global_shortcut().on_shortcut(toggle, |app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(true) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                }) {
+                    Ok(()) => log::info!("[void] 全局热键 Ctrl+Alt+V 已注册"),
+                    Err(error) => log::warn!("[void] 全局热键被占用，跳过：{error}"),
+                }
             }
 
             Ok(())
