@@ -1593,6 +1593,31 @@ export function VoidStage() {
     };
   }, []);
 
+  // P4d 后台投递：每 60s 拉未投递终态 runs，系统通知后 ack；窗口隐藏时同样生效。
+  useEffect(() => {
+    let cancelled = false;
+    let timer = 0;
+    const poll = async () => {
+      if (cancelled) {
+        return;
+      }
+      try {
+        const { pollSchedulerDeliveries } = await import("../agent/scheduler/schedulerDeliveryPoller");
+        await pollSchedulerDeliveries();
+      } catch {
+        // 桥接未起/网络抖动静默跳过，下轮继续
+      }
+      if (!cancelled) {
+        timer = window.setTimeout(() => void poll(), 60_000);
+      }
+    };
+    timer = window.setTimeout(() => void poll(), 15_000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
   return (
     <main className="void-stage">
       <Suspense fallback={<div className="blob-scene" aria-hidden="true" style={{ background: "#000" }} />}>

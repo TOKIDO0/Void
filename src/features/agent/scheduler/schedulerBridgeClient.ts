@@ -237,3 +237,16 @@ export async function runScheduledJobNow(id: string, signal?: AbortSignal): Prom
 export async function getSchedulerStatus(signal?: AbortSignal): Promise<SchedulerStatusView> {
   return getSchedulerApi<SchedulerStatusView>("/void-scheduler/status", signal);
 }
+
+export async function fetchRecentRuns(limit = 10, signal?: AbortSignal): Promise<SchedulerRunView[]> {
+  const capped = Math.max(1, Math.min(Math.floor(limit) || 10, 20));
+  return getSchedulerApi<SchedulerRunView[]>(`/void-scheduler/runs?limit=${capped}`, signal);
+}
+
+export async function fetchPendingRuns(signal?: AbortSignal): Promise<SchedulerRunView[]> {
+  return getSchedulerApi<SchedulerRunView[]>("/void-scheduler/runs/pending", signal);
+}
+
+export async function acknowledgeRuns(runIds: string[], signal?: AbortSignal): Promise<{ acknowledged: number }> {
+  return postSchedulerApi<{ acknowledged: number }>("/void-scheduler/runs/ack", { runIds }, signal);
+}

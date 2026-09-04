@@ -80,10 +80,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
 
   const productionTools = listToolMetadata();
   // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + desktop 控件探针 1 个 + desktop 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 = 71
-  if (productionTools.length !== 75 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 75 个工具，实际 ${productionTools.length}`);
+  if (productionTools.length !== 76 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 76 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("75 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 + agent.scheduleCreate/remove/runNow/list 后台调度 4 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("76 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 + agent.scheduleCreate/remove/runNow/list/inspect 后台调度 5 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -2670,11 +2670,24 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     ? validateAgainstSchema(scheduleRunNowTool.inputSchema, { id: "job_x" }).valid
     && (scheduleRunNowTool as { riskLevel?: string }).riskLevel === "L2"
     : false;
+  const scheduleInspectTool = productionTools.find((tool) => tool.name === "agent.scheduleInspect");
+  const scheduleInspectContractOk = scheduleInspectTool
+    ? validateAgainstSchema(scheduleInspectTool.inputSchema, {}).valid
+    && validateAgainstSchema(scheduleInspectTool.outputSchema, {
+      status: { unlocked: true, running: 0, jobCount: 0, enabledCount: 0 },
+      jobs: [],
+      recentRuns: [],
+      jobCount: 0
+    }).valid
+    && (scheduleInspectTool as { riskLevel?: string }).riskLevel === "L0"
+    : false;
   if (!scheduleCreateTool || !scheduleListTool || !scheduleRemoveTool || !scheduleRunNowTool
-    || !scheduleCreateContractOk || !scheduleListContractOk || !scheduleRemoveContractOk || !scheduleRunNowContractOk) {
-    failures.push("P4 调度四工具契约异常：创建/列表/删除/手动触发契约或风险等级未达预期");
+    || !scheduleInspectTool
+    || !scheduleCreateContractOk || !scheduleListContractOk || !scheduleRemoveContractOk || !scheduleRunNowContractOk
+    || !scheduleInspectContractOk) {
+    failures.push("P4 调度工具契约异常：创建/列表/删除/手动触发/台账契约或风险等级未达预期");
   } else {
-    notes.push("P4 调度契约正确：创建/删除/手动触发 L2，列表 L0，缺参前置拦截");
+    notes.push("P4 调度契约正确：创建/删除/手动触发 L2，列表/台账 L0，缺参前置拦截");
   }
 
   const scheduleRoute = resolveTurnCapability("每天早上8点提醒我喝水", []);

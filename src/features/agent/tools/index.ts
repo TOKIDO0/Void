@@ -120,6 +120,7 @@ export { agentScheduleCreateTool } from "./builtin/agentScheduleCreateTool";
 export { agentScheduleListTool } from "./builtin/agentScheduleListTool";
 export { agentScheduleRemoveTool } from "./builtin/agentScheduleRemoveTool";
 export { agentScheduleRunNowTool } from "./builtin/agentScheduleRunNowTool";
+export { agentScheduleInspectTool } from "./builtin/agentScheduleInspectTool";
 export { agentInspectToolContractTool } from "./builtin/agentInspectToolContractTool";
 export { agentInspectExtensionPolicyTool } from "./builtin/agentInspectExtensionPolicyTool";
 export { agentInspectSafetyHooksTool } from "./builtin/agentInspectSafetyHooksTool";

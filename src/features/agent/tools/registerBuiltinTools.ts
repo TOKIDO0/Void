@@ -60,6 +60,7 @@ import { agentScheduleCreateTool } from "./builtin/agentScheduleCreateTool";
 import { agentScheduleListTool } from "./builtin/agentScheduleListTool";
 import { agentScheduleRemoveTool } from "./builtin/agentScheduleRemoveTool";
 import { agentScheduleRunNowTool } from "./builtin/agentScheduleRunNowTool";
+import { agentScheduleInspectTool } from "./builtin/agentScheduleInspectTool";
 import { agentInspectToolContractTool } from "./builtin/agentInspectToolContractTool";
 import { agentInspectExtensionPolicyTool } from "./builtin/agentInspectExtensionPolicyTool";
 import { agentInspectSkillsTool } from "./builtin/agentInspectSkillsTool";
@@ -143,6 +144,7 @@ export function registerBuiltinTools() {
     agentScheduleListTool,
     agentScheduleRemoveTool,
     agentScheduleRunNowTool,
+    agentScheduleInspectTool,
     agentInspectToolContractTool,
     agentInspectExtensionPolicyTool,
     agentInspectSafetyHooksTool,

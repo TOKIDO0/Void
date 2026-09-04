@@ -99,7 +99,8 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
       "agent.scheduleCreate",
       "agent.scheduleList",
       "agent.scheduleRemove",
-      "agent.scheduleRunNow"
+      "agent.scheduleRunNow",
+      "agent.scheduleInspect"
     ]
   },
   {

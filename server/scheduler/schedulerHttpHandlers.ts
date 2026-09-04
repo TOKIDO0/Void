@@ -189,6 +189,22 @@ export async function handleSchedulerHttpRequest(
     return true;
   }
 
+  if (request.method === "GET" && pathname === "/void-scheduler/runs/pending") {
+    await withSchedulerHandler(response, () => schedulerStore.listPendingDelivery(10));
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/void-scheduler/runs/ack") {
+    await withSchedulerHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const runIds = Array.isArray(body.runIds)
+        ? body.runIds.filter((x): x is string => typeof x === "string").slice(0, 20)
+        : [];
+      return { acknowledged: schedulerStore.acknowledgeRuns(runIds) };
+    });
+    return true;
+  }
+
   sendJson(response, 404, { ok: false, error: { code: "NOT_FOUND", message: "未知调度端点" } });
   return true;
 }

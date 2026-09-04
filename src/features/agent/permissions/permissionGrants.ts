@@ -22,6 +22,7 @@ const CURRENT_APP_PERMISSION_GRANTS = new Set([
   "tool.agent.scheduleList",
   "tool.agent.scheduleRemove",
   "tool.agent.scheduleRunNow",
+  "tool.agent.scheduleInspect",
   "tool.browser.open",
   "tool.browser.search",
   "tool.browser.readResult",

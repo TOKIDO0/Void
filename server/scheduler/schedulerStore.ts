@@ -191,6 +191,31 @@ class SchedulerStore {
     return this.ensureLoaded().runs.slice(-Math.max(1, Math.min(limit, MAX_RUN_RECORDS))).map((run) => ({ ...run }));
   }
 
+  /** 未投递的终态 runs（投递器拉取，上限 10，有界）。 */
+  listPendingDelivery(limit = 10): SchedulerRunRecord[] {
+    return this.ensureLoaded().runs
+      .filter((run) => !run.delivered && run.status !== "running")
+      .slice(-Math.max(1, Math.min(limit, 10)))
+      .map((run) => ({ ...run }));
+  }
+
+  /** 确认投递，返回实际确认条数。 */
+  acknowledgeRuns(ids: string[]): number {
+    const state = this.ensureLoaded();
+    const wanted = new Set(ids.filter((id) => typeof id === "string"));
+    let count = 0;
+    for (const run of state.runs) {
+      if (wanted.has(run.id) && !run.delivered) {
+        run.delivered = true;
+        count += 1;
+      }
+    }
+    if (count > 0) {
+      this.flush();
+    }
+    return count;
+  }
+
   /** 测试/隔离专用：重置内存态（不删文件；文件由调用方隔离目录保证）。 */
   resetMemory(): void {
     this.state = null;

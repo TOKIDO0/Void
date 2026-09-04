@@ -153,6 +153,7 @@ async function main() {
 
       // stub provider 真跑隔离 turn：纯文本即回，无需工具
       const baseProvider = getModelProvider("openai-compatible");
+      let firstRunId = "";
       const uninstall = installModelProviderOverride("openai-compatible", {
         ...baseProvider,
         supportsTools: true,
@@ -162,6 +163,7 @@ async function main() {
       try {
         const runResp = await postJson("/void-scheduler/jobs/run", { id: created.data.id });
         assert(runResp.ok === true && typeof runResp.data.runId === "string", "手动触发应回 runId");
+        firstRunId = runResp.data.runId;
         let terminal = null;
         let lastRuns = [];
         for (let i = 0; i < 40; i++) {
@@ -199,12 +201,21 @@ async function main() {
       assert(removedAgain.ok === true && removedAgain.data.removed === false, "重复删除应回 false");
       const missing = await postJson("/void-scheduler/jobs/run", { id: "job_missing" });
       assert(missing.ok === false, "触发不存在任务应失败");
+
+      // 投递：pending 拉取 → ack 确认
+      const pending0 = await getJson("/void-scheduler/runs/pending");
+      assert(pending0.ok === true && pending0.data.some((run) => run.id === firstRunId), "完成 run 应进 pending");
+      const ack = await postJson("/void-scheduler/runs/ack", { runIds: [firstRunId, "run_missing"] });
+      assert(ack.ok === true && ack.data.acknowledged === 1, "ack 应确认1条并忽略不存在 id");
+      const pending1 = await getJson("/void-scheduler/runs/pending");
+      assert(!pending1.data.some((run) => run.id === firstRunId), "ack 后不再 pending");
     } finally {
       runner.stopScheduler();
       await new Promise((resolve) => httpServer.close(resolve));
     }
 
     console.log("[agent-scheduler-smoke] PASSED");
+    console.log(" - 投递：完成run进pending→ack确认1条→不再pending");
     console.log(" - 端点E2E：unlock不回显Key→创建/列表→手动触发隔离turn成功→at自删→未解锁pause→删幂等");
     console.log(" - at/every 归一化与非法拒绝；下次触发严格递增；宽限补跑/超限missed/不补跑风暴");
     console.log(" - 落账：at成功删/失败停用，every累计续算；存储落盘重读删全闭环，脏文件回退");

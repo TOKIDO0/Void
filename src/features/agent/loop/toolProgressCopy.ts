@@ -80,6 +80,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "agent.scheduleList": "正在查看后台定时任务…",
   "agent.scheduleRemove": "正在删除后台定时任务…",
   "agent.scheduleRunNow": "正在手动触发后台任务…",
+  "agent.scheduleInspect": "正在查看后台任务台账…",
   echo: "正在执行内部校验…"
 };
 
