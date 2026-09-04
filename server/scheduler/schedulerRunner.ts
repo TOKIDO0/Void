@@ -337,8 +337,24 @@ function markRunDelivered(runId: string): void {
   }
 }
 
-function finishRun(job: ScheduleJob, record: SchedulerRunRecord, status: SchedulerRunStatus, summary: string): void {  const now = Date.now();
+function finishRun(job: ScheduleJob, record: SchedulerRunRecord, status: SchedulerRunStatus, summary: string): void {
+  const now = Date.now();
   const fresh = schedulerStore.getJob(job.id);
+  // D 失败升级：at 失败即停用须处理；every 连败第 3 次强标记（transition 那次，不刷屏）。
+  let finalSummary = summary;
+  if (status === "failed" || status === "timed_out") {
+    const streakBefore = fresh?.failStreak ?? 0;
+    const atWillRetry = !!fresh
+      && fresh.kind === "at"
+      && status === "failed"
+      && streakBefore + 1 <= MAX_AT_RETRIES
+      && isTransientMessage(summary);
+    if (!fresh || (fresh.kind === "at" && !atWillRetry)) {
+      finalSummary = `【已停用，需处理】${summary}`;
+    } else if (fresh.kind === "every" && streakBefore === 2) {
+      finalSummary = `【连续失败3次，请检查任务配置】${summary}`;
+    }
+  }
   if (fresh) {
     const settled = settleRun(fresh, fresh.createdAt, status, now);
     // at 瞬态失败 3 次内退避重试一次（不补跑风暴，由计时器单点触发）。
@@ -358,7 +374,7 @@ function finishRun(job: ScheduleJob, record: SchedulerRunRecord, status: Schedul
       schedulerStore.updateJob(fresh);
     }
   }
-  schedulerStore.updateRun({ ...record, status, finishedAt: now, summary, delivered: false });
+  schedulerStore.updateRun({ ...record, status, finishedAt: now, summary: finalSummary, delivered: false });
   notifySchedulerChanged();
 }
 

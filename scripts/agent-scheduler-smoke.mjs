@@ -345,6 +345,47 @@ async function main() {
         uninstallQuiet();
       }
 
+      // D 失败升级：every 连败第 3 次缀标记；at 失败缀停用
+      const failBase = getModelProvider("openai-compatible");
+      const uninstallFail = installModelProviderOverride("openai-compatible", {
+        ...failBase,
+        supportsTools: true,
+        async sendMessage() { throw new Error("smoke permanent failure"); },
+        mapError(error) { return error instanceof Error ? error : new Error(String(error)); }
+      });
+      const waitTerminal = async (runId) => {
+        for (let i = 0; i < 40; i++) {
+          const runsResp = await getJson("/void-scheduler/runs?limit=20");
+          const terminal = runsResp.data.find((run) => run.id === runId && run.status !== "running");
+          if (terminal) return terminal;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        return null;
+      };
+      try {
+        const flaky = await postJson("/void-scheduler/jobs/create", {
+          name: "smoke-flaky", prompt: "hi", kind: "every", every: "1h"
+        });
+        let third = null;
+        for (let i = 0; i < 3; i++) {
+          const r = await postJson("/void-scheduler/jobs/run", { id: flaky.data.id });
+          third = await waitTerminal(r.data.runId);
+          assert(third !== null && third !== undefined && third.status === "failed", `第${i + 1}次应失败落账`);
+        }
+        assert(third.summary.includes("连续失败3次"), "第3次应缀强标记");
+        await postJson("/void-scheduler/jobs/remove", { id: flaky.data.id });
+
+        const doomed = await postJson("/void-scheduler/jobs/create", {
+          name: "smoke-doomed", prompt: "hi", kind: "at", at: Date.now() + 3600_000
+        });
+        const r2 = await postJson("/void-scheduler/jobs/run", { id: doomed.data.id });
+        const doomedTerminal = await waitTerminal(r2.data.runId);
+        assert(doomedTerminal !== null && doomedTerminal !== undefined && doomedTerminal.status === "failed", "at 失败应落账");
+        assert(doomedTerminal.summary.includes("已停用"), "at 失败应缀停用");
+      } finally {
+        uninstallFail();
+      }
+
       // cron：表达式归一化 + 非法拒绝 + 下次严格未来 + 落盘恢复
       const badExpr = await postJson("/void-scheduler/jobs/create", { prompt: "hi", kind: "cron", expr: "not-a-cron" });
       assert(badExpr.ok === false, "非法 expr 应拒绝");
@@ -366,6 +407,7 @@ async function main() {
     }
 
     console.log("[agent-scheduler-smoke] PASSED");
+    console.log(" - 失败升级：every连败3次缀标记，at失败缀停用");
     console.log(" - 自然时间：17例归一（上下午/半/上下周/号/每天cron/间隔）+4例拒绝+when归一/冲突/二选一/垃圾拒绝");
     console.log(" - 条件通知：首行NO_NOTIFY免打扰落账且不进pending，有异常正常投递");
     console.log(" - 启动播报：过期任务记 missed run 进 pending，可 ack");
