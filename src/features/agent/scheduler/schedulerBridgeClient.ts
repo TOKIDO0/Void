@@ -37,6 +37,7 @@ export type SchedulerJobView = {
   anchorMs?: number;
   allowedToolNames: string[];
   timeoutMs: number;
+  speakOnDeliver: boolean;
   enabled: boolean;
   createdAt: number;
   nextRunAtMs?: number;
@@ -217,6 +218,7 @@ export type ScheduleCreateRequest = {
   anchor?: string | number;
   allowedToolNames?: string[];
   timeoutMs?: number;
+  speakOnDeliver?: boolean;
 };
 
 export async function createScheduledJob(input: ScheduleCreateRequest, signal?: AbortSignal): Promise<SchedulerJobView> {

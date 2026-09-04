@@ -2657,7 +2657,8 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     ? validateAgainstSchema(scheduleCreateTool.inputSchema, {
       prompt: "每天早上8点提醒我喝水",
       kind: "every",
-      every: "1h"
+      every: "1h",
+      speakOnDeliver: true
     }).valid
     && !validateAgainstSchema(scheduleCreateTool.inputSchema, { prompt: "每天早上8点提醒我喝水" }).valid
     && (scheduleCreateTool as { riskLevel?: string }).riskLevel === "L2"

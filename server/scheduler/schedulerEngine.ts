@@ -102,7 +102,7 @@ export function validateCreateInput(raw: ScheduleCreateInput, nowMs: number): Om
     if (atMs <= nowMs) {
       throw createScheduleError("INVALID_REQUEST", "at 时间必须在未来");
     }
-    return { name, prompt, kind: "at", atMs, allowedToolNames, timeoutMs, enabled: true, missedCount: 0, failStreak: 0 };
+    return { name, prompt, kind: "at", atMs, allowedToolNames, timeoutMs, speakOnDeliver: raw.speakOnDeliver === true, enabled: true, missedCount: 0, failStreak: 0 };
   }
   if (raw.kind === "every") {
     if (raw.every === undefined) {
@@ -120,7 +120,7 @@ export function validateCreateInput(raw: ScheduleCreateInput, nowMs: number): Om
       }
       anchorMs = parsedAnchor;
     }
-    return { name, prompt, kind: "every", everyMs, anchorMs, allowedToolNames, timeoutMs, enabled: true, missedCount: 0, failStreak: 0 };
+    return { name, prompt, kind: "every", everyMs, anchorMs, allowedToolNames, timeoutMs, speakOnDeliver: raw.speakOnDeliver === true, enabled: true, missedCount: 0, failStreak: 0 };
   }
   throw createScheduleError("INVALID_REQUEST", `未知调度种类（仅 at/every）：${String((raw as { kind?: unknown }).kind)}`);
 }

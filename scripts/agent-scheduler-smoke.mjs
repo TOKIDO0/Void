@@ -219,9 +219,10 @@ async function main() {
       assert(shouldPreApprove("nope.tool", ["nope.tool"]) === false, "未知工具拒绝");
 
       const anchored = await postJson("/void-scheduler/jobs/create", {
-        name: "smoke-anchor", prompt: "hi", kind: "every", every: "24h", anchor: new Date(Date.now() + 3600_000).toISOString()
+        name: "smoke-anchor", prompt: "hi", kind: "every", every: "24h", anchor: new Date(Date.now() + 3600_000).toISOString(), speakOnDeliver: true
       });
       assert(anchored.ok === true && anchored.data.anchorMs > Date.now() && anchored.data.nextRunAtMs === anchored.data.anchorMs, "anchor 应决定下次触发");
+      assert(anchored.data.speakOnDeliver === true, "speakOnDeliver 应透传");
       const badAnchor = await postJson("/void-scheduler/jobs/create", { prompt: "hi", kind: "every", every: "1h", anchor: "not-a-time" });
       assert(badAnchor.ok === false, "非法 anchor 应拒绝");
       await postJson("/void-scheduler/jobs/remove", { id: anchored.data.id });

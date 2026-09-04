@@ -57,6 +57,7 @@ function sanitizeState(raw: unknown): SchedulerState {
           ? job.allowedToolNames.filter((x): x is string => typeof x === "string")
           : [],
         timeoutMs: typeof job.timeoutMs === "number" ? job.timeoutMs : 600_000,
+        speakOnDeliver: job.speakOnDeliver === true,
         enabled: job.enabled !== false,
         createdAt: typeof job.createdAt === "number" ? job.createdAt : Date.now(),
         nextRunAtMs: typeof job.nextRunAtMs === "number" ? job.nextRunAtMs : undefined,

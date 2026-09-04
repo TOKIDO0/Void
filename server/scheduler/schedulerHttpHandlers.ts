@@ -74,6 +74,7 @@ function summarizeJob(job: {
   failStreak: number;
   atMs?: number;
   everyMs?: number;
+  speakOnDeliver: boolean;
 }): Record<string, unknown> {
   return { ...job };
 }
@@ -129,7 +130,8 @@ export async function handleSchedulerHttpRequest(
           allowedToolNames: Array.isArray(body.allowedToolNames)
             ? body.allowedToolNames.filter((x): x is string => typeof x === "string")
             : undefined,
-          timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : undefined
+          timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : undefined,
+          speakOnDeliver: body.speakOnDeliver === true,
         },
         now
       );

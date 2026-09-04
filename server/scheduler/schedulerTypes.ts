@@ -22,6 +22,8 @@ export type ScheduleJob = {
   allowedToolNames: string[];
   /** 单次 run 超时毫秒，默认 600000，夹逼 [60000, 3600000]。 */
   timeoutMs: number;
+  /** 投递时是否 TTS 播报摘要（AJ 早报 v1；需窗口可见 + 语音开关开，否则只通知）。 */
+  speakOnDeliver: boolean;
   enabled: boolean;
   createdAt: number;
   nextRunAtMs?: number;
@@ -69,6 +71,8 @@ export type ScheduleCreateInput = {
   every?: number | string;
   /** every 可选锚点（ISO 或毫秒时间戳）：缺省为创建时间。每日 8 点类用 every 24h + 锚明日 8 点。 */
   anchor?: string | number;
+  /** 投递播报开关（可选，默认 false）。 */
+  speakOnDeliver?: boolean;
   allowedToolNames?: string[];
   timeoutMs?: number;
 };

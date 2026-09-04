@@ -8,8 +8,10 @@ import { isVoidBridgeReachable } from "../bridge/bridgeHealthClient";
 import {
   acknowledgeRuns,
   fetchPendingRuns,
+  listScheduledJobs,
   type SchedulerRunView
 } from "./schedulerBridgeClient";
+import { speakDeliveryText } from "./deliverySpeaker";
 
 function statusText(status: string): string {
   switch (status) {
@@ -60,10 +62,16 @@ export async function pollSchedulerDeliveries(): Promise<number> {
     if (!pending.length) {
       return 0;
     }
+    // 播报开关在任务侧：仅 speakOnDeliver 的任务才 TTS（需窗口可见 + 语音开关开）。
+    const jobs = await listScheduledJobs().catch(() => []);
+    const speakFlags = new Map(jobs.map((job) => [job.id, job.speakOnDeliver === true]));
     const delivered: string[] = [];
     for (const run of pending) {
       try {
         await notifyRun(run);
+        if (speakFlags.get(run.jobId) === true && run.summary) {
+          await speakDeliveryText(run.summary).catch(() => false);
+        }
         delivered.push(run.id);
       } catch {
         // 单条失败不挡其它

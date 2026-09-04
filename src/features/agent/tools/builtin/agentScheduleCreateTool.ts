@@ -16,6 +16,7 @@ export type AgentScheduleCreateToolInput = {
   anchor?: string | number;
   allowedToolNames?: string[];
   timeoutMs?: number;
+  speakOnDeliver?: boolean;
 };
 
 const JOB_VIEW_SCHEMA = {
@@ -32,6 +33,7 @@ const JOB_VIEW_SCHEMA = {
     anchorMs: { type: "number" },
     allowedToolNames: { type: "array", items: { type: "string" } },
     timeoutMs: { type: "number" },
+    speakOnDeliver: { type: "boolean" },
     enabled: { type: "boolean" },
     createdAt: { type: "number" },
     nextRunAtMs: { type: "number" },
@@ -76,7 +78,8 @@ export const agentScheduleCreateTool: ToolDefinition<AgentScheduleCreateToolInpu
         ]
       },
       allowedToolNames: { type: "array", maxItems: 20, items: { type: "string", minLength: 1, maxLength: 80 } },
-      timeoutMs: { type: "number", minimum: 60000, maximum: 3600000 }
+      timeoutMs: { type: "number", minimum: 60000, maximum: 3600000 },
+      speakOnDeliver: { type: "boolean" }
     }
   },
   outputSchema: JOB_VIEW_SCHEMA,
@@ -117,7 +120,8 @@ export const agentScheduleCreateTool: ToolDefinition<AgentScheduleCreateToolInpu
           every: input.every,
           anchor: input.anchor,
           allowedToolNames: input.allowedToolNames,
-          timeoutMs: input.timeoutMs
+          timeoutMs: input.timeoutMs,
+          speakOnDeliver: input.speakOnDeliver,
         },
         context.signal
       ) as unknown as Record<string, unknown>;

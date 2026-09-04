@@ -738,7 +738,7 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     id: "daily-brief",
     category: "agent",
     label: "每日管家早报",
-    summary: "每天固定时间读记忆待办、搜天气新闻，生成早报落盘并通知；TTS 整段播报为 v2。",
+    summary: "每天固定时间读记忆待办、搜天气新闻，生成早报落盘并通知；早报类任务创建时 speakOnDeliver 置 true（开窗即播报，关窗只通知）。",
     userValue: "适合每天早上自动收到天气、新闻、待办、健康提醒与日报文件，全程无人值守、可审计。",
     exampleRequests: [
       "每天早上8点给我做早报",

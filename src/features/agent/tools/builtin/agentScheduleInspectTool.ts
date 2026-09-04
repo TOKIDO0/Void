@@ -53,6 +53,7 @@ export const agentScheduleInspectTool: ToolDefinition<Record<string, never>, Rec
             anchorMs: { type: "number" },
             allowedToolNames: { type: "array", items: { type: "string" } },
             timeoutMs: { type: "number" },
+            speakOnDeliver: { type: "boolean" },
             nextRunAtMs: { type: "number" },
             lastRunAtMs: { type: "number" },
             lastStatus: { type: "string" },
