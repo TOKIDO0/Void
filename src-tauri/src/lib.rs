@@ -1,4 +1,7 @@
 use tauri::Manager;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::WindowEvent;
 
 // 桥接 sidecar 仅在正式构建（release）由 Rust 拉起 SEA 可执行文件；
  // 开发（debug）时 sidecar 由 `npm run dev:all` 用 tsx 热跑，Rust 不介入，
@@ -82,12 +85,41 @@ fn spawn_bridge_sidecar(
     Ok(())
 }
 
+/// P2 托盘常驻：打开 VOID / 退出。图标复用主窗口图标，不新增资源文件。
+fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let open_item = MenuItem::with_id(app, "tray-open", "打开 VOID", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "tray-quit", "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+    let mut builder = TrayIconBuilder::new()
+        .menu(&menu)
+        .tooltip("VOID")
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "tray-open" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "tray-quit" => app.exit(0),
+            _ => {}
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let bridge_token = resolve_bridge_token();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ = app.get_webview_window("main").and_then(|w| w.set_focus().ok());
+            // P2 托盘常驻：窗口可能处于隐藏态，先 show 再聚焦。
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
@@ -105,6 +137,18 @@ pub fn run() {
             // 仅正式构建拉起 SEA sidecar；开发期由 npm(dev:all) 的 tsx 进程提供。
             #[cfg(not(debug_assertions))]
             spawn_bridge_sidecar(app, &bridge_token)?;
+
+            // P2 托盘常驻底座：关窗口转隐藏（进程与 sidecar 不停），仅托盘菜单退出才真正结束。
+            build_tray(app)?;
+            if let Some(window) = app.get_webview_window("main") {
+                let hidden = window.clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        let _ = hidden.hide();
+                        api.prevent_close();
+                    }
+                });
+            }
 
             Ok(())
         })
