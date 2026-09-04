@@ -2660,6 +2660,12 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       every: "1h",
       speakOnDeliver: true
     }).valid
+    && validateAgainstSchema(scheduleCreateTool.inputSchema, {
+      prompt: "工作日早上8点早报",
+      kind: "cron",
+      expr: "0 8 * * 1-5",
+      tz: "Asia/Shanghai"
+    }).valid
     && !validateAgainstSchema(scheduleCreateTool.inputSchema, { prompt: "每天早上8点提醒我喝水" }).valid
     && (scheduleCreateTool as { riskLevel?: string }).riskLevel === "L2"
     : false;
@@ -2700,6 +2706,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   const scheduleNegativeRoute = resolveTurnCapability("每天有什么新闻", []);
   const briefRoute = resolveTurnCapability("每天早上8点给我做早报", []);
   const briefNegativeRoute = resolveTurnCapability("今天早报有什么新闻", []);
+  const cronRoute = resolveTurnCapability("用cron工作日早上8点提醒我开会", []);
   if (
     scheduleRoute.capability !== "agent"
     || !scheduleRoute.allowedToolNames.includes("agent.scheduleCreate")
@@ -2709,10 +2716,12 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     || briefRoute.capability !== "agent"
     || !briefRoute.allowedToolNames.includes("agent.scheduleCreate")
     || briefNegativeRoute.capability === "agent"
+    || cronRoute.capability !== "agent"
+    || !cronRoute.allowedToolNames.includes("agent.scheduleCreate")
   ) {
-    failures.push("定时提醒/早报问询应路由到 agent 调度工具组，且纯新闻检索不得劫持");
+    failures.push("定时提醒/早报/cron 问询应路由到 agent 调度工具组，且纯新闻检索不得劫持");
   } else {
-    notes.push("调度路由正确：定时提醒/早报→agent.scheduleCreate/List 同轮可用，新闻检索不劫持");
+    notes.push("调度路由正确：定时提醒/早报/cron→agent.scheduleCreate/List 同轮可用，新闻检索不劫持");
   }
 
   // P6 接管工具契约 + 路由（真机键鼠走桌面真机验收，不进冒烟）

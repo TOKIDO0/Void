@@ -1,10 +1,10 @@
 /**
  * P4 后台调度器：任务与运行记录类型。
- * v1 仅 at（一次）+ every（间隔）；cron 表达式延后（YAGNI）。
+ * v1 at（一次）+ every（间隔）；AK 起加 cron（日历表达式）。
  * 无人值守 run 不再二次确认 —— 创建时一次授 scope（工具白名单 + 风险上限 + 超时）。
  */
 
-export type ScheduleKind = "at" | "every";
+export type ScheduleKind = "at" | "every" | "cron";
 
 export type ScheduleJob = {
   id: string;
@@ -16,6 +16,10 @@ export type ScheduleJob = {
   atMs?: number;
   /** every 间隔毫秒（≥60s）。 */
   everyMs?: number;
+  /** cron 表达式（5 段或 6 段，秒可选）。 */
+  expr?: string;
+  /** cron 时区 IANA 名；缺省宿主时区。 */
+  tz?: string;
   /** every 锚点毫秒；缺省为创建时间。 */
   anchorMs?: number;
   /** 允许工具名；缺省用 DEFAULT_UNATTENDED_TOOL_NAMES。 */
@@ -69,6 +73,10 @@ export type ScheduleCreateInput = {
   at?: string | number;
   /** every 必填：毫秒或 "10m/1h/1d" 简写。 */
   every?: number | string;
+  /** cron 必填：5 段或 6 段表达式（如 "0 8 * * 1-5"）。 */
+  expr?: string;
+  /** cron 可选时区 IANA 名（如 Asia/Shanghai）；缺省宿主时区。 */
+  tz?: string;
   /** every 可选锚点（ISO 或毫秒时间戳）：缺省为创建时间。每日 8 点类用 every 24h + 锚明日 8 点。 */
   anchor?: string | number;
   /** 投递播报开关（可选，默认 false）。 */

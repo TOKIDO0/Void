@@ -74,6 +74,8 @@ function summarizeJob(job: {
   failStreak: number;
   atMs?: number;
   everyMs?: number;
+  expr?: string;
+  tz?: string;
   speakOnDeliver: boolean;
 }): Record<string, unknown> {
   return { ...job };
@@ -126,6 +128,8 @@ export async function handleSchedulerHttpRequest(
           kind: body.kind as ScheduleCreateInput["kind"],
           at: (typeof body.at === "string" || typeof body.at === "number") ? body.at : undefined,
           every: (typeof body.every === "string" || typeof body.every === "number") ? body.every : undefined,
+          expr: typeof body.expr === "string" ? body.expr : undefined,
+          tz: typeof body.tz === "string" ? body.tz : undefined,
           anchor: (typeof body.anchor === "string" || typeof body.anchor === "number") ? body.anchor : undefined,
           allowedToolNames: Array.isArray(body.allowedToolNames)
             ? body.allowedToolNames.filter((x): x is string => typeof x === "string")

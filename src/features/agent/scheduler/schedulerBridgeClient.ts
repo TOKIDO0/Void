@@ -31,9 +31,11 @@ export type SchedulerJobView = {
   id: string;
   name: string;
   prompt: string;
-  kind: "at" | "every";
+  kind: "at" | "every" | "cron";
   atMs?: number;
   everyMs?: number;
+  expr?: string;
+  tz?: string;
   anchorMs?: number;
   allowedToolNames: string[];
   timeoutMs: number;
@@ -212,9 +214,11 @@ export async function ensureSchedulerUnlocked(modelConfig: ModelConfig, signal?:
 export type ScheduleCreateRequest = {
   name?: string;
   prompt: string;
-  kind: "at" | "every";
+  kind: "at" | "every" | "cron";
   at?: string | number;
   every?: number | string;
+  expr?: string;
+  tz?: string;
   anchor?: string | number;
   allowedToolNames?: string[];
   timeoutMs?: number;

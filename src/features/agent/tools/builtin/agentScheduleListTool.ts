@@ -36,6 +36,8 @@ export const agentScheduleListTool: ToolDefinition<Record<string, never>, Record
             atMs: { type: "number" },
             everyMs: { type: "number" },
             anchorMs: { type: "number" },
+            expr: { type: "string" },
+            tz: { type: "string" },
             allowedToolNames: { type: "array", items: { type: "string" } },
             timeoutMs: { type: "number" },
             speakOnDeliver: { type: "boolean" },

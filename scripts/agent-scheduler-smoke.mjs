@@ -226,6 +226,22 @@ async function main() {
       const badAnchor = await postJson("/void-scheduler/jobs/create", { prompt: "hi", kind: "every", every: "1h", anchor: "not-a-time" });
       assert(badAnchor.ok === false, "非法 anchor 应拒绝");
       await postJson("/void-scheduler/jobs/remove", { id: anchored.data.id });
+
+      // cron：表达式归一化 + 非法拒绝 + 下次严格未来 + 落盘恢复
+      const badExpr = await postJson("/void-scheduler/jobs/create", { prompt: "hi", kind: "cron", expr: "not-a-cron" });
+      assert(badExpr.ok === false, "非法 expr 应拒绝");
+      const badTz = await postJson("/void-scheduler/jobs/create", { prompt: "hi", kind: "cron", expr: "0 8 * * *", tz: "Mars/Olympus" });
+      assert(badTz.ok === false, "非法 tz 应拒绝");
+      const noExpr = await postJson("/void-scheduler/jobs/create", { prompt: "hi", kind: "cron" });
+      assert(noExpr.ok === false, "缺 expr 应拒绝");
+      const cronJob = await postJson("/void-scheduler/jobs/create", {
+        name: "smoke-cron", prompt: "hi", kind: "cron", expr: "0 0 1 1 *", tz: "Asia/Shanghai"
+      });
+      assert(cronJob.ok === true && cronJob.data.expr === "0 0 1 1 *" && cronJob.data.nextRunAtMs > Date.now(), "cron 应算出严格未来的下次");
+      schedulerStore.resetMemory();
+      const cronReloaded = schedulerStore.getJob(cronJob.data.id);
+      assert(cronReloaded !== null && cronReloaded.expr === "0 0 1 1 *" && cronReloaded.nextRunAtMs === cronJob.data.nextRunAtMs, "cron 重启应恢复");
+      await postJson("/void-scheduler/jobs/remove", { id: cronJob.data.id });
     } finally {
       runner.stopScheduler();
       await new Promise((resolve) => httpServer.close(resolve));

@@ -49,9 +49,11 @@ function sanitizeState(raw: unknown): SchedulerState {
         id: job.id,
         name: typeof job.name === "string" ? job.name : job.prompt.slice(0, 40),
         prompt: job.prompt,
-        kind: job.kind === "every" ? "every" : "at",
+        kind: job.kind === "every" ? "every" : job.kind === "cron" ? "cron" : "at",
         atMs: typeof job.atMs === "number" ? job.atMs : undefined,
         everyMs: typeof job.everyMs === "number" ? job.everyMs : undefined,
+        expr: typeof job.expr === "string" ? job.expr : undefined,
+        tz: typeof job.tz === "string" ? job.tz : undefined,
         anchorMs: typeof job.anchorMs === "number" ? job.anchorMs : undefined,
         allowedToolNames: Array.isArray(job.allowedToolNames)
           ? job.allowedToolNames.filter((x): x is string => typeof x === "string")

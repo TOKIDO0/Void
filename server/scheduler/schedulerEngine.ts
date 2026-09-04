@@ -3,6 +3,7 @@
  * 定时器臂按 OpenClaw 教训：最大重臂 60s，防休眠漂移。
  */
 
+import { Cron } from "croner";
 import {
   DEFAULT_UNATTENDED_TOOL_NAMES,
   createScheduleError,
@@ -122,14 +123,61 @@ export function validateCreateInput(raw: ScheduleCreateInput, nowMs: number): Om
     }
     return { name, prompt, kind: "every", everyMs, anchorMs, allowedToolNames, timeoutMs, speakOnDeliver: raw.speakOnDeliver === true, enabled: true, missedCount: 0, failStreak: 0 };
   }
-  throw createScheduleError("INVALID_REQUEST", `未知调度种类（仅 at/every）：${String((raw as { kind?: unknown }).kind)}`);
+  if (raw.kind === "cron") {
+    const expr = (raw.expr ?? "").trim();
+    if (!expr) {
+      throw createScheduleError("INVALID_REQUEST", "cron 任务必须给 expr 表达式（如 0 8 * * 1-5）");
+    }
+    const tz = (raw.tz ?? "").trim() || undefined;
+    if (tz && !isSupportedTimezone(tz)) {
+      throw createScheduleError("INVALID_REQUEST", `tz 非法 IANA 时区：${tz}`);
+    }
+    try {
+      new Cron(expr, { timezone: tz, catch: false });
+    } catch {
+      throw createScheduleError("INVALID_REQUEST", `expr 非法 cron 表达式：${expr}`);
+    }
+    return { name, prompt, kind: "cron", expr, tz, allowedToolNames, timeoutMs, speakOnDeliver: raw.speakOnDeliver === true, enabled: true, missedCount: 0, failStreak: 0 };
+  }
+  throw createScheduleError("INVALID_REQUEST", `未知调度种类（仅 at/every/cron）：${String((raw as { kind?: unknown }).kind)}`);
+}
+
+function isSupportedTimezone(tz: string): boolean {
+  try {
+    return Intl.supportedValuesOf("timeZone").includes(tz);
+  } catch {
+    return false;
+  }
 }
 
 /** 计算下次触发毫秒；undefined 表示不再触发（过期 at）。 */
-export function computeNextRunAtMs(job: Pick<ScheduleJob, "kind" | "atMs" | "everyMs" | "anchorMs" | "createdAt">, createdAt: number, nowMs: number): number | undefined {
+export function computeNextRunAtMs(job: Pick<ScheduleJob, "kind" | "atMs" | "everyMs" | "anchorMs" | "expr" | "tz" | "createdAt">, createdAt: number, nowMs: number): number | undefined {
   if (job.kind === "at") {
     const atMs = job.atMs ?? 0;
     return atMs > nowMs ? atMs : undefined;
+  }
+  if (job.kind === "cron") {
+    try {
+      // 光标推后 1s，避开整点毫秒边界，保证严格未来（防忙循环）。
+      const cron = new Cron(job.expr ?? "", {
+        timezone: job.tz,
+        catch: false,
+        currentDate: new Date(nowMs + 1000)
+      });
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const next = cron.nextRun();
+        if (!next) {
+          return undefined;
+        }
+        const nextMs = next.getTime();
+        if (Number.isFinite(nextMs) && nextMs > nowMs) {
+          return nextMs;
+        }
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
   }
   const everyMs = Math.max(1, Math.floor(job.everyMs ?? 0));
   if (!(everyMs > 0)) {
