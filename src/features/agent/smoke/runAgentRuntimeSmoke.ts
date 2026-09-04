@@ -1059,7 +1059,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const codeTransform = data.playbooks?.find((playbook) => playbook.id === "code-data-transform");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount !== 32
+      || data.playbookCount !== 33
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1128,6 +1128,8 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || !inboxExec.requiredToolNames.includes("file.move")
       || inboxExec.requiresConfirmation !== true
       || inboxExec.maxRiskLevel !== "L2"
+      || !data.playbooks?.find((p) => p.id === "desktop-watch-and-act")?.requiredToolNames?.includes("agent.scheduleCreate")
+      || !data.playbooks?.find((p) => p.id === "desktop-watch-and-act")?.requiredToolNames?.includes("desktop.invokeControl")
       || !codeTransform?.requiredToolNames?.includes("agent.runCode")
       || codeTransform.requiresConfirmation !== true
       || !data.safetyBoundaries?.some((item) => typeof item === "string" && item.includes("不是插件执行器"))
@@ -2735,12 +2737,15 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   }
 
   const takeoverRoute = resolveTurnCapability("帮我接管记事本写一段话", []);
+  const takeoverWatchRoute = resolveTurnCapability("帮我看着后台，有新单你点取消", []);
   const takeoverNegativeRoute = resolveTurnCapability("打开微信", []);
   if (
     takeoverRoute.capability !== "desktop"
     || !takeoverRoute.allowedToolNames.includes("desktop.takeoverStart")
     || !takeoverRoute.allowedToolNames.includes("desktop.takeoverInput")
     || !takeoverRoute.allowedToolNames.includes("desktop.takeoverStatus")
+    || takeoverWatchRoute.capability !== "desktop"
+    || !takeoverWatchRoute.allowedToolNames.includes("desktop.takeoverStart")
     || takeoverNegativeRoute.allowedToolNames.includes("desktop.takeoverStart")
   ) {
     failures.push("接管问询应路由到 desktop 接管工具组，且普通打开应用不得进接管");
