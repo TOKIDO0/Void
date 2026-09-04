@@ -753,6 +753,26 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
       "写盘 file.writeText 靠创建时 L2 授 scope 放行；动态抬升（私网/.env）照样拒绝。",
       "用 every 24h + 锚点实现每日固定时刻；落盘冲突用 rename，绝不覆盖。"
     ]
+  },
+  {
+    id: "screen-qa",
+    category: "agent",
+    label: "看屏问答",
+    summary: "截取当前屏幕，用视觉模型解读报错、页面或表格并回答；纯文本模型自动降级为只描述截图动作。",
+    userValue: "适合“这个报错什么意思”“屏幕上有什么”，截图即问即答，不用来回传文件。",
+    exampleRequests: [
+      "看看这个报错什么意思",
+      "截个图看看屏幕上有什么"
+    ],
+    requiredToolNames: ["desktop.screenshot"],
+    optionalToolNames: ["agent.scheduleInspect", "desktop.revealPath"],
+    expectedMaxRiskLevel: "L0",
+    requiresBridge: true,
+    requiresConfirmation: false,
+    safetyBoundaries: [
+      "需要视觉模型 preset（如 deepseek-v4-flash-vision-exp + 有效 Key）；纯文本模型只走文本降级，不伪装看懂。",
+      "截图落盘在 desktop-screenshots 运行时目录，不上传第三方，只送当前模型。"
+    ]
   }
 ];
 

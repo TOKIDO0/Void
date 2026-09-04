@@ -6,6 +6,7 @@
  *
  * 判定依据（见 36 号方案 D.3，均来自各厂商官方文档）：
  *   - image：智谱 glm-*v* / 豆包 doubao-seed* / Anthropic claude-* / OpenAI gpt-*（视觉系）。
+ *   - DeepSeek：仅 deepseek-v4-flash-vision-exp（含 vision 标识）支持图片，其余纯文本下（官方 Vision 文档）。
  *   - pdf document 原生：仅 Anthropic；其余厂商 PDF 一律走本地文本抽取。
  *   - DeepSeek 全系无 vision → 文本降级。
  */
@@ -53,8 +54,8 @@ export function resolveModelMediaCapability(presetId: string, modelName: string)
       };
 
     case "deepseek":
-      // DeepSeek 全系纯文本。
-      return TEXT_ONLY;
+      // 仅 deepseek-v4-flash-vision-exp（含 vision 标识）支持图片；其余纯文本降级。
+      return { supportsImage: model.includes("vision"), supportsPdfDocument: false };
 
     default:
       return TEXT_ONLY;

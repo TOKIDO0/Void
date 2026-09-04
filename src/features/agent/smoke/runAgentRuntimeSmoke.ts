@@ -1059,7 +1059,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     const codeTransform = data.playbooks?.find((playbook) => playbook.id === "code-data-transform");
     if (
       typeof data.playbookCount !== "number"
-      || data.playbookCount !== 34
+      || data.playbookCount !== 35
       || data.availablePlaybookCount !== data.playbookCount
       || !webResearch
       || !webResearch.requiredToolNames?.includes("browser.search")
@@ -1132,6 +1132,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       || !data.playbooks?.find((p) => p.id === "desktop-watch-and-act")?.requiredToolNames?.includes("desktop.invokeControl")
       || !data.playbooks?.find((p) => p.id === "daily-brief")?.requiredToolNames?.includes("agent.scheduleCreate")
       || !data.playbooks?.find((p) => p.id === "daily-brief")?.requiredToolNames?.includes("file.writeText")
+      || !data.playbooks?.find((p) => p.id === "screen-qa")?.requiredToolNames?.includes("desktop.screenshot")
       || !codeTransform?.requiredToolNames?.includes("agent.runCode")
       || codeTransform.requiresConfirmation !== true
       || !data.safetyBoundaries?.some((item) => typeof item === "string" && item.includes("不是插件执行器"))
@@ -2758,6 +2759,29 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("接管问询应路由到 desktop 接管工具组，且普通打开应用不得进接管");
   } else {
     notes.push("接管路由正确：接管语义→takeover 会话/输入/状态同轮可用，普通打开不劫持");
+  }
+
+  // C 看屏问答：截图路由 + deepseek 视觉判定（端到端等有效 Key）
+  const screenRoute = resolveTurnCapability("看看这个报错什么意思", []);
+  const screenCodeNegative = resolveTurnCapability("这段代码报错什么意思", []);
+  if (
+    screenRoute.capability !== "desktop"
+    || !screenRoute.allowedToolNames.includes("desktop.screenshot")
+    || screenCodeNegative.capability === "desktop"
+  ) {
+    failures.push("看屏问询应路由到 desktop 截图，且纯代码报错不得劫持");
+  } else {
+    notes.push("看屏路由正确：看看报错→desktop.screenshot，代码报错不劫持");
+  }
+
+  const { resolveModelMediaCapability } = await import("../../settings/providerCapabilities");
+  const dsVision = resolveModelMediaCapability("deepseek", "deepseek-v4-flash-vision-exp");
+  const dsChat = resolveModelMediaCapability("deepseek", "deepseek-chat");
+  const dbSeed = resolveModelMediaCapability("doubao", "doubao-seed-1-6-250615");
+  if (!dsVision.supportsImage || dsChat.supportsImage || !dbSeed.supportsImage) {
+    failures.push("视觉判定异常：deepseek 仅 vision 系支持图片，其余降级");
+  } else {
+    notes.push("视觉判定正确：deepseek-vision 支持图片，chat 系降级");
   }
 
   // 2h) file.editText 契约 + 路由（真改走 file-mutation 真机 E2E，不进本冒烟）
