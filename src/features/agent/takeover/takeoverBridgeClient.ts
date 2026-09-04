@@ -66,17 +66,24 @@ export async function takeoverStatus(): Promise<TakeoverStatusView> {
 }
 
 export type TakeoverInputRequest = {
-  kind: "keyTap" | "keyDown" | "keyUp" | "typeText" | "mouseMove" | "mouseClick";
+  kind: "keyTap" | "keyDown" | "keyUp" | "typeText" | "mouseMove" | "mouseClick" | "mouseDoubleClick" | "mouseScroll" | "mouseDrag";
   key?: string;
+  modifiers?: string[];
   text?: string;
   button?: string;
   x?: number;
   y?: number;
+  fromX?: number;
+  fromY?: number;
+  toX?: number;
+  toY?: number;
+  deltaX?: number;
+  deltaY?: number;
 };
 
 export async function takeoverInput(input: TakeoverInputRequest): Promise<TakeoverInputReceipt> {
-  const { kind, key, text, button, x, y } = input;
+  const { kind, key, modifiers, text, button, x, y, fromX, fromY, toX, toY, deltaX, deltaY } = input;
   return callTakeover<TakeoverInputReceipt>("takeover_input", {
-    input: { kind, key, text, button, x, y }
+    input: { kind, key, modifiers, text, button, x, y, fromX, fromY, toX, toY, deltaX, deltaY }
   });
 }

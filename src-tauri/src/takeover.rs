@@ -8,7 +8,7 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
-use enigo::{Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
+use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
 use serde::{Deserialize, Serialize};
 
 #[link(name = "user32")]
@@ -98,12 +98,15 @@ fn foreground_exe_name() -> Option<String> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TakeoverInput {
-    KeyTap { key: String },
+    KeyTap { key: String, modifiers: Option<Vec<String>> },
     KeyDown { key: String },
     KeyUp { key: String },
     TypeText { text: String },
     MouseMove { x: i32, y: i32 },
     MouseClick { button: String, x: Option<i32>, y: Option<i32> },
+    MouseDoubleClick { button: String, x: Option<i32>, y: Option<i32> },
+    MouseScroll { delta_x: Option<i32>, delta_y: Option<i32> },
+    MouseDrag { from_x: i32, from_y: i32, to_x: i32, to_y: i32, button: Option<String> },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -179,6 +182,15 @@ fn parse_button(name: &str) -> Result<Button, String> {
     }
 }
 
+fn parse_modifier(name: &str) -> Result<Key, String> {
+    match name.trim().to_lowercase().as_str() {
+        "ctrl" | "control" => Ok(Key::Control),
+        "shift" => Ok(Key::Shift),
+        "alt" => Ok(Key::Alt),
+        _ => Err(format!("未知修饰键（仅 ctrl/shift/alt）：{name}")),
+    }
+}
+
 fn push_audit(session: &mut TakeoverSession, action: String, foreground_exe: String) {
     session.audit.push_back(TakeoverAuditEntry {
         at: now_ms(),
@@ -192,7 +204,10 @@ fn push_audit(session: &mut TakeoverSession, action: String, foreground_exe: Str
 
 fn summarize_input(input: &TakeoverInput) -> String {
     match input {
-        TakeoverInput::KeyTap { key } => format!("keyTap {key}"),
+        TakeoverInput::KeyTap { key, modifiers } => match modifiers {
+            Some(keys) if !keys.is_empty() => format!("keyTap {}+{key}", keys.join("+")),
+            _ => format!("keyTap {key}"),
+        },
         TakeoverInput::KeyDown { key } => format!("keyDown {key}"),
         TakeoverInput::KeyUp { key } => format!("keyUp {key}"),
         TakeoverInput::TypeText { text } => {
@@ -205,6 +220,17 @@ fn summarize_input(input: &TakeoverInput) -> String {
             (Some(x), Some(y)) => format!("mouseClick {button} {x},{y}"),
             _ => format!("mouseClick {button}"),
         },
+        TakeoverInput::MouseDoubleClick { button, x, y } => match (x, y) {
+            (Some(x), Some(y)) => format!("mouseDoubleClick {button} {x},{y}"),
+            _ => format!("mouseDoubleClick {button}"),
+        },
+        TakeoverInput::MouseScroll { delta_x, delta_y } => {
+            format!("mouseScroll {},{}", delta_x.unwrap_or(0), delta_y.unwrap_or(0))
+        }
+        TakeoverInput::MouseDrag { from_x, from_y, to_x, to_y, button } => format!(
+            "mouseDrag {from_x},{from_y}->{to_x},{to_y} {}",
+            button.as_deref().unwrap_or("left")
+        ),
     }
 }
 
@@ -343,10 +369,23 @@ pub fn takeover_input(input: TakeoverInput) -> Result<TakeoverInputReceipt, Stri
 fn execute_input(input: &TakeoverInput) -> Result<(), String> {
     let mut enigo = Enigo::new(&Settings::default()).map_err(|error| format!("输入后端初始化失败：{error}"))?;
     match input {
-        TakeoverInput::KeyTap { key } => {
-            enigo
+        TakeoverInput::KeyTap { key, modifiers } => {
+            let mods: Vec<Key> = match modifiers {
+                Some(list) => list.iter().map(|name| parse_modifier(name)).collect::<Result<Vec<_>, _>>()?,
+                None => vec![],
+            };
+            for modifier in &mods {
+                enigo
+                    .key(*modifier, Direction::Press)
+                    .map_err(|error| format!("修饰键按下失败：{error}"))?;
+            }
+            let tapped = enigo
                 .key(parse_key(key)?, Direction::Click)
-                .map_err(|error| format!("按键失败：{error}"))?;
+                .map_err(|error| format!("按键失败：{error}"));
+            for modifier in mods.iter().rev() {
+                let _ = enigo.key(*modifier, Direction::Release);
+            }
+            tapped?;
         }
         TakeoverInput::KeyDown { key } => {
             enigo
@@ -375,6 +414,55 @@ fn execute_input(input: &TakeoverInput) -> Result<(), String> {
             enigo
                 .button(parse_button(button)?, Direction::Click)
                 .map_err(|error| format!("点击失败：{error}"))?;
+        }
+        TakeoverInput::MouseDoubleClick { button, x, y } => {
+            if let (Some(x), Some(y)) = (x, y) {
+                enigo
+                    .move_mouse(*x, *y, Coordinate::Abs)
+                    .map_err(|error| format!("移动鼠标失败：{error}"))?;
+            }
+            let pressed = parse_button(button)?;
+            for _ in 0..2 {
+                enigo
+                    .button(pressed, Direction::Click)
+                    .map_err(|error| format!("双击失败：{error}"))?;
+            }
+        }
+        TakeoverInput::MouseScroll { delta_x, delta_y } => {
+            let dx = delta_x.unwrap_or(0).clamp(-100, 100);
+            let dy = delta_y.unwrap_or(0).clamp(-100, 100);
+            if dx == 0 && dy == 0 {
+                return Err("滚轮增量全零：至少给 deltaX/deltaY 之一".to_string());
+            }
+            if dx != 0 {
+                enigo
+                    .scroll(dx, Axis::Horizontal)
+                    .map_err(|error| format!("横向滚动失败：{error}"))?;
+            }
+            if dy != 0 {
+                enigo
+                    .scroll(dy, Axis::Vertical)
+                    .map_err(|error| format!("纵向滚动失败：{error}"))?;
+            }
+        }
+        TakeoverInput::MouseDrag { from_x, from_y, to_x, to_y, button } => {
+            for (name, value) in [("fromX", from_x), ("fromY", from_y), ("toX", to_x), ("toY", to_y)] {
+                if !(-10000..=10000).contains(value) {
+                    return Err(format!("{name} 超出屏幕坐标范围"));
+                }
+            }
+            let pressed = parse_button(button.as_deref().unwrap_or("left"))?;
+            enigo
+                .move_mouse(*from_x, *from_y, Coordinate::Abs)
+                .map_err(|error| format!("移动鼠标失败：{error}"))?;
+            enigo
+                .button(pressed, Direction::Press)
+                .map_err(|error| format!("按下失败：{error}"))?;
+            let dragged = enigo
+                .move_mouse(*to_x, *to_y, Coordinate::Abs)
+                .map_err(|error| format!("拖拽移动失败：{error}"));
+            let _ = enigo.button(pressed, Direction::Release);
+            dragged?;
         }
     }
     Ok(())

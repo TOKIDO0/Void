@@ -2743,6 +2743,9 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   const takeoverInputOk = takeoverInputTool
     ? validateAgainstSchema(takeoverInputTool.inputSchema, { kind: "keyTap", key: "a" }).valid
     && !validateAgainstSchema(takeoverInputTool.inputSchema, { kind: "fly" }).valid
+    && validateAgainstSchema(takeoverInputTool.inputSchema, { kind: "keyTap", key: "c", modifiers: ["ctrl"] }).valid
+    && validateAgainstSchema(takeoverInputTool.inputSchema, { kind: "mouseDrag", fromX: 0, fromY: 0, toX: 10, toY: 10 }).valid
+    && validateAgainstSchema(takeoverInputTool.inputSchema, { kind: "mouseScroll", deltaY: -3 }).valid
     && (takeoverInputTool as { riskLevel?: string }).riskLevel === "L1"
     : false;
   const takeoverStatusOk = takeoverStatusTool
