@@ -80,10 +80,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
 
   const productionTools = listToolMetadata();
   // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + desktop 控件探针 1 个 + desktop 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 = 71
-  if (productionTools.length !== 76 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 76 个工具，实际 ${productionTools.length}`);
+  if (productionTools.length !== 80 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 80 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("76 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 + agent.scheduleCreate/remove/runNow/list/inspect 后台调度 5 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("80 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + 接管会话/输入/状态/停止 4 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 + agent.scheduleCreate/remove/runNow/list/inspect 后台调度 5 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -2702,6 +2702,50 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("定时提醒问询应路由到 agent 调度工具组，且纯新闻检索不得劫持");
   } else {
     notes.push("调度路由正确：定时提醒→agent.scheduleCreate/List 同轮可用，新闻检索不劫持");
+  }
+
+  // P6 接管工具契约 + 路由（真机键鼠走桌面真机验收，不进冒烟）
+  const takeoverStartTool = productionTools.find((tool) => tool.name === "desktop.takeoverStart");
+  const takeoverInputTool = productionTools.find((tool) => tool.name === "desktop.takeoverInput");
+  const takeoverStatusTool = productionTools.find((tool) => tool.name === "desktop.takeoverStatus");
+  const takeoverStopTool = productionTools.find((tool) => tool.name === "desktop.takeoverStop");
+  const takeoverStartOk = takeoverStartTool
+    ? validateAgainstSchema(takeoverStartTool.inputSchema, { allowProcesses: ["notepad"] }).valid
+    && !validateAgainstSchema(takeoverStartTool.inputSchema, { allowProcesses: [] }).valid
+    && (takeoverStartTool as { riskLevel?: string }).riskLevel === "L3"
+    : false;
+  const takeoverInputOk = takeoverInputTool
+    ? validateAgainstSchema(takeoverInputTool.inputSchema, { kind: "keyTap", key: "a" }).valid
+    && !validateAgainstSchema(takeoverInputTool.inputSchema, { kind: "fly" }).valid
+    && (takeoverInputTool as { riskLevel?: string }).riskLevel === "L1"
+    : false;
+  const takeoverStatusOk = takeoverStatusTool
+    ? validateAgainstSchema(takeoverStatusTool.inputSchema, {}).valid
+    && (takeoverStatusTool as { riskLevel?: string }).riskLevel === "L0"
+    : false;
+  const takeoverStopOk = takeoverStopTool
+    ? validateAgainstSchema(takeoverStopTool.inputSchema, {}).valid
+    && (takeoverStopTool as { riskLevel?: string }).riskLevel === "L1"
+    : false;
+  if (!takeoverStartTool || !takeoverInputTool || !takeoverStatusTool || !takeoverStopTool
+    || !takeoverStartOk || !takeoverInputOk || !takeoverStatusOk || !takeoverStopOk) {
+    failures.push("P6 接管四工具契约异常：会话/输入/状态/停止契约或风险等级未达预期");
+  } else {
+    notes.push("P6 接管契约正确：开启 L3，白名单非空前置拦截，输入 L1，状态 L0");
+  }
+
+  const takeoverRoute = resolveTurnCapability("帮我接管记事本写一段话", []);
+  const takeoverNegativeRoute = resolveTurnCapability("打开微信", []);
+  if (
+    takeoverRoute.capability !== "desktop"
+    || !takeoverRoute.allowedToolNames.includes("desktop.takeoverStart")
+    || !takeoverRoute.allowedToolNames.includes("desktop.takeoverInput")
+    || !takeoverRoute.allowedToolNames.includes("desktop.takeoverStatus")
+    || takeoverNegativeRoute.allowedToolNames.includes("desktop.takeoverStart")
+  ) {
+    failures.push("接管问询应路由到 desktop 接管工具组，且普通打开应用不得进接管");
+  } else {
+    notes.push("接管路由正确：接管语义→takeover 会话/输入/状态同轮可用，普通打开不劫持");
   }
 
   // 2h) file.editText 契约 + 路由（真改走 file-mutation 真机 E2E，不进本冒烟）

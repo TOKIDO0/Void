@@ -61,6 +61,10 @@ import { agentScheduleListTool } from "./builtin/agentScheduleListTool";
 import { agentScheduleRemoveTool } from "./builtin/agentScheduleRemoveTool";
 import { agentScheduleRunNowTool } from "./builtin/agentScheduleRunNowTool";
 import { agentScheduleInspectTool } from "./builtin/agentScheduleInspectTool";
+import { desktopTakeoverStartTool } from "./builtin/desktopTakeoverStartTool";
+import { desktopTakeoverStopTool } from "./builtin/desktopTakeoverStopTool";
+import { desktopTakeoverInputTool } from "./builtin/desktopTakeoverInputTool";
+import { desktopTakeoverStatusTool } from "./builtin/desktopTakeoverStatusTool";
 import { agentInspectToolContractTool } from "./builtin/agentInspectToolContractTool";
 import { agentInspectExtensionPolicyTool } from "./builtin/agentInspectExtensionPolicyTool";
 import { agentInspectSkillsTool } from "./builtin/agentInspectSkillsTool";
@@ -145,6 +149,10 @@ export function registerBuiltinTools() {
     agentScheduleRemoveTool,
     agentScheduleRunNowTool,
     agentScheduleInspectTool,
+    desktopTakeoverStartTool,
+    desktopTakeoverStopTool,
+    desktopTakeoverInputTool,
+    desktopTakeoverStatusTool,
     agentInspectToolContractTool,
     agentInspectExtensionPolicyTool,
     agentInspectSafetyHooksTool,

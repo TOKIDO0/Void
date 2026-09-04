@@ -127,6 +127,18 @@ const DESKTOP_APP_MESSAGE_TOOL_NAMES = [
 ];
 const DESKTOP_APP_MESSAGE_PATTERN =
   /给.{0,6}(微信|QQ|qq|钉钉|飞书).{0,12}[^，。！？\s]{1,20}发/i;
+// P6 高权限接管：接管/代玩/盯后台才进接管工具组
+const DESKTOP_TAKEOVER_PATTERN =
+  /(?:接管|代玩|帮我玩|替我玩|看着.{0,8}后台|盯着.{0,8}(?:后台|屏幕)|帮我盯)/i;
+const DESKTOP_TAKEOVER_TOOL_NAMES = [
+  "desktop.listWindows",
+  "desktop.inspectWindowControls",
+  "desktop.takeoverStart",
+  "desktop.takeoverStop",
+  "desktop.takeoverInput",
+  "desktop.takeoverStatus",
+  "desktop.screenshot"
+];
 const RESEARCH_THEN_OPEN_TOOL_NAMES = [
   "web.search",
   "web.fetch",
@@ -708,6 +720,11 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (DESKTOP_APP_MESSAGE_PATTERN.test(userInput)) {
     return createRoute("desktop", DESKTOP_APP_MESSAGE_TOOL_NAMES);
+  }
+
+  // P6 高权限接管：显式接管语义优先于通用桌面问询
+  if (DESKTOP_TAKEOVER_PATTERN.test(userInput)) {
+    return createRoute("desktop", DESKTOP_TAKEOVER_TOOL_NAMES);
   }
 
   if (DESKTOP_OPEN_FILE_PATTERN.test(userInput)) {

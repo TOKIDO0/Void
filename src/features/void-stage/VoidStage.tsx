@@ -28,6 +28,7 @@ import { VoidResponseLayer } from "../response-layer/VoidResponseLayer";
 import { loadModelConfig, updateThinkingModeEnabled } from "../settings/modelConfig";
 import { ModelSettingsModal } from "../settings/ModelSettingsModal";
 import { LuminousTextEntry } from "../text-entry/LuminousTextEntry";
+import { TakeoverIndicator } from "../takeover/TakeoverIndicator";
 import { VOID_VISUAL_STATE_BY_KEY, type VoidVisualState } from "../void-state/voidVisualState";
 import { loadVoicePreferences, saveVoicePreferences, type VoicePreferences } from "../voice/voicePreferences";
 import { loadVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
@@ -1650,6 +1651,7 @@ export function VoidStage() {
         onOpenConversationHistory={openExpandedResponse}
         onOpenMemoryManager={handleOpenMemoryManager}
       />
+      <TakeoverIndicator />
       <ExpandedResponseOverlay
         isOpen={isExpandedResponseOpen}
         messages={conversationHistory}

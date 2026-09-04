@@ -263,6 +263,44 @@ body {
   letter-spacing: 1px;
 }
 
+/* P6 接管指示器：会话有效时悬顶常显，一键停止。 */
+.takeover-indicator {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255, 196, 120, 0.45);
+  border-radius: 999px;
+  padding: 7px 10px 7px 14px;
+  background: rgba(42, 22, 10, 0.72);
+  color: rgba(255, 236, 214, 0.94);
+  font-size: 12px;
+  letter-spacing: 1px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.takeover-indicator__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 150, 80, 0.95);
+}
+
+.takeover-indicator__stop {
+  border: 1px solid rgba(255, 196, 120, 0.55);
+  border-radius: 999px;
+  padding: 4px 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
 .luminous-text-entry__input {
   display: block;
   width: 100%;

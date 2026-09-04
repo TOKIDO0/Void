@@ -3,6 +3,8 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::WindowEvent;
 
+mod takeover;
+
 // 桥接 sidecar 仅在正式构建（release）由 Rust 拉起 SEA 可执行文件；
  // 开发（debug）时 sidecar 由 `npm run dev:all` 用 tsx 热跑，Rust 不介入，
  // 避免每次启动都重新 SEA 打包、且改桥接代码即时生效。
@@ -125,7 +127,13 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .manage(BridgeTokenState(bridge_token.clone()))
-        .invoke_handler(tauri::generate_handler![get_bridge_token])
+        .invoke_handler(tauri::generate_handler![
+            get_bridge_token,
+            takeover::takeover_start,
+            takeover::takeover_stop,
+            takeover::takeover_status,
+            takeover::takeover_input
+        ])
         .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

@@ -81,6 +81,10 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "agent.scheduleRemove": "正在删除后台定时任务…",
   "agent.scheduleRunNow": "正在手动触发后台任务…",
   "agent.scheduleInspect": "正在查看后台任务台账…",
+  "desktop.takeoverStart": "正在开启键鼠接管…",
+  "desktop.takeoverStop": "正在停止键鼠接管…",
+  "desktop.takeoverInput": "正在执行接管输入…",
+  "desktop.takeoverStatus": "正在查看接管状态…",
   echo: "正在执行内部校验…"
 };
 
@@ -111,7 +115,8 @@ const TOOL_CONFIRM_LABELS: Record<string, string> = {
   "agent.runCode": "请确认是否执行该代码",
   "agent.scheduleCreate": "请确认是否创建该后台定时任务",
   "agent.scheduleRemove": "请确认是否删除该后台定时任务",
-  "agent.scheduleRunNow": "请确认是否立即触发该后台任务"
+  "agent.scheduleRunNow": "请确认是否立即触发该后台任务",
+  "desktop.takeoverStart": "请确认是否开启键鼠接管模式（白名单+限时 scope）"
 };
 
 /** 执行中进度 */
