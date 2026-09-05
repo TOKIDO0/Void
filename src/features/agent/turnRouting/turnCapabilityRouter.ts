@@ -539,7 +539,7 @@ const BRIDGE_REQUIRED_CAPABILITIES: ReadonlySet<TurnCapability> = new Set([
  * 仍不覆盖「打开此电脑」——那条由 THIS_PC_PATTERN 优先接管。
  */
 const KNOWN_WEB_PLATFORM_PATTERN =
-  /(?:B\s*站|哔哩哔哩|bilibili|抖音|快手|小红书|微博|知乎|YouTube|youtu\.be|淘宝|京东|拼多多|百度|谷歌|google|推特|twitter|x\.com|instagram|tiktok)/i;
+  /(?:B\s*站|哔哩哔哩|bilibili|抖音|快手|小红书|微博|知乎|油管|YouTube|youtu\.be|优酷|爱奇艺|腾讯视频|网易云|豆瓣|贴吧|淘宝|京东|拼多多|百度|必应|bing|谷歌|google|推特|twitter|x\.com|instagram|tiktok)/i;
 const BROWSER_PATTERN = new RegExp(
   [
     // 显式搜索 / 下载 / 网页
@@ -760,6 +760,7 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
       && !userInput.includes("://")
       && !userInput.includes("网页")
       && !userInput.includes("网站")
+      && !isWebPlatformLaunch(userInput)
     ) {
       return createRoute("desktop", DESKTOP_TOOL_NAMES);
     }
@@ -1014,8 +1015,18 @@ function isDirectOfficeIntent(userInput: string, officePattern: RegExp): boolean
   return FILE_CREATE_EXCEL_PATTERN.test(userInput) || FILE_CREATE_PPTX_PATTERN.test(userInput) || FILE_CREATE_DOCX_PATTERN.test(userInput);
 }
 
-function isLocalCodeOfficeIntent(userInput: string, officePattern: RegExp): boolean {
-  const hasLocal = LOCAL_KNOWLEDGE_SOURCE_PATTERN.test(userInput) || /(?:本地|整理|汇总|统计).{0,12}(?:资料|文件|数据|记录|表格)/i.test(userInput);
+/**
+ * 平台名启动归属：B站/油管/抖音等命中已知平台时归浏览器；显式"客户端/应用"才留桌面。
+ * 根因修补（2026-09-04）：DESKTOP_SIMPLE_LAUNCH 曾把"打开油管"劫持到桌面，模型零浏览器工具。
+ */
+function isWebPlatformLaunch(userInput: string): boolean {
+  if (!KNOWN_WEB_PLATFORM_PATTERN.test(userInput)) {
+    return false;
+  }
+  return !/(?:客户端|应用|程序|软件|\bapp\b)/i.test(userInput);
+}
+
+function isLocalCodeOfficeIntent(userInput: string, officePattern: RegExp): boolean {  const hasLocal = LOCAL_KNOWLEDGE_SOURCE_PATTERN.test(userInput) || /(?:本地|整理|汇总|统计).{0,12}(?:资料|文件|数据|记录|表格)/i.test(userInput);
   const hasCode = /(?:js|javascript|python|代码|沙箱|计算|统计|平均值|求和|清洗|转换|分析)/i.test(userInput);
   const hasOfficeAction = /(?:生成|做成|导出|整理|做一下|做个)/i.test(userInput);
   if (!hasLocal || !hasCode || !hasOfficeAction) return false;

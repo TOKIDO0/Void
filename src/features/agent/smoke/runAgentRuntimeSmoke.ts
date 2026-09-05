@@ -2083,6 +2083,29 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push("收件箱指令路由正确：listDirectory → readText → move 同轮可用，不暴露浏览器搜索");
   }
 
+  // 平台打开防劫持回归（2026-09-04 真机复现）：B站/油管/抖音/知乎归 browser，记事本留 desktop
+  const platformOpenCases: Array<[string, "browser" | "desktop", string[]]> = [
+    ["打开油管播放一个有趣的视频", "browser", ["browser.open"]],
+    ["打开B站", "browser", ["browser.open"]],
+    ["打开抖音看看", "browser", ["browser.open"]],
+    ["打开知乎", "browser", ["browser.search"]],
+    ["打开优酷", "browser", ["browser.open"]],
+    ["打开油管客户端", "desktop", ["desktop.launchApplication"]],
+    ["打开记事本", "desktop", ["desktop.launchApplication"]]
+  ];
+  const platformOpenBad: string[] = [];
+  for (const [text, expectedCapability, expectedTools] of platformOpenCases) {
+    const route = resolveTurnCapability(text, []);
+    if (route.capability !== expectedCapability || !expectedTools.every((name) => route.allowedToolNames.includes(name))) {
+      platformOpenBad.push(text);
+    }
+  }
+  if (platformOpenBad.length > 0) {
+    failures.push(`平台打开被桌面路由劫持：${platformOpenBad.join("；")}`);
+  } else {
+    notes.push("平台打开路由正确：B站/油管/抖音/知乎进 browser，记事本留 desktop");
+  }
+
   const localKnowledgeSaveRoute = resolveTurnCapability("在本地资料里搜索 bridge token，并整理摘要保存成 markdown 文件", []);
   if (
     localKnowledgeSaveRoute.capability !== "file"
