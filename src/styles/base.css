@@ -1580,6 +1580,17 @@ body {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  align-items: center;
+}
+
+.model-settings-modal__confirm-actions input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.model-settings-modal__confirm-actions button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .model-settings-modal__confirm-actions button {
@@ -2071,6 +2082,38 @@ body {
 
   .model-settings-modal__grid {
     grid-template-columns: 1fr;
+  }
+
+  .model-settings-modal__header,
+  .memory-manager__header {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+
+  .model-settings-modal__tabs {
+    position: static;
+    transform: none;
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .model-settings-modal__tabs::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  .model-settings-modal__tab {
+    flex: 0 0 auto;
+  }
+
+  .security-status__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .security-status__toolbar {
+    flex-wrap: wrap;
   }
 
   .model-settings-modal__footer,
@@ -2726,6 +2769,52 @@ body {
   text-align: center;
 }
 
+/* 本地工具服务探针横幅：只在 down 时占位，ok 时不渲染。 */
+.bridge-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
+.bridge-banner--down {
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  background: rgba(69, 10, 10, 0.28);
+}
+
+.bridge-banner__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.bridge-banner__main strong {
+  color: rgba(252, 165, 165, 0.96);
+  font-size: 13px;
+}
+
+.bridge-banner__main p {
+  margin: 0;
+  color: rgba(212, 212, 216, 0.9);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.bridge-banner__origin {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px !important;
+  color: rgba(161, 161, 170, 0.9) !important;
+}
+
+.bridge-banner .security-status__refresh {
+  flex: 0 0 auto;
+}
+
 .security-status__placeholder h3 {
   margin: 0;
   font-size: 15px;
@@ -2750,6 +2839,32 @@ body {
   font-size: 11px !important;
   letter-spacing: 0.04em;
   color: rgba(212, 212, 216, 0.75) !important;
+}
+
+.security-status__error-message {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.security-status__error-details {
+  max-width: 460px;
+  font-size: 12px;
+  color: rgba(161, 161, 170, 0.95);
+}
+
+.security-status__error-details summary {
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.model-settings-modal__hint {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.model-settings-modal__hint--error {
+  color: rgba(252, 165, 165, 0.95);
 }
 
 .security-status__placeholder--error .security-status__refresh {

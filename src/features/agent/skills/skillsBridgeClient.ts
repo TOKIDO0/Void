@@ -9,8 +9,7 @@ import {
   bridgeAuthHeadersForUrl,
   isLoopbackBridgeUrl
 } from "../../../lib/runtime/voidBridgeAuth";
-
-const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
+import { resolveVoidBridgeOrigin } from "../../../lib/runtime/voidBridgeRuntime";
 const SKILLS_FETCH_TIMEOUT_MS = 3000;
 const SKILLS_CACHE_TTL_MS = 60_000;
 
@@ -48,15 +47,7 @@ export function clearSkillsCacheForTest(): void {
 }
 
 function resolveBridgeOrigin(): string {
-  const env = (globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-  }).process?.env;
-  const origin = env?.VOID_BRIDGE_ORIGIN?.trim();
-  if (origin) {
-    return origin.replace(/\/$/, "");
-  }
-  const port = env?.VOID_BRIDGE_PORT?.trim();
-  return port ? `http://127.0.0.1:${port}` : DEFAULT_BRIDGE_ORIGIN;
+  return resolveVoidBridgeOrigin();
 }
 
 export async function fetchSkillsCatalog(signal?: AbortSignal): Promise<SkillsCatalog> {

@@ -36,7 +36,10 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/void-bridge"
+      "binaries/node"
+    ],
+    "resources": [
+      "sidecar-app"
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"

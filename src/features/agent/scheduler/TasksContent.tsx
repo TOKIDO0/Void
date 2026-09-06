@@ -187,7 +187,7 @@ export function TasksContent() {
       {fetchState.phase === "error" && (
         <div className="security-status__placeholder security-status__placeholder--error">
           <h3>{copy.errorTitle}</h3>
-          <p>{fetchState.message}</p>
+          <p className="security-status__error-message">{fetchState.message}</p>
           <button type="button" className="security-status__refresh" onClick={handleRefresh}>
             {copy.retry}
           </button>

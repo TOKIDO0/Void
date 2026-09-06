@@ -3,22 +3,13 @@
  */
 
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
-
-const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
+import {
+  getBridgeUnavailableHint,
+  resolveVoidBridgeOrigin
+} from "../../../lib/runtime/voidBridgeRuntime";
 
 function resolveBridgeOrigin(): string {
-  const env = (globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-  }).process?.env;
-  const origin = env?.VOID_BRIDGE_ORIGIN;
-  if (origin && origin.trim()) {
-    return origin.replace(/\/$/, "");
-  }
-  const port = env?.VOID_BRIDGE_PORT;
-  if (port && port.trim()) {
-    return `http://127.0.0.1:${port.trim()}`;
-  }
-  return DEFAULT_BRIDGE_ORIGIN;
+  return resolveVoidBridgeOrigin();
 }
 
 export type ModelUsageDayView = {
@@ -59,9 +50,12 @@ async function requestUsageApi<T>(pathname: string, init?: RequestInit): Promise
     return payload.data;
   } catch (error) {
     if (error instanceof Error) {
-      throw error;
+      const hinted = error.message.includes("用量查询失败") || error.message.includes("不可达")
+        ? `${error.message}。${getBridgeUnavailableHint()}`
+        : error.message;
+      throw new Error(hinted);
     }
-    throw new Error("用量桥接不可达");
+    throw new Error(`用量桥接不可达。${getBridgeUnavailableHint()}`);
   } finally {
     clearTimeout(timeoutHandle);
   }

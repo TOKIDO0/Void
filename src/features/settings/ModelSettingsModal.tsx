@@ -29,6 +29,7 @@ import { isSemanticSearchEnabled, setSemanticSearchEnabled } from "../memory/mem
 import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
 import { SecurityStatusContent } from "../agent/security/SecurityStatusContent";
 import { TasksContent } from "../agent/scheduler/TasksContent";
+import { BridgeStatusBanner } from "../agent/bridge/BridgeStatusBanner";
 import { ModelUsageSection } from "../agent/usage/ModelUsageSection";
 import { UpdaterSection } from "./UpdaterSection";
 import { isHighPermissionMode, setHighPermissionMode } from "./highPermissionMode";
@@ -447,9 +448,9 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a5.25 5.25 0 1010.5 0v-3A5.25 5.25 0 0012 1.5z"
+                    d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"
                   />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5h15" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.5 12l2 2 3.5-4" />
                 </svg>
               </div>
               <div>
@@ -466,6 +467,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
             />
           </div>
           <div className="model-settings-modal__body model-settings-modal__body--single">
+            <BridgeStatusBanner />
             <SecurityStatusContent />
           </div>
         </div>
@@ -485,6 +487,13 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
         >
           <div className="model-settings-modal__header">
             <div className="model-settings-modal__title-group">
+              <div className="model-settings-modal__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 12h16" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 18h10" />
+                </svg>
+              </div>
               <div>
                 <p className="model-settings-modal__eyebrow">{copy.settings}</p>
                 <h2>{SHARED_SETTINGS_COPY[language].tasksTab}</h2>
@@ -499,6 +508,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
             />
           </div>
           <div className="model-settings-modal__body model-settings-modal__body--single">
+            <BridgeStatusBanner />
             <TasksContent />
           </div>
         </div>
@@ -537,6 +547,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
             />
           </div>
           <div className="model-settings-modal__body model-settings-modal__body--single">
+            <BridgeStatusBanner />
             <div className="model-settings-modal__advanced">
               <section className="model-settings-modal__field">
                 <label className="model-settings-modal__advanced-toggle">

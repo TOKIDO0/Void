@@ -105,12 +105,15 @@ export function SecurityStatusContent() {
       {fetchState.phase === "error" && (
         <div className="security-status__placeholder security-status__placeholder--error">
           <h3>{copy.errorTitle}</h3>
-          <p>
+          <p className="security-status__error-message">
             {copy.errorTextPrefix}：{fetchState.message}
           </p>
-          <p className="security-status__error-code">
-            {copy.errorCodeLabel}: {fetchState.code}
-          </p>
+          <details className="security-status__error-details">
+            <summary>
+              {copy.errorCodeLabel}: {fetchState.code}
+            </summary>
+            <p className="security-status__error-code">{fetchState.message}</p>
+          </details>
           <button type="button" className="security-status__refresh" onClick={handleRefresh}>
             {copy.refresh}
           </button>

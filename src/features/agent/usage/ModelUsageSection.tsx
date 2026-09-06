@@ -69,7 +69,7 @@ export function ModelUsageSection({ language }: { language: SettingsLanguage }) 
             : "Counts only provider-reported tokens. Over-budget requests are rejected without forwarding."}
         </p>
       </span>
-      {error ? <p className="model-settings-modal__hint">{error}</p> : null}
+      {error ? <p className="model-settings-modal__hint model-settings-modal__hint--error">{error}</p> : null}
       {overview ? (
         <p className="model-settings-modal__hint">
           {zh

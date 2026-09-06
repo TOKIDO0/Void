@@ -17,6 +17,68 @@
 const SIDECAR_HOST = "127.0.0.1";
 const SIDECAR_PORT = 17872;
 
+/** 工具桥默认地址（sidecar 直接监听地址，各客户端统一引用，禁止各自硬编码）。 */
+export const VOID_BRIDGE_DEFAULT_ORIGIN = `http://${SIDECAR_HOST}:${SIDECAR_PORT}`;
+
+function readNodeBridgeEnv(name: string): string | undefined {
+  const env = (globalThis as {
+    process?: { env?: Record<string, string | undefined> };
+  }).process?.env;
+  const value = env?.[name]?.trim();
+  return value ? value : undefined;
+}
+
+function readViteBridgeEnv(name: string): string | undefined {
+  try {
+    const meta = import.meta as unknown as {
+      env?: Record<string, string | undefined>;
+    };
+    const value = meta.env?.[name]?.trim();
+    return value ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeBridgeOrigin(origin: string): string {
+  return origin.replace(/\/$/, "");
+}
+
+/**
+ * 工具桥地址唯一判定点（P0-3 收敛）。
+ *
+ * 优先级：显式 origin（Vite 环境变量 / Node 环境变量）> 显式端口 > 默认回环。
+ * 注意：Vite 浏览器里没有 `process.env`，必须同时读 `import.meta.env`，
+ * 否则 VOID_BRIDGE_PORT 覆盖永远不生效。各工具客户端禁止自建判定。
+ */
+export function resolveVoidBridgeOrigin(): string {
+  const origin = readViteBridgeEnv("VOID_BRIDGE_ORIGIN")
+    ?? readViteBridgeEnv("VITE_VOID_BRIDGE_ORIGIN")
+    ?? readNodeBridgeEnv("VOID_BRIDGE_ORIGIN");
+  if (origin) {
+    return normalizeBridgeOrigin(origin);
+  }
+  const port = readViteBridgeEnv("VOID_BRIDGE_PORT")
+    ?? readViteBridgeEnv("VITE_VOID_BRIDGE_PORT")
+    ?? readNodeBridgeEnv("VOID_BRIDGE_PORT");
+  if (port) {
+    return `http://${SIDECAR_HOST}:${port}`;
+  }
+  return VOID_BRIDGE_DEFAULT_ORIGIN;
+}
+
+/**
+ * 桥接不可达时的统一行动指引（P0-1）。
+ * Tauri 安装包：sidecar 由 Rust 拉起，重点查托盘残留/进程崩溃；
+ * 浏览器 dev：sidecar 需手动 `npm run dev:bridge`（或 `dev:all`）启动。
+ */
+export function getBridgeUnavailableHint(): string {
+  if (isTauriRuntime()) {
+    return "本地工具服务未连接：先完全退出托盘再重开 VOID；仍不行检查任务管理器是否有 void-bridge 进程。";
+  }
+  return "本地工具服务未连接：请确认已启动 sidecar（npm run dev:bridge，或改用 npm run dev:all）。";
+}
+
 /**
  * 是否运行在 Tauri WebView 中。
  * Tauri v2 运行时会注入布尔标记 window.isTauri（官方 isTauri() 判据），

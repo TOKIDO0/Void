@@ -7,7 +7,7 @@
 // 首次调用可能因 bridge 侧模型尚在加载而超时返回 null（本轮降级）；bridge 侧模型会在
 // 后台继续加载完成并常驻，下一轮召回即可命中，无需前端额外预热。
 
-import { resolveBridgeHttpOrigin } from "../../lib/runtime/voidBridgeRuntime";
+import { resolveVoidBridgeOrigin } from "../../lib/runtime/voidBridgeRuntime";
 import { bridgeAuthHeadersForUrl } from "../../lib/runtime/voidBridgeAuth";
 
 /** 召回场景默认超时：够一次本地推理，又不至于把发消息卡太久；超时即本轮降级。 */
@@ -52,7 +52,7 @@ export async function embedMemoryTexts(
   }
 
   try {
-    const url = `${resolveBridgeHttpOrigin()}/void-memory/embed`;
+    const url = `${resolveVoidBridgeOrigin()}/void-memory/embed`;
     const authHeaders = await bridgeAuthHeadersForUrl(url);
     const response = await fetch(url, {
       method: "POST",

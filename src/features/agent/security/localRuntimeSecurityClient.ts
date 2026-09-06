@@ -2,8 +2,11 @@ import {
   bridgeAuthHeadersForUrl,
   isLoopbackBridgeUrl
 } from "../../../lib/runtime/voidBridgeAuth";
+import {
+  getBridgeUnavailableHint,
+  resolveVoidBridgeOrigin
+} from "../../../lib/runtime/voidBridgeRuntime";
 
-const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
 const SECURITY_STATUS_TIMEOUT_MS = 3000;
 
 export type LocalRuntimeSecurityCheck = {
@@ -66,15 +69,7 @@ type LocalRuntimeSecurityResponse =
   | { ok: false; error: { code: string; message: string; details?: Record<string, unknown> } };
 
 function resolveBridgeOrigin(): string {
-  const env = (globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-  }).process?.env;
-  const origin = env?.VOID_BRIDGE_ORIGIN?.trim();
-  if (origin) {
-    return origin.replace(/\/$/, "");
-  }
-  const port = env?.VOID_BRIDGE_PORT?.trim();
-  return port ? `http://127.0.0.1:${port}` : DEFAULT_BRIDGE_ORIGIN;
+  return resolveVoidBridgeOrigin();
 }
 
 function createSecurityBridgeError(code: string, message: string, details?: Record<string, unknown>) {
@@ -157,7 +152,7 @@ export async function inspectLocalRuntimeSecurity(
         ? "本地安全自检已取消"
         : aborted
           ? `本地安全自检超时（${url}）`
-          : `本地安全自检不可达（${url}）：${message}`
+          : `本地安全自检不可达（${url}）：${message}。${getBridgeUnavailableHint()}`
     );
   } finally {
     clearTimeout(timeoutHandle);

@@ -1,13 +1,8 @@
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
+import { resolveVoidBridgeOrigin } from "../../../lib/runtime/voidBridgeRuntime";
 
-const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
 function resolveOrigin(): string {
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-  const o = env?.VOID_BRIDGE_ORIGIN?.trim();
-  if (o) return o.replace(/\/$/, "");
-  const p = env?.VOID_BRIDGE_PORT?.trim();
-  if (p) return `http://127.0.0.1:${p}`;
-  return DEFAULT_BRIDGE_ORIGIN;
+  return resolveVoidBridgeOrigin();
 }
 
 export async function webSearchViaBridge(query: string, limit = 8, signal?: AbortSignal) {

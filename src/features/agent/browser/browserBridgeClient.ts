@@ -26,27 +26,10 @@ import type {
   BrowserWaitForData
 } from "./browserBridgeTypes";
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
-
-const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
+import { resolveVoidBridgeOrigin } from "../../../lib/runtime/voidBridgeRuntime";
 
 function resolveBrowserBridgeOrigin(): string {
-  // 允许 Node 冒烟/联调覆盖端口；浏览器环境无 process，走默认回环。
-  // 不用直接引用 process，避免前端 tsconfig 无 Node 类型时报错。
-  const env = (globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-  }).process?.env;
-
-  const origin = env?.VOID_BRIDGE_ORIGIN;
-  if (origin && origin.trim()) {
-    return origin.replace(/\/$/, "");
-  }
-
-  const port = env?.VOID_BRIDGE_PORT;
-  if (port && port.trim()) {
-    return `http://127.0.0.1:${port.trim()}`;
-  }
-
-  return DEFAULT_BRIDGE_ORIGIN;
+  return resolveVoidBridgeOrigin();
 }
 
 async function postBrowserApi<T>(

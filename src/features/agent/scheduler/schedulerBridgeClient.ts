@@ -4,23 +4,14 @@
  */
 
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
+import {
+  getBridgeUnavailableHint,
+  resolveVoidBridgeOrigin
+} from "../../../lib/runtime/voidBridgeRuntime";
 import type { ModelConfig } from "../../settings/modelConfig";
 
-const DEFAULT_BRIDGE_ORIGIN = "http://127.0.0.1:17872";
-
 function resolveBridgeOrigin(): string {
-  const env = (globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-  }).process?.env;
-  const origin = env?.VOID_BRIDGE_ORIGIN;
-  if (origin && origin.trim()) {
-    return origin.replace(/\/$/, "");
-  }
-  const port = env?.VOID_BRIDGE_PORT;
-  if (port && port.trim()) {
-    return `http://127.0.0.1:${port.trim()}`;
-  }
-  return DEFAULT_BRIDGE_ORIGIN;
+  return resolveVoidBridgeOrigin();
 }
 
 export type SchedulerBridgeResponse<T> =
@@ -139,7 +130,7 @@ async function postSchedulerApi<T>(
         ? "调度请求已取消"
         : aborted
           ? `调度桥接超时（${url}）`
-          : `调度桥接不可达（${url}）：${message}`
+          : `调度桥接不可达（${url}）：${message}。${getBridgeUnavailableHint()}`
     );
   } finally {
     clearTimeout(timeoutHandle);
@@ -186,7 +177,7 @@ async function getSchedulerApi<T>(pathname: string, signal?: AbortSignal): Promi
       throw error;
     }
     const message = error instanceof Error ? error.message : "无法连接调度桥接服务";
-    throw createSchedulerBridgeError("BRIDGE_UNREACHABLE", `调度桥接不可达（${url}）：${message}`);
+    throw createSchedulerBridgeError("BRIDGE_UNREACHABLE", `调度桥接不可达（${url}）：${message}。${getBridgeUnavailableHint()}`);
   } finally {
     clearTimeout(timeoutHandle);
     void signal;

@@ -15,7 +15,9 @@ import {
   type Browser,
   type BrowserContext,
   type Page
-} from "playwright";
+  // 服务端只用 playwright-core 的自动化能力；playwright 整包是 dev 依赖（含测试执行器/CLI），
+  // 禁止进入生产 sidecar（曾随 esbuild 打包在 SEA 内启动即崩，见 build-sidecar 注释）。
+} from "playwright-core";
 import {
   buildBilibiliSearchUrl,
   extractBilibiliSearchResults

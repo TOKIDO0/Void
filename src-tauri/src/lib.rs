@@ -1,3 +1,4 @@
+use std::sync::Mutex;
 use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -6,9 +7,9 @@ use tauri::WindowEvent;
 mod takeover;
 mod ocr;
 
-// 桥接 sidecar 仅在正式构建（release）由 Rust 拉起 SEA 可执行文件；
- // 开发（debug）时 sidecar 由 `npm run dev:all` 用 tsx 热跑，Rust 不介入，
- // 避免每次启动都重新 SEA 打包、且改桥接代码即时生效。
+// 桥接 sidecar 仅在正式构建（release）由 Rust 拉起（Node 解释器 + sidecar-app 真实文件）；
+// 开发（debug）时 sidecar 由 `npm run dev:all` 用 tsx 热跑，Rust 不介入，
+// 避免每次启动都重新打包、且改桥接代码即时生效。
 #[cfg(not(debug_assertions))]
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 #[cfg(not(debug_assertions))]
@@ -20,9 +21,31 @@ use tauri_plugin_shell::ShellExt;
 
 struct BridgeTokenState(String);
 
+/// sidecar 生命周期状态（L3 可观测）。
+/// 0.2.4 教训：release 无日志 + 启动崩溃无记录，前端只能看到裸 `Failed to fetch`。
+/// 本状态机是“sidecar 起没起来”的唯一真源，前端探针横幅只读它，不猜。
+#[derive(Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BridgeSidecarStatus {
+    /// spawn 是否成功（debug 下 Rust 不拉 sidecar，恒为 false，由前端直连判定）。
+    spawned: bool,
+    /// spawn 失败原因（缺二进制/权限等），成功为空。
+    spawn_error: Option<String>,
+    /// 进程异常事件（error/terminated payload），正常运行为空。
+    terminated: Option<String>,
+}
+
+struct BridgeSidecarState(Mutex<BridgeSidecarStatus>);
+
 #[tauri::command]
 fn get_bridge_token(state: tauri::State<'_, BridgeTokenState>) -> String {
     state.0.clone()
+}
+
+/// 前端启动探针读取 sidecar 真实状态（只读，不触发任何拉起/重启）。
+#[tauri::command]
+fn get_bridge_status(state: tauri::State<'_, BridgeSidecarState>) -> BridgeSidecarStatus {
+    state.0.lock().map(|guard| guard.clone()).unwrap_or_default()
 }
 
 /// A1 未读角标：托盘 tooltip 显示未投递数（零素材方案）；0 条回 VOID。
@@ -63,22 +86,38 @@ fn resolve_bridge_token() -> String {
 
 /// 启动桥接 sidecar（仅 release），并把它的 stdout/stderr 转接到 Tauri 日志。
 ///
-/// 桥接 sidecar（void-bridge）承载 STT/TTS 的 WebSocket 桥接与模型/语音 HTTP 转发，
-/// 是语音链路在生产环境（无 vite dev）能工作的前提。由 tauri-plugin-shell 在应用退出时
-/// 统一回收，避免遗留孤儿进程。
+/// 分发形态（0.2.4 教训后定案）：Node 解释器本身作为 sidecar 二进制
+///（externalBin binaries/node），服务 bundle + playwright-core 以真实文件随包
+///（resources sidecar-app），用 args 指向入口 cjs。凡是按磁盘相对路径自读文件的
+///依赖都不进单文件快照——SEA 在该场景启动即崩，已废弃，勿回退。
+/// 由 tauri-plugin-shell 在应用退出时统一回收，避免遗留孤儿进程。
 #[cfg(not(debug_assertions))]
 fn spawn_bridge_sidecar(
     app: &tauri::App,
     bridge_token: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let resource_dir = app.path().resource_dir()?;
+    let entry = resource_dir.join("sidecar-app").join("void-bridge.cjs");
+    if (!entry.is_file()) {
+        return Err(format!(
+            "sidecar 入口缺失：{}（安装包资源不完整）",
+            entry.display()
+        )
+        .into());
+    }
+    let Some(entry_text) = entry.to_str() else {
+        return Err("sidecar 入口路径含非法字符，无法作为参数传递".into());
+    };
     let sidecar_command = app
         .shell()
-        .sidecar("void-bridge")?
+        .sidecar("node")?
+        .args([entry_text])
         .env("VOID_BRIDGE_TOKEN", bridge_token);
     let (mut command_events, _child) = sidecar_command.spawn()?;
 
     // 把 child 交给独立任务持有，保持进程存活；事件循环转发桥接日志，
-    // 便于按验收标准核对「桥接日志无 Error 帧」。
+    // 便于按验收标准核对「桥接日志无 Error 帧」。异常事件同时写入状态机，供前端探针读取。
+    let status_handle = app.state::<BridgeSidecarState>();
     tauri::async_runtime::spawn(async move {
         // _child 移入本闭包，随任务生命周期存活；应用退出时由插件回收。
         let _child = _child;
@@ -92,14 +131,25 @@ fn spawn_bridge_sidecar(
                 }
                 CommandEvent::Error(message) => {
                     log::error!("[void-bridge] sidecar error: {message}");
+                    if let Ok(mut guard) = status_handle.0.lock() {
+                        guard.terminated = Some(format!("sidecar error: {message}"));
+                    }
                 }
                 CommandEvent::Terminated(payload) => {
                     log::warn!("[void-bridge] sidecar terminated: {:?}", payload);
+                    if let Ok(mut guard) = status_handle.0.lock() {
+                        guard.terminated = Some(format!("sidecar terminated: {:?}", payload));
+                    }
                 }
                 _ => {}
             }
         }
     });
+
+    if let Ok(mut guard) = app.state::<BridgeSidecarState>().0.lock() {
+        guard.spawned = true;
+        guard.spawn_error = None;
+    }
 
     Ok(())
 }
@@ -150,8 +200,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(BridgeTokenState(bridge_token.clone()))
+        .manage(BridgeSidecarState(Mutex::new(BridgeSidecarStatus::default())))
         .invoke_handler(tauri::generate_handler![
             get_bridge_token,
+            get_bridge_status,
             tray_set_unread,
             takeover::takeover_start,
             takeover::takeover_stop,
@@ -160,17 +212,36 @@ pub fn run() {
             ocr::ocr_image_file
         ])
         .setup(move |app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // 日志常开（debug 与 release 一致）：release 无控制台，sidecar 转发的日志
+            // 只写文件（LogDir/void.log）才不会丢失；0.2.4 盲飞的教训。
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .target(tauri_plugin_log::Target::new(
+                        tauri_plugin_log::TargetKind::Stdout,
+                    ))
+                    .target(tauri_plugin_log::Target::new(
+                        tauri_plugin_log::TargetKind::LogDir {
+                            file_name: Some("void".to_string()),
+                        },
+                    ))
+                    .build(),
+            )?;
 
             // 仅正式构建拉起 SEA sidecar；开发期由 npm(dev:all) 的 tsx 进程提供。
+            // 拉起失败不崩主应用：记入状态机，前端探针横幅如实展示（崩应用比降级更差）。
             #[cfg(not(debug_assertions))]
-            spawn_bridge_sidecar(app, &bridge_token)?;
+            if let Err(error) = spawn_bridge_sidecar(app, &bridge_token) {
+                log::error!("[void-bridge] sidecar spawn 失败：{error}");
+                if let Ok(mut guard) = app
+                    .state::<BridgeSidecarState>()
+                    .0
+                    .lock()
+                {
+                    guard.spawned = false;
+                    guard.spawn_error = Some(error.to_string());
+                }
+            }
 
             // P2 托盘常驻底座：关窗口转隐藏（进程与 sidecar 不停），仅托盘菜单退出才真正结束。
             build_tray(app)?;
