@@ -3514,6 +3514,13 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push(...deferredProbe.notes);
   }
 
+  const pureTextPromiseProbe = await runPureTextPromiseProbe();
+  if (!pureTextPromiseProbe.ok) {
+    failures.push(...pureTextPromiseProbe.failures);
+  } else {
+    notes.push(...pureTextPromiseProbe.notes);
+  }
+
   const batchProbe = await runBatchConcurrencyProbe();
   if (!batchProbe.ok) {
     failures.push(...batchProbe.failures);
@@ -3896,11 +3903,105 @@ function createDeferredPromiseStubProvider(base: ModelProvider): ModelProvider {
 }
 
 /**
- * 假 provider：
- * 1) 前 3 次带 tools 时返回 echo 非法参数 tool_call（触发 SCHEMA_INVALID）
- * 2) 第 4 次起若仍带 tools，会再次返回 tool_call 以撞上 streak 熔断
- * 3) forceFinalText（tools 被摘掉）时返回空内容，迫使循环层用可读收口
+ * P0 延迟承诺物化：未调任何工具的纯话术承诺（“我去查一下，查完告诉你”），
+ * 只要本轮带工具集，同样不收口，须继续循环逼模型做完或收回承诺。
+ * 假 provider：第 1 轮纯文本承诺（零 tool_call）→ 第 2 轮起干净收尾。
  */
+async function runPureTextPromiseProbe(): Promise<SmokeResult> {
+  const failures: string[] = [];
+  const notes: string[] = [];
+  const originalProvider = getModelProvider("openai-compatible");
+  const uninstall = installModelProviderOverride(
+    "openai-compatible",
+    createPureTextPromiseStubProvider(originalProvider)
+  );
+  clearExecutionObservability();
+  clearAllResourceLocks();
+
+  try {
+    const loopResult = await runAgentToolLoop({
+      messages: [{ role: "user", content: "帮我查一下那个报错" }],
+      modelConfig: {
+        provider: "openai-compatible",
+        presetId: "smoke",
+        apiKey: "smoke-key",
+        baseUrl: "http://127.0.0.1:9",
+        modelName: "smoke-model",
+        modelStrength: "middle",
+        thinkingModeEnabled: false,
+        temperature: 0,
+        maxOutputTokens: 256,
+        streamEnabled: false
+      },
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "echo",
+            description: "smoke echo",
+            parameters: {
+              type: "object",
+              properties: {
+                message: { type: "string" }
+              },
+              required: ["message"]
+            }
+          }
+        }
+      ],
+      maxRounds: 6,
+      maxToolInvocations: 8
+    });
+
+    const content = loopResult.content ?? "";
+    if (loopResult.rounds < 2) {
+      failures.push(`纯话术承诺应触发继续循环，实际仅 ${loopResult.rounds} 轮`);
+    }
+    if (/(?:查完|做完|完成).{0,8}(?:后|了).{0,8}(?:告诉你|给你)|稍后.{0,8}(?:告诉你|给你)/.test(content)) {
+      failures.push(`最终回复仍含空口承诺：${content.slice(0, 80)}`);
+    }
+    if (!content.includes("已完成")) {
+      failures.push(`最终回复应为干净收尾：${content.slice(0, 80)}`);
+    }
+    if (failures.length === 0) {
+      notes.push(`纯话术承诺拦截正确：续跑至 ${loopResult.rounds} 轮并干净收尾`);
+    }
+  } catch (error) {
+    failures.push(
+      `纯话术承诺探测崩溃：${error instanceof Error ? error.message : String(error)}`
+    );
+  } finally {
+    uninstall();
+  }
+
+  return {
+    ok: failures.length === 0,
+    failures,
+    notes
+  };
+}
+
+function createPureTextPromiseStubProvider(base: ModelProvider): ModelProvider {
+  let callCount = 0;
+  return {
+    ...base,
+    supportsTools: true,
+    async sendMessage(request): Promise<ProviderResponse> {
+      callCount += 1;
+      const hasTools = Boolean(request.tools && request.tools.length > 0);
+      if (!hasTools) {
+        return { content: "任务已完成，结果是 hello。" };
+      }
+      if (callCount === 1) {
+        return { content: "我去查一下，查完后告诉你。" };
+      }
+      return { content: "任务已完成，结果是 hello。" };
+    },
+    mapError(error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+  };
+}
 function createSameToolStreakStubProvider(base: ModelProvider): ModelProvider {
   let toolRound = 0;
   return {

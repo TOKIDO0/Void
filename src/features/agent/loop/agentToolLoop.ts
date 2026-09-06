@@ -354,6 +354,10 @@ async function runAgentToolLoopInternal(
     streakCount: number;
   } | null = null;
   let lastTerminalSuccess: { toolName: string; summary: string } | null = null;
+  // P0 延迟承诺物化：本轮是否已成功创建调度任务（agent.scheduleCreate）。
+  // 纯话术承诺（未调工具）只有在同时满足“本轮带工具集 + 可创建定时任务”时才拦截，
+  // 纯聊天轮（tools 为空）不受影响。
+  let createdScheduleThisTurn = false;
   // 话术护栏证据：本轮是否真实 open/reveal/下载/点击成功，以及最后一次打开的 URL。
   let didRevealInSystemBrowser = false;
   let didOpenAutomationWindow = false;
@@ -432,13 +436,25 @@ async function runAgentToolLoopInternal(
         }
         throw new Error("模型没有返回有效内容。");
       }
-      // P3 回合内续跑纪律：调了工具、无终态成功，却承诺稍后/后台交付时不收口，
-      // 逼模型当轮继续做完或收回承诺（受 maxRounds 约束；预算末轮不拦）。
-      if (!forceFinalText && usedTools && !lastTerminalSuccess && hasDeferredPromise(content)) {
+      // P3 回合内续跑纪律：延迟交付承诺必须物化，禁止空口承诺。
+      // 拦截条件：本轮带工具集、有延迟话术、无终态成功、本轮未建定时任务、非预算末轮。
+      // 纯聊天轮（tools 为空）直接放行，不误伤日常对话。
+      const scheduleCreatable = tools.some(
+        (definition) => fromModelToolName(definition.function.name) === "agent.scheduleCreate"
+      );
+      if (
+        !forceFinalText
+        && tools.length > 0
+        && !lastTerminalSuccess
+        && !createdScheduleThisTurn
+        && hasDeferredPromise(content)
+      ) {
         messages.push({ role: "assistant", content });
         messages.push({
           role: "system",
-          content: "你刚才承诺了稍后/后台交付结果，但本轮没有完成可交付的终态，也没有创建后台任务。禁止空口承诺：要么现在继续调用工具把任务做完，要么如实说明卡在哪里、需要用户提供什么。不要重复承诺。"
+          content: scheduleCreatable
+            ? "你刚才承诺了稍后/后台交付结果，但本轮没有完成可交付的终态，也没有创建后台任务。禁止空口承诺：要么现在继续调用工具把任务做完，要么调用 agent.scheduleCreate 把它建成定时任务（需要用户确认授权），要么如实说明卡在哪里、需要用户提供什么。不要重复承诺。"
+            : "你刚才承诺了稍后/后台交付结果，但本轮没有完成可交付的终态。禁止空口承诺：要么现在继续调用工具把任务做完，要么如实说明卡在哪里、需要用户提供什么。不要重复承诺。"
         });
         continue;
       }
@@ -636,6 +652,10 @@ async function runAgentToolLoopInternal(
       }
       if (openEvidence.url) {
         lastOpenedUrl = openEvidence.url;
+      }
+
+      if (ok && toolName === "agent.scheduleCreate") {
+        createdScheduleThisTurn = true;
       }
 
       if (ok && TERMINAL_SUCCESS_TOOLS.has(toolName)) {
