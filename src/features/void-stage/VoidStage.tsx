@@ -194,6 +194,8 @@ export function VoidStage() {
   const expandedResponseProgressRef = useRef({ value: 0 });
   const voicePlaybackControllerRef = useRef(new VoicePlaybackController());
   const voiceSessionControllerRef = useRef<VoiceSessionController | null>(null);
+  // A 一键语音速记：单次会话控制器（与常开监听互斥，互不抢麦）。
+  const pushToTalkRef = useRef<{ controller: VoiceSessionController } | null>(null);
   const voiceInputSessionIdRef = useRef(0);
   const voiceInputCallbacksRef = useRef<{
     onInterimTranscript: (text: string) => void;
@@ -1477,6 +1479,59 @@ export function VoidStage() {
     });
   }, [updateVoicePreferences, voicePreferences]);
 
+  // A 一键语音速记（Ctrl+Alt+R）：按一下开始/结束。
+  // 主监听开着时只召唤窗口（本轮说话走正常链路，不另起会话抢麦）；
+  // 主监听关着时起单次会话，定稿走同一语音入口（含无效过滤与去重），结束后自毁。
+  const togglePushToTalk = useCallback(async () => {
+    if (pushToTalkRef.current) {
+      const active = pushToTalkRef.current;
+      pushToTalkRef.current = null;
+      await active.controller.stop();
+      return;
+    }
+    if (voiceSessionControllerRef.current) {
+      await showMainWindow();
+      return;
+    }
+    await showMainWindow();
+    let settled = false;
+    const controller = new VoiceSessionController({
+      sttProvider: new DoubaoStreamingSttProvider(),
+      onInterimTranscript: (text) => {
+        voiceInputCallbacksRef.current?.onInterimTranscript(text);
+      },
+      onFinalTranscript: (text) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        pushToTalkRef.current = null;
+        void controller.stop().catch(() => {});
+        voiceInputCallbacksRef.current?.onFinalTranscript(text);
+      },
+      onError: (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        pushToTalkRef.current = null;
+        voiceInputCallbacksRef.current?.onError(error);
+        void controller.stop().catch(() => {});
+      },
+      onInputStateChange: (inputState) => {
+        voiceInputCallbacksRef.current?.onInputStateChange(inputState);
+      },
+      onActivityLevelChange: (activityLevel) => {
+        voiceInputCallbacksRef.current?.onActivityLevelChange(activityLevel);
+      },
+      onRuntimeStatusChange: (status) => {
+        voiceInputCallbacksRef.current?.onRuntimeStatusChange(status);
+      }
+    });
+    pushToTalkRef.current = { controller };
+    await controller.start();
+  }, []);
+
   const handleOpenModelConfig = useCallback(() => {
     setSettingsInitialTab("model");
     setIsModelSettingsOpen(true);
@@ -1623,6 +1678,37 @@ export function VoidStage() {
     };
   }, []);
 
+  // A 一键语音速记：订阅 Rust 全局热键事件（Ctrl+Alt+R）；非桌面订阅失败即无热键。
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void import("@tauri-apps/api/event")
+      .then(async ({ listen }) => {
+        if (cancelled) {
+          return;
+        }
+        try {
+          unlisten = await listen("void:push-to-talk", () => {
+            void togglePushToTalk();
+          });
+        } catch {
+          // 非桌面无全局热键
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (unlisten) {
+        unlisten();
+      }
+      const active = pushToTalkRef.current;
+      pushToTalkRef.current = null;
+      if (active) {
+        void active.controller.stop().catch(() => {});
+      }
+    };
+  }, [togglePushToTalk]);
+
   return (
     <main className="void-stage">
       <Suspense fallback={<div className="blob-scene" aria-hidden="true" style={{ background: "#000" }} />}>
@@ -1735,11 +1821,22 @@ function resolveTtsErrorMessage(error: unknown) {
 }
 
 /** 把合成结果分发给播放控制器：PCM 走 AudioWorklet，URL 走 HTMLAudio 队列。 */
+// A 一键语音速记：召唤主窗口（非桌面静默跳过）。
+async function showMainWindow(): Promise<void> {
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const window = getCurrentWindow();
+    await window.show();
+    await window.setFocus();
+  } catch {
+    // 非桌面无窗口可唤
+  }
+}
+
 function enqueueSynthesisResult(
   playbackController: VoicePlaybackController,
   result: VoiceSynthesisResult
-) {
-  if ("pcmStream" in result) {
+) {  if ("pcmStream" in result) {
     playbackController.enqueuePcmStream(result.pcmStream, result.sampleRate, result.sessionId);
     return;
   }

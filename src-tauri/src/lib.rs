@@ -185,9 +185,11 @@ pub fn run() {
             // AR 全局热键：Ctrl+Alt+V 切换主窗口显隐（被占用记 warn 不崩）。
             #[cfg(desktop)]
             {
+                use tauri::{Emitter, Manager};
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
                 let toggle = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV);
-                match app.global_shortcut().on_shortcut(toggle, |app, _shortcut, event| {
+                let push_to_talk = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyR);
+                let register_toggle = app.global_shortcut().on_shortcut(toggle, |app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
                         if let Some(window) = app.get_webview_window("main") {
                             if window.is_visible().unwrap_or(true) {
@@ -198,9 +200,17 @@ pub fn run() {
                             }
                         }
                     }
-                }) {
-                    Ok(()) => log::info!("[void] 全局热键 Ctrl+Alt+V 已注册"),
-                    Err(error) => log::warn!("[void] 全局热键被占用，跳过：{error}"),
+                });
+                // A 一键语音速记：Ctrl+Alt+R 只发事件，采集与发送由前端 STT 会话接管。
+                let register_ptt = app.global_shortcut().on_shortcut(push_to_talk, |app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        let _ = app.emit("void:push-to-talk", ());
+                    }
+                });
+                match (register_toggle, register_ptt) {
+                    (Ok(()), Ok(())) => log::info!("[void] 全局热键 Ctrl+Alt+V / Ctrl+Alt+R 已注册"),
+                    (Err(error), _) => log::warn!("[void] 全局热键 Ctrl+Alt+V 注册失败，跳过：{error}"),
+                    (_, Err(error)) => log::warn!("[void] 全局热键 Ctrl+Alt+R 注册失败，跳过：{error}"),
                 }
             }
 

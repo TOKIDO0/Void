@@ -571,6 +571,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                   <span>
                     <strong>{language === "zh-CN" ? "开机自启动" : "Launch at login"}</strong>
                     <p>{language === "zh-CN" ? "开机后自动启动 VOID（托盘常驻），关窗口不退出。默认关闭；开发预览下可能指向开发进程，以正式安装包为准。" : "Start VOID automatically at login (tray resident). Off by default; dev preview may point at the dev process."}</p>
+                    <p>{language === "zh-CN" ? "全局热键：Ctrl+Alt+V 显隐窗口，Ctrl+Alt+R 语音速记（按一下开始/结束）。" : "Global hotkeys: Ctrl+Alt+V toggles window, Ctrl+Alt+R push-to-talk."}</p>
                   </span>
                   <span className="model-settings-modal__switch">
                     <input
