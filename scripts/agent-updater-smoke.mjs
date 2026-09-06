@@ -50,12 +50,55 @@ async function main() {
   assert(packageJson.dependencies["@tauri-apps/plugin-updater"], "缺 updater JS 包");
   assert(packageJson.dependencies["@tauri-apps/plugin-process"], "缺 process JS 包");
   const updaterSection = read("src/features/settings/UpdaterSection.tsx");
-  for (const marker of ["check()", ".download(", ".install()", "relaunch()", "检查更新", "下载并安装"]) {
+  for (const marker of ["check({", ".download(", ".install()", "relaunch()", "检查更新", "下载并安装"]) {
     assert(updaterSection.includes(marker), `更新区缺 ${marker}`);
   }
 
+  // feed 改写纯函数：api.github.com → github.com 直链，签名原样保留，脏输入 fail-closed
+  const { rewriteFeedUrls } = await import("./rewrite-updater-feed.mjs");
+  const feedSample = JSON.stringify({
+    version: "0.2.2",
+    platforms: {
+      "windows-x86_64": { signature: "sig1", url: "https://api.github.com/repos/TOKIDO0/Void/releases/assets/1" },
+      "windows-x86_64-msi": { signature: "sig2", url: "https://api.github.com/repos/TOKIDO0/Void/releases/assets/1" },
+      "windows-x86_64-nsis": { signature: "sig3", url: "https://api.github.com/repos/TOKIDO0/Void/releases/assets/2" }
+    }
+  });
+  const assetsSample = JSON.stringify([
+    { id: 1, name: "VOID_0.2.2_x64_en-US.msi" },
+    { id: 2, name: "VOID_0.2.2_x64-setup.exe" }
+  ]);
+  const rewritten = rewriteFeedUrls(feedSample, "v0.2.2", "TOKIDO0/Void", assetsSample);
+  const rewrittenFeed = JSON.parse(rewritten.text);
+  assert(
+    rewrittenFeed.platforms["windows-x86_64"].url
+      === "https://github.com/TOKIDO0/Void/releases/download/v0.2.2/VOID_0.2.2_x64_en-US.msi",
+    "msi 条目应改直链"
+  );
+  assert(
+    rewrittenFeed.platforms["windows-x86_64-nsis"].url
+      === "https://github.com/TOKIDO0/Void/releases/download/v0.2.2/VOID_0.2.2_x64-setup.exe",
+    "nsis 条目应改直链"
+  );
+  assert(rewrittenFeed.platforms["windows-x86_64"].signature === "sig1", "签名必须原样保留");
+  assert(rewritten.warnings.length === 0, "完整映射不应有警告");
+  const brokenFeed = rewriteFeedUrls("{broken", "v0.2.2", "TOKIDO0/Void", "[]");
+  assert(brokenFeed.text === "{broken" && brokenFeed.warnings.length === 1, "脏 feed 应原样+警告");
+  const unknownFeed = rewriteFeedUrls(
+    JSON.stringify({ platforms: { "linux-x86_64": { signature: "s", url: "https://api.github.com/x" } } }),
+    "v0.2.2",
+    "TOKIDO0/Void",
+    "[]"
+  );
+  assert(
+    JSON.parse(unknownFeed.text).platforms["linux-x86_64"].url === "https://api.github.com/x"
+      && unknownFeed.warnings.length === 1,
+    "未知平台应保持原 URL+警告"
+  );
+
   console.log("[agent-updater-smoke] PASSED");
   console.log(" - 配置：updater 激活 + GitHub feed + 公钥有效 + 产物开关 + 插件/权限/UI 接线全对");
+  console.log(" - feed 改写：msi/nsis 直链 + 签名保留 + 脏输入与未知平台 fail-closed");
 }
 
 main().catch((error) => {

@@ -49,3 +49,11 @@ jobs:
           releaseBody: "VOID desktop build. Open Settings / Advanced / Check for updates in app."
           releaseDraft: false
           prerelease: false
+
+      # 应用内更新器走 github.com 直链才稳定：把 feed 里 api.github.com 资产 URL
+      # 改写为 releases/download 直链后回传（签名原样保留）。gh CLI 由 runner 预装。
+      - name: rewrite updater feed to direct download URLs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: node scripts/rewrite-updater-feed.mjs
