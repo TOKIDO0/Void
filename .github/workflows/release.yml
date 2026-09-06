@@ -1,0 +1,51 @@
+# VOID 发版流水线：打 tag v* 即构建 Windows 签名包并发布 Release（含 updater latest.json）。
+# 前置：仓库 Secrets 已配 TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD。
+# 流程：改 version（package.json + tauri.conf.json）→ commit → tag vX.Y.Z → push tag。
+# 首验：旧版装好后，设置 → 高级 → 检查更新走通一遍（见 .md/todo AP8 真机项）。
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: install frontend dependencies
+        run: npm ci
+
+      - name: build sidecar
+        run: npm run sidecar:build
+
+      - uses: tauri-apps/tauri-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "VOID ${{ github.ref_name }}"
+          releaseBody: "VOID desktop build. Open Settings / Advanced / Check for updates in app."
+          releaseDraft: false
+          prerelease: false
