@@ -7,6 +7,8 @@
   ],
   "permissions": [
     "core:default",
-    "notification:allow-notify"
+    "notification:allow-notify",
+    "updater:default",
+    "process:default"
   ]
 }

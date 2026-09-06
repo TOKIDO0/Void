@@ -30,6 +30,7 @@ import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRu
 import { SecurityStatusContent } from "../agent/security/SecurityStatusContent";
 import { TasksContent } from "../agent/scheduler/TasksContent";
 import { ModelUsageSection } from "../agent/usage/ModelUsageSection";
+import { UpdaterSection } from "./UpdaterSection";
 import { isHighPermissionMode, setHighPermissionMode } from "./highPermissionMode";
 import { SETTINGS_COPY as SHARED_SETTINGS_COPY } from "./settingsI18n";
 
@@ -587,6 +588,9 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
               </section>
               <section className="model-settings-modal__field">
                 <ModelUsageSection language={language} />
+              </section>
+              <section className="model-settings-modal__field">
+                <UpdaterSection language={language} />
               </section>
               {showHighPermissionConfirm ? (
                 <div className="model-settings-modal__confirm" role="alertdialog" aria-modal="true">
