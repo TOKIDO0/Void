@@ -15,6 +15,20 @@ type Phase =
   | { kind: "ready" }
   | { kind: "error"; message: string };
 
+// GitHub Release 资产 URL 是 api.github.com 形态时，必须带 Accept 才返回二进制，
+// 否则下回来的是 JSON 元数据导致验签失败。检查与下载统一带上。
+const ASSET_HEADERS = { Accept: "application/octet-stream" };
+const REQUEST_TIMEOUT_MS = 20000;
+
+function stringifyUpdateError(stage: string, error: unknown): string {
+  const detail = error instanceof Error
+    ? error.message || `${error.name}（无详情）`
+    : typeof error === "string"
+      ? error
+      : JSON.stringify(error)?.slice(0, 300) ?? "未知错误";
+  return `${stage}失败：${detail}`;
+}
+
 export function UpdaterSection({ language }: { language: SettingsLanguage }) {
   const [phase, setPhase] = useState<Phase>({ kind: "idle", currentVersion: "" });
   const zh = language === "zh-CN";
@@ -42,7 +56,7 @@ export function UpdaterSection({ language }: { language: SettingsLanguage }) {
     setPhase({ kind: "checking" });
     try {
       const { check } = await import("@tauri-apps/plugin-updater");
-      const update = await check();
+      const update = await check({ headers: ASSET_HEADERS, timeout: REQUEST_TIMEOUT_MS });
       if (!update) {
         const { getVersion } = await import("@tauri-apps/api/app");
         setPhase({ kind: "latest", currentVersion: await getVersion().catch(() => "") });
@@ -56,10 +70,7 @@ export function UpdaterSection({ language }: { language: SettingsLanguage }) {
       });
       await update.close();
     } catch (error) {
-      setPhase({
-        kind: "error",
-        message: error instanceof Error ? error.message : "检查更新失败"
-      });
+      setPhase({ kind: "error", message: stringifyUpdateError("检查", error) });
     }
   }, []);
 
@@ -68,36 +79,44 @@ export function UpdaterSection({ language }: { language: SettingsLanguage }) {
       return;
     }
     setPhase({ kind: "downloading", percent: 0 });
+    const currentVersion = phase.currentVersion;
     try {
       const { check } = await import("@tauri-apps/plugin-updater");
-      const update = await check();
+      const update = await check({ headers: ASSET_HEADERS, timeout: REQUEST_TIMEOUT_MS });
       if (!update) {
-        setPhase({ kind: "latest", currentVersion: phase.currentVersion });
+        setPhase({ kind: "latest", currentVersion });
         return;
       }
       let downloaded = 0;
       let total = 0;
-      await update.download((event) => {
-        if (event.event === "Started") {
-          total = event.data.contentLength ?? 0;
-        } else if (event.event === "Progress") {
-          downloaded += event.data.chunkLength;
-          if (total > 0) {
-            setPhase({ kind: "downloading", percent: Math.min(99, Math.round((downloaded / total) * 100)) });
+      try {
+        await update.download((event) => {
+          if (event.event === "Started") {
+            total = event.data.contentLength ?? 0;
+          } else if (event.event === "Progress") {
+            downloaded += event.data.chunkLength;
+            if (total > 0) {
+              setPhase({ kind: "downloading", percent: Math.min(99, Math.round((downloaded / total) * 100)) });
+            }
+          } else if (event.event === "Finished") {
+            setPhase({ kind: "downloading", percent: 100 });
           }
-        } else if (event.event === "Finished") {
-          setPhase({ kind: "downloading", percent: 100 });
-        }
-      });
-      await update.install();
+        }, { headers: ASSET_HEADERS, timeout: 120000 });
+      } catch (error) {
+        setPhase({ kind: "error", message: stringifyUpdateError("下载", error) });
+        return;
+      }
+      try {
+        await update.install();
+      } catch (error) {
+        setPhase({ kind: "error", message: stringifyUpdateError("安装", error) });
+        return;
+      }
       setPhase({ kind: "ready" });
       const { relaunch } = await import("@tauri-apps/plugin-process");
       await relaunch();
     } catch (error) {
-      setPhase({
-        kind: "error",
-        message: error instanceof Error ? error.message : "下载安装失败"
-      });
+      setPhase({ kind: "error", message: stringifyUpdateError("更新", error) });
     }
   }, [phase]);
 
