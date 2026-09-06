@@ -98,7 +98,7 @@ fn spawn_bridge_sidecar(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let resource_dir = app.path().resource_dir()?;
     let entry = resource_dir.join("sidecar-app").join("void-bridge.cjs");
-    if (!entry.is_file()) {
+    if !entry.is_file() {
         return Err(format!(
             "sidecar 入口缺失：{}（安装包资源不完整）",
             entry.display()
@@ -117,7 +117,10 @@ fn spawn_bridge_sidecar(
 
     // 把 child 交给独立任务持有，保持进程存活；事件循环转发桥接日志，
     // 便于按验收标准核对「桥接日志无 Error 帧」。异常事件同时写入状态机，供前端探针读取。
-    let status_handle = app.state::<BridgeSidecarState>();
+    // 根因修复（v0.2.5 CI E0521）：`app.state()` 返回的 State 借用 `&App`，
+    // 不能移入要求 'static 的 spawn 任务。改传 owned AppHandle（'static），
+    // 在任务内再取 state——与 tray_set_unread 取 AppHandle 的做法一致。
+    let status_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
         // _child 移入本闭包，随任务生命周期存活；应用退出时由插件回收。
         let _child = _child;
@@ -131,13 +134,13 @@ fn spawn_bridge_sidecar(
                 }
                 CommandEvent::Error(message) => {
                     log::error!("[void-bridge] sidecar error: {message}");
-                    if let Ok(mut guard) = status_handle.0.lock() {
+                    if let Ok(mut guard) = status_handle.state::<BridgeSidecarState>().0.lock() {
                         guard.terminated = Some(format!("sidecar error: {message}"));
                     }
                 }
                 CommandEvent::Terminated(payload) => {
                     log::warn!("[void-bridge] sidecar terminated: {:?}", payload);
-                    if let Ok(mut guard) = status_handle.0.lock() {
+                    if let Ok(mut guard) = status_handle.state::<BridgeSidecarState>().0.lock() {
                         guard.terminated = Some(format!("sidecar terminated: {:?}", payload));
                     }
                 }
