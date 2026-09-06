@@ -31,6 +31,7 @@ import { ensureRuntimeDirectories } from "./file/fileRuntimePaths";
 import { handleCodeHttpRequest } from "./code/codeHttpHandlers";
 import { handleMemoryHttpRequest } from "./memory/memoryEmbeddingHandlers";
 import { handleSchedulerHttpRequest } from "./scheduler/schedulerHttpHandlers";
+import { handleUsageHttpRequest } from "./usage/usageHttpHandlers";
 import { startScheduler, stopScheduler } from "./scheduler/schedulerRunner";
 import { handleSkillsHttpRequest } from "./skills/skillsHttpHandlers";
 import { handleSoftwareHttpRequest } from "./software/softwareHttpHandlers";
@@ -478,6 +479,12 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
   // P4 后台调度器（sidecar 进程内计时 + 隔离执行；Key 仅内存）
   if (pathname.startsWith("/void-scheduler")) {
     void handleSchedulerHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // C 模型用量台账（tokens 记账 + 每日上限）
+  if (pathname.startsWith("/void-model-usage")) {
+    void handleUsageHttpRequest(request, response, pathname);
     return;
   }
 

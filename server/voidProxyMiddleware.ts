@@ -8,6 +8,12 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { HttpRequestError, isRequestBodyTooLarge } from "./http/httpRequest";
+import {
+  extractRequestModel,
+  modelUsageStore,
+  parseUsageFromText,
+  withUsageStreamOptions
+} from "./usage/modelUsageStore";
 
 /** 允许透传给上游的请求头白名单（模型 + 豆包 openspeech v3 鉴权头） */
 const ALLOWED_FORWARD_HEADERS = [
@@ -156,9 +162,24 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
 
   let clientAbort: ReturnType<typeof createClientDisconnectAbortController> | null = null;
   try {
-    const requestBody = await readRequestBody(request);
+    let requestBody = await readRequestBody(request);
     const forwardedHeaders = buildForwardedHeaders(request.headers);
     const method = request.method ?? "GET";
+    // C 用量记账：仅 POST + 可识别模型的聊天请求参与；超预算直接 429，不转发。
+    const trackedModel = method === "POST" ? extractRequestModel(requestBody) : null;
+    if (trackedModel && modelUsageStore.isOverBudget()) {
+      response.statusCode = 429;
+      response.setHeader("Content-Type", "application/json; charset=utf-8");
+      response.end(JSON.stringify({
+        error: {
+          code: "USAGE_BUDGET_EXCEEDED",
+          message: "今日模型用量已达上限（设置 → 高级可调整），本次请求未转发。"
+        }
+      }));
+      return;
+    }
+    // 缺 stream_options 的流式请求补 include_usage（中转支持则回 usage，不支持则忽略）。
+    requestBody = withUsageStreamOptions(requestBody);
     clientAbort = createClientDisconnectAbortController(request, response);
     const proxyResponse = await fetch(parsedTargetUrl, {
       method,
@@ -174,11 +195,39 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
     if (proxyResponse.headers.get("content-type")?.includes("text/event-stream") && proxyResponse.body) {
       response.setHeader("Cache-Control", "no-cache");
       response.setHeader("Connection", "keep-alive");
-      await streamResponseBody(proxyResponse, response);
+      let sseBytes = 0;
+      let sseTail = "";
+      await streamResponseBody(proxyResponse, response, (chunk) => {
+        sseBytes += chunk.byteLength;
+        sseTail += Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength).toString("utf8");
+        if (sseTail.length > 65536) {
+          sseTail = sseTail.slice(-65536);
+        }
+      });
+      if (trackedModel && proxyResponse.status >= 200 && proxyResponse.status < 300) {
+        const usage = parseUsageFromText(sseTail);
+        modelUsageStore.recordCompletion({
+          model: trackedModel,
+          promptTokens: usage?.promptTokens ?? 0,
+          completionTokens: usage?.completionTokens ?? 0,
+          totalTokens: usage?.totalTokens ?? 0,
+          responseBytes: sseBytes
+        });
+      }
       return;
     }
 
     const responseText = await proxyResponse.text();
+    if (trackedModel && proxyResponse.status >= 200 && proxyResponse.status < 300) {
+      const usage = parseUsageFromText(responseText);
+      modelUsageStore.recordCompletion({
+        model: trackedModel,
+        promptTokens: usage?.promptTokens ?? 0,
+        completionTokens: usage?.completionTokens ?? 0,
+        totalTokens: usage?.totalTokens ?? 0,
+        responseBytes: Buffer.byteLength(responseText, "utf8")
+      });
+    }
     if (!response.destroyed && !response.writableEnded) {
       response.end(responseText);
     }
@@ -295,8 +344,12 @@ function resolveTargetUrl(
   return parsedTargetUrl;
 }
 
-/** 把 fetch 响应体逐块写入 Node 响应（不 end，由调用方决定收尾） */
-async function streamResponseBody(proxyResponse: Response, response: ServerResponse): Promise<void> {
+/** 把 fetch 响应体逐块写入 Node 响应（不 end，由调用方决定收尾）；onChunk 旁路观测，不影响背压。 */
+async function streamResponseBody(
+  proxyResponse: Response,
+  response: ServerResponse,
+  onChunk?: (chunk: Uint8Array) => void
+): Promise<void> {
   if (!proxyResponse.body) {
     return;
   }
@@ -318,6 +371,7 @@ async function streamResponseBody(proxyResponse: Response, response: ServerRespo
         return;
       }
 
+      onChunk?.(value);
       const canContinue = response.write(Buffer.from(value));
       if (!canContinue) {
         await waitForResponseDrainOrClose(response);

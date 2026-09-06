@@ -29,6 +29,7 @@ import { isSemanticSearchEnabled, setSemanticSearchEnabled } from "../memory/mem
 import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
 import { SecurityStatusContent } from "../agent/security/SecurityStatusContent";
 import { TasksContent } from "../agent/scheduler/TasksContent";
+import { ModelUsageSection } from "../agent/usage/ModelUsageSection";
 import { isHighPermissionMode, setHighPermissionMode } from "./highPermissionMode";
 import { SETTINGS_COPY as SHARED_SETTINGS_COPY } from "./settingsI18n";
 
@@ -583,6 +584,9 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                     <span className="model-settings-modal__switch-slider" />
                   </span>
                 </label>
+              </section>
+              <section className="model-settings-modal__field">
+                <ModelUsageSection language={language} />
               </section>
               {showHighPermissionConfirm ? (
                 <div className="model-settings-modal__confirm" role="alertdialog" aria-modal="true">

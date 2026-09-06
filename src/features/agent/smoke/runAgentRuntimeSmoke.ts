@@ -81,10 +81,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
 
   const productionTools = listToolMetadata();
   // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + desktop 控件探针 1 个 + desktop 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 = 71
-  if (productionTools.length !== 81 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 81 个工具，实际 ${productionTools.length}`);
+  if (productionTools.length !== 82 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 82 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("81 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 读屏 OCR 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + 接管会话/输入/状态/停止 4 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 + agent.scheduleCreate/remove/runNow/list/inspect 后台调度 5 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("82 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 读屏 OCR 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + 接管会话/输入/状态/停止 4 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 + agent.scheduleCreate/remove/runNow/list/inspect 后台调度 5 个 + agent.inspectModelUsage 用量自检 1 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -2840,8 +2840,7 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     notes.push("P6 接管契约正确：开启 L3，白名单非空前置拦截，输入 L1，状态 L0");
   }
 
-  const takeoverRoute = resolveTurnCapability("帮我接管记事本写一段话", []);
-  const takeoverWatchRoute = resolveTurnCapability("帮我看着后台，有新单你点取消", []);
+  const takeoverRoute = resolveTurnCapability("帮我接管记事本写一段话", []);  const takeoverWatchRoute = resolveTurnCapability("帮我看着后台，有新单你点取消", []);
   const takeoverNegativeRoute = resolveTurnCapability("打开微信", []);
   if (
     takeoverRoute.capability !== "desktop"
@@ -2894,6 +2893,35 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     failures.push("读屏问询应路由到 desktop 读屏工具组，且剪贴板查看不得劫持");
   } else {
     notes.push("读屏路由正确：识别图中文字→screenshot + readScreenText 同轮可用");
+  }
+
+  // C 用量自检契约 + 路由（记账走 usage-smoke 真机 E2E，不进本冒烟）
+  const modelUsageTool = productionTools.find((tool) => tool.name === "agent.inspectModelUsage");
+  const modelUsageOk = modelUsageTool
+    ? validateAgainstSchema(modelUsageTool.inputSchema, {}).valid
+    && validateAgainstSchema(modelUsageTool.outputSchema, {
+      today: { date: "2026-09-04", calls: 1, promptTokens: 10, completionTokens: 5, totalTokens: 15, responseBytes: 100, models: {} },
+      last7: [],
+      dailyTokenCap: 0
+    }).valid
+    && (modelUsageTool as { riskLevel?: string }).riskLevel === "L0"
+    : false;
+  if (!modelUsageTool || !modelUsageOk) {
+    failures.push("C 用量自检契约异常：agent.inspectModelUsage 契约或风险等级未达预期");
+  } else {
+    notes.push("C 用量契约正确：L0 只读今日/近7日/上限");
+  }
+
+  const usageRoute = resolveTurnCapability("今天模型花了多少token", []);
+  if (
+    usageRoute.capability !== "agent"
+    || !usageRoute.allowedToolNames.includes("agent.inspectModelUsage")
+    || usageRoute.allowedToolNames.includes("agent.inspectCapabilities")
+    || usageRoute.allowedToolNames.includes("browser.search")
+  ) {
+    failures.push("用量问询应路由到 agent 用量自检，且不暴露其它工具");
+  } else {
+    notes.push("用量路由正确：只暴露 agent.inspectModelUsage");
   }
 
   const { resolveModelMediaCapability } = await import("../../settings/providerCapabilities");

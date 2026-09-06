@@ -86,6 +86,7 @@ const TOOL_PROGRESS_LABELS: Record<string, string> = {
   "desktop.takeoverInput": "正在执行接管输入…",
   "desktop.takeoverStatus": "正在查看接管状态…",
   "desktop.readScreenText": "正在识别屏幕文字…",
+  "agent.inspectModelUsage": "正在查看模型用量…",
   echo: "正在执行内部校验…"
 };
 

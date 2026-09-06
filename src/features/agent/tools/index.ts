@@ -126,6 +126,7 @@ export { desktopTakeoverStopTool } from "./builtin/desktopTakeoverStopTool";
 export { desktopTakeoverInputTool } from "./builtin/desktopTakeoverInputTool";
 export { desktopTakeoverStatusTool } from "./builtin/desktopTakeoverStatusTool";
 export { desktopReadScreenTextTool } from "./builtin/desktopReadScreenTextTool";
+export { agentInspectModelUsageTool } from "./builtin/agentInspectModelUsageTool";
 export { agentInspectToolContractTool } from "./builtin/agentInspectToolContractTool";
 export { agentInspectExtensionPolicyTool } from "./builtin/agentInspectExtensionPolicyTool";
 export { agentInspectSafetyHooksTool } from "./builtin/agentInspectSafetyHooksTool";

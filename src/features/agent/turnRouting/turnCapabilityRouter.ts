@@ -369,6 +369,13 @@ const AGENT_TASK_PREFLIGHT_TOOL_NAMES = [
   "agent.planTaskRoute"
 ];
 
+// C 用量问询只暴露自检工具，不误触执行
+const AGENT_USAGE_TOOL_NAMES = [
+  "agent.inspectModelUsage"
+];
+const AGENT_USAGE_PATTERN =
+  /(?:今天|昨天|本周|本月|最近).{0,12}(?:花了多少|用了多少|用量|花费)|(?:用量|花费|token).{0,12}(?:查询|查看|多少|统计)/i;
+
 const AGENT_TASK_MANAGE_TOOL_NAMES = [
   "agent.todo",
   "agent.goal"
@@ -680,6 +687,10 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
 
   if (AGENT_TASK_PREFLIGHT_PATTERN.test(userInput) || REQUEST_SAFETY_PREFLIGHT_PATTERN.test(userInput)) {
     return createRoute("agent", AGENT_TASK_PREFLIGHT_TOOL_NAMES);
+  }
+
+  if (AGENT_USAGE_PATTERN.test(userInput)) {
+    return createRoute("agent", AGENT_USAGE_TOOL_NAMES);
   }
 
   // P4 后台调度：显式定时语义才进调度工具组，优先于通用 agent 问询
