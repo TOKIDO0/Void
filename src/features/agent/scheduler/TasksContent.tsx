@@ -196,61 +196,69 @@ export function TasksContent() {
 
       {fetchState.phase === "ready" && (
         <>
-          <h3 className="tasks__section-title">
-            {copy.jobsTitle}（{fetchState.status.enabledCount}/{fetchState.status.jobCount}）
-          </h3>
-          {fetchState.jobs.length === 0 && <p className="tasks__empty">{copy.emptyJobs}</p>}
-          {fetchState.jobs.map((job) => (
-            <div key={job.id} className="tasks__row">
-              <div className="tasks__row-main">
-                <div className="tasks__row-title">{job.name}</div>
-                <div className="tasks__row-meta">
-                  {job.kind} · {copy.nextRun}{formatTime(job.nextRunAtMs)} · {copy.lastStatus}{job.lastStatus ?? copy.na}
-                  {!job.enabled && ` · ${copy.disabled}`}
+          <section className="security-status__card tasks__card">
+            <h3>
+              {copy.jobsTitle}（{fetchState.status.enabledCount}/{fetchState.status.jobCount}）
+            </h3>
+            {fetchState.jobs.length === 0 && <p className="tasks__empty">{copy.emptyJobs}</p>}
+            {fetchState.jobs.map((job) => (
+              <div key={job.id} className="tasks__row">
+                <div className="tasks__row-main">
+                  <div className="tasks__row-title">{job.name}</div>
+                  <div className="tasks__row-meta">
+                    {job.kind} · {copy.nextRun}{formatTime(job.nextRunAtMs)} · {copy.lastStatus}{job.lastStatus ?? copy.na}
+                    {!job.enabled && ` · ${copy.disabled}`}
+                  </div>
+                </div>
+                <div className="tasks__row-actions">
+                  <button type="button" className="security-status__refresh" onClick={() => void handleRunNow(job.id)}>
+                    {copy.runNow}
+                  </button>
+                  <button type="button" className="security-status__refresh" onClick={() => void handleRemove(job.id)}>
+                    {confirmingId === job.id ? copy.confirmRemove : copy.remove}
+                  </button>
                 </div>
               </div>
-              <div className="tasks__row-actions">
-                <button type="button" className="security-status__refresh" onClick={() => void handleRunNow(job.id)}>
-                  {copy.runNow}
-                </button>
-                <button type="button" className="security-status__refresh" onClick={() => void handleRemove(job.id)}>
-                  {confirmingId === job.id ? copy.confirmRemove : copy.remove}
-                </button>
-              </div>
-            </div>
-          ))}
+            ))}
+          </section>
 
-          <h3 className="tasks__section-title">{copy.runsTitle}</h3>
-          {fetchState.runs.length === 0 && <p className="tasks__empty">{copy.emptyRuns}</p>}
-          {fetchState.runs.slice().reverse().slice(0, 5).map((run) => (
-            <div key={run.id} className="tasks__row">
-              <div className="tasks__row-main">
-                <div className="tasks__row-title">{run.jobName}</div>
-                <div className="tasks__row-meta">
-                  {run.status} · {formatTime(run.finishedAt ?? run.startedAt)}
-                  {run.summary ? ` · ${run.summary.slice(0, 60)}` : ""}
+          <div className="security-status__grid tasks__grid">
+            <section className="security-status__card tasks__card">
+              <h3>{copy.runsTitle}</h3>
+              {fetchState.runs.length === 0 && <p className="tasks__empty">{copy.emptyRuns}</p>}
+              {fetchState.runs.slice().reverse().slice(0, 5).map((run) => (
+                <div key={run.id} className="tasks__row">
+                  <div className="tasks__row-main">
+                    <div className="tasks__row-title">{run.jobName}</div>
+                    <div className="tasks__row-meta">
+                      {run.status} · {formatTime(run.finishedAt ?? run.startedAt)}
+                      {run.summary ? ` · ${run.summary.slice(0, 60)}` : ""}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
+              ))}
+            </section>
 
-          <h3 className="tasks__section-title">{copy.takeoverTitle}</h3>
-          {!fetchState.takeover?.active && <p className="tasks__empty">{copy.takeoverInactive}</p>}
-          {fetchState.takeover?.active && (
-            <div className="tasks__row">
-              <div className="tasks__row-main">
-                <div className="tasks__row-title">
-                  {language === "zh-CN" ? "接管中" : "Active"} · {fetchState.takeover.allow.length}
-                  {language === "zh-CN" ? " 白名单" : " allowed"}
+            <section className="security-status__card tasks__card">
+              <h3>{copy.takeoverTitle}</h3>
+              {!fetchState.takeover?.active && <p className="tasks__empty">{copy.takeoverInactive}</p>}
+              {fetchState.takeover?.active && (
+                <div className="tasks__row">
+                  <div className="tasks__row-main">
+                    <div className="tasks__row-title">
+                      {language === "zh-CN" ? "接管中" : "Active"} · {fetchState.takeover.allow.length}
+                      {language === "zh-CN" ? " 白名单" : " allowed"}
+                    </div>
+                  </div>
+                  <div className="tasks__row-actions">
+                    <button type="button" className="security-status__refresh" onClick={() => void handleStopTakeover()}>
+                      {copy.stopTakeover}
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="tasks__row-actions">
-                <button type="button" className="security-status__refresh" onClick={() => void handleStopTakeover()}>
-                  {copy.stopTakeover}
-                </button>
-              </div>
-            </div>
-          )}
+              )}
+            </section>
+          </div>
         </>
       )}
     </div>

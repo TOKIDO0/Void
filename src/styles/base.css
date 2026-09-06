@@ -301,18 +301,32 @@ body {
   cursor: pointer;
 }
 
-/* B 任务台账：复用 security-status 工具条/占位，行列表自有。 */
+/* B 任务台账：复用 security-status 工具条/占位/卡片体系，行列表自有。
+   颜色与卡片体系对齐（中性深色玻璃），不再用旧蓝色 privately。 */
 .tasks__section-title {
   margin: 18px 0 8px;
-  color: rgba(232, 245, 255, 0.9);
-  font-size: 13px;
-  letter-spacing: 2px;
+  color: rgba(228, 228, 231, 0.92);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
 }
 
 .tasks__empty {
-  color: rgba(170, 205, 235, 0.6);
+  margin: 0;
+  color: rgba(161, 161, 170, 0.95);
   font-size: 12px;
   line-height: 1.6;
+}
+
+/* 台账分组卡片：复用 .security-status__card 的边框/圆角/底色（见下方），这里只保证占满整行。 */
+.tasks__card {
+  width: 100%;
+  min-width: 0;
+}
+
+/* 近期执行 + 键鼠接管双列：复用 .security-status__grid 的两列语义（窄屏自动单列）。 */
+.tasks__grid {
+  width: 100%;
 }
 
 .tasks__row {
@@ -320,19 +334,34 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid rgba(146, 220, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 12px;
   padding: 10px 14px;
   margin-bottom: 8px;
-  background: rgba(10, 22, 42, 0.42);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* 卡片内的行退为分隔线，避免“盒中盒”。 */
+.tasks__card .tasks__row {
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 0;
+  padding: 10px 2px;
+  margin-bottom: 0;
+  background: transparent;
+}
+
+.tasks__card .tasks__row:first-of-type {
+  border-top: 0;
 }
 
 .tasks__row-main {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .tasks__row-title {
-  color: rgba(232, 245, 255, 0.92);
+  color: rgba(244, 244, 245, 0.94);
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -341,8 +370,10 @@ body {
 
 .tasks__row-meta {
   margin-top: 4px;
-  color: rgba(170, 205, 235, 0.66);
+  color: rgba(161, 161, 170, 0.95);
   font-size: 11px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .tasks__row-actions {
@@ -683,9 +714,16 @@ body {
   color: #fff;
 }
 
-/* 安全状态页签：单栏内容（无侧边预设列表）。 */
-.model-settings-modal__body--single {
+/* 安全/台账/高级页签：单栏内容（无侧边预设列表）。
+   根因说明：下方 .model-settings-modal__body 通用规则（display:flex; overflow:hidden）
+   与单类选择器同优先级且出现更晚，会按层叠覆盖掉这里的 display:block / overflow-y:auto，
+   导致三页内容被当成 flex 行向排布（台账挤在左半边、右全空）且纵向滚不动。
+   用双类选择器提权（0,2,0），与顺序无关地拿回块级纵向滚动。 */
+.model-settings-modal__body.model-settings-modal__body--single {
   display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 18px 24px 24px;
   scrollbar-width: thin;
@@ -696,12 +734,15 @@ body {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: 100%;
+  min-width: 0;
 }
 
 .security-status__toolbar {
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  width: 100%;
 }
 
 .security-status__toolbar .security-status__intro {
@@ -2760,7 +2801,8 @@ body {
 }
 
 .security-status__placeholder {
-  height: 100%;
+  /* 滚动容器内不用 height:100%（会被父 padding 顶出轻微溢出），用最小高度保持居中。 */
+  min-height: 200px;
   display: flex;
   flex-direction: column;
   align-items: center;
