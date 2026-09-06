@@ -2090,7 +2090,11 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     ["打开抖音看看", "browser", ["browser.open"]],
     ["打开知乎", "browser", ["browser.search"]],
     ["打开优酷", "browser", ["browser.open"]],
+    ["打开github", "browser", ["browser.open"]],
+    ["打开outlook", "browser", ["browser.open"]],
     ["打开油管客户端", "desktop", ["desktop.launchApplication"]],
+    ["打开QQ", "desktop", ["desktop.launchApplication"]],
+    ["打开vscode", "desktop", ["desktop.launchApplication"]],
     ["打开记事本", "desktop", ["desktop.launchApplication"]]
   ];
   const platformOpenBad: string[] = [];

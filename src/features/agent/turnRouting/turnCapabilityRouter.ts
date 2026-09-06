@@ -563,8 +563,13 @@ const BROWSER_PATTERN = new RegExp(
 
 /**
  * 进行中的下载/拉取意图（区别于「下载目录」「下载好的文件」这类本地整理指代）。
- * 命中时即使也匹配 FILE_PATTERN，也必须走 browser，否则没有 download* 工具。
+ * 命中时即使也匹配 FILE_PATTERN，也必须走 browser，否则没有 download* 工具（见下方 ACTIVE）。
  */
+// 未知拉丁服务名打开兜底：github/gmail/outlook 类无平台词条，默认归浏览器。
+// 办公文档类排除（Excel/Word 走桌面/文件）；邮件类不排除（可开网页版）。
+const GENERIC_WEB_SERVICE_OPEN_PATTERN =
+  /(?:^|[^\w\u4e00-\u9fa5])(?:帮我|请|给我)?(?:打开|进入|访问)\s*([A-Za-z][A-Za-z0-9._-]{1,30})(?:\s*(?:看看|查看).{0,8})?\s*$/i;
+const GENERIC_WEB_SERVICE_BLOCKLIST = ["excel", "word", "ppt", "pdf", "wps", "文件", "文档", "表格"];
 const ACTIVE_DOWNLOAD_INTENT_PATTERN =
   /(?:帮我|请)?(?:去)?(?:下载|抓取|拉取)(?!目录|文件夹|路径|好|完|过的?)(?:一[个下]|这个|该|到|并|视频|文件|安装包|[，。！？\s]|$)|(?:把|将).{0,12}下载到|(?:B\s*站|哔哩哔哩|视频页|BV[\w]+).{0,16}下载/i;
 
@@ -761,6 +766,7 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
       && !userInput.includes("网页")
       && !userInput.includes("网站")
       && !isWebPlatformLaunch(userInput)
+      && LOCAL_APP_LAUNCH_PATTERN.test(userInput)
     ) {
       return createRoute("desktop", DESKTOP_TOOL_NAMES);
     }
@@ -908,6 +914,13 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
     }
     return createRoute("file", FILE_TOOL_NAMES);
   }
+  // 未知拉丁服务名打开兜底：desktop 已让路（无本地信号），此处收进 browser，避免掉进纯聊天。
+  if (
+    GENERIC_WEB_SERVICE_OPEN_PATTERN.test(userInput)
+    && !GENERIC_WEB_SERVICE_BLOCKLIST.some((word) => userInput.toLowerCase().includes(word.toLowerCase()))
+  ) {
+    return createRoute("browser", BROWSER_TOOL_NAMES);
+  }
   if (BROWSER_PATTERN.test(userInput)) {
     return createRoute("browser", BROWSER_TOOL_NAMES);
   }
@@ -1019,8 +1032,13 @@ function isDirectOfficeIntent(userInput: string, officePattern: RegExp): boolean
  * 平台名启动归属：B站/油管/抖音等命中已知平台时归浏览器；显式"客户端/应用"才留桌面。
  * 根因修补（2026-09-04）：DESKTOP_SIMPLE_LAUNCH 曾把"打开油管"劫持到桌面，模型零浏览器工具。
  */
-function isWebPlatformLaunch(userInput: string): boolean {
-  if (!KNOWN_WEB_PLATFORM_PATTERN.test(userInput)) {
+// 根因修补2（2026-09-04）：名单制打地鼠（github/gmail 全漏）→ 反转默认。
+// "打开X" 仅当 X 命中本地应用信号才走桌面；未知名词默认归浏览器（网站无限，本地应用有限）。
+// 本地信号 = IM（有 UIA 全栈）+ 系统内置 + 浏览器本体 + 显式客户端标记，短小稳定。
+const LOCAL_APP_LAUNCH_PATTERN =
+  /(?:微信|QQ|qq|钉钉|飞书|记事本|计算器|画图|写字板|任务管理器|设置|此电脑|资源管理器|Chrome|Edge|Firefox|火狐|Safari|VS\s*Code|cmd|powershell|终端|客户端|应用|程序|软件)/i;
+
+function isWebPlatformLaunch(userInput: string): boolean {  if (!KNOWN_WEB_PLATFORM_PATTERN.test(userInput)) {
     return false;
   }
   return !/(?:客户端|应用|程序|软件|\bapp\b)/i.test(userInput);
