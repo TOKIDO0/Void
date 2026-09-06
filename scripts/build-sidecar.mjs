@@ -23,9 +23,12 @@
  *   src-tauri/sidecar-app/void-bridge.cjs
  *   src-tauri/sidecar-app/node_modules/playwright-core/
  * 打包映射（tauri.conf.json）：externalBin binaries/node + resources sidecar-app。
- * Rust 拉起：sidecar("node").args([<resourceDir>/sidecar-app/void-bridge.cjs])。
+ * Rust 拉起：cwd=<resourceDir>/sidecar-app + sidecar("node").args(["void-bridge.cjs"])。
+ * 刻意不用绝对路径当参数：Windows 绝对路径在参数传输链上曾被截断（0.2.6 EISDIR on `D:`）。
  */
-import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -89,6 +92,109 @@ async function main() {
 
   rmSync(buildDir, { recursive: true, force: true });
   console.log(`[build-sidecar] done → ${nodeExePath} + ${sidecarAppDir}`);
+
+  // 4. 生产模拟门禁：把 sidecar-app 复制到仓库外的隔离目录（避免向上查找到
+  // 项目 node_modules 造成“本地能跑、用户机器崩”的污染式验证），按安装包的
+  // 真实拉起方式（cwd=sidecar-app + 相对入口）启动并探测端点。
+  // 0.2.4（SEA 快照）与 0.2.6（绝对路径参数）两代事故本应都在这里被拦下。
+  await runProductionSimGate();
+}
+
+/**
+ * 生产模拟门禁使用的隔离目录。
+ * 优先级：环境变量 VOID_PRODSIM_DIR > 本机运行时根（D 盘，不占用 C 盘）
+ * > 系统临时目录（CI runner 走这里）。
+ * 调用方保证用后删除，不留垃圾。
+ */
+function resolveProdSimRoot() {
+  const fromEnv = process.env.VOID_PRODSIM_DIR?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  const runtimeRoot = "D:\\AI\\void-runtime";
+  if (existsSync(runtimeRoot)) {
+    return join(runtimeRoot, ".tmp-prod-sim");
+  }
+  return join(tmpdir(), "void-prod-sim");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function probeHealth(port, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/void-bridge/health`, {
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      return false;
+    }
+    const payload = await response.json();
+    return payload?.status === "ok";
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runProductionSimGate() {
+  const cjs = join(sidecarAppDir, "void-bridge.cjs");
+  const playwrightPkg = join(sidecarAppDir, "node_modules", "playwright-core", "package.json");
+  if (!existsSync(cjs)) {
+    throw new Error(`[prod-sim] 缺少入口：${cjs}`);
+  }
+  if (!existsSync(playwrightPkg)) {
+    throw new Error(`[prod-sim] 缺少随包依赖：${playwrightPkg}`);
+  }
+
+  const simRoot = resolveProdSimRoot();
+  const simAppDir = join(simRoot, "sidecar-app");
+  console.log(`[prod-sim] 隔离目录：${simRoot}`);
+  rmSync(simRoot, { recursive: true, force: true });
+  mkdirSync(simRoot, { recursive: true });
+  try {
+    cpSync(sidecarAppDir, simAppDir, { recursive: true });
+    const port = Number(process.env.VOID_PRODSIM_PORT ?? "17998");
+    // 与 Rust 拉起完全一致：cwd=sidecar-app，参数为相对文件名。
+    const child = spawn(process.execPath, ["void-bridge.cjs"], {
+      cwd: simAppDir,
+      env: { ...process.env, VOID_BRIDGE_PORT: String(port) },
+      stdio: ["ignore", "ignore", "pipe"]
+    });
+    let stderrTail = "";
+    child.stderr?.on("data", (chunk) => {
+      stderrTail = `${stderrTail}${chunk}`.slice(-2000);
+    });
+    const startedAt = Date.now();
+    let healthy = false;
+    try {
+      while (Date.now() - startedAt < 45_000) {
+        if (child.exitCode !== null) {
+          throw new Error(
+            `[prod-sim] sidecar 启动后退出，exitCode=${child.exitCode}（复现了安装包启动崩溃）。stderr 尾巴：${stderrTail || "(空)"}`
+          );
+        }
+        if (await probeHealth(port, 2000)) {
+          healthy = true;
+          break;
+        }
+        await sleep(1000);
+      }
+      if (!healthy) {
+        throw new Error("[prod-sim] 45s 内 /void-bridge/health 未就绪");
+      }
+      console.log("[prod-sim] 健康检查通过，安装包拉起方式可服务");
+    } finally {
+      child.kill();
+      await sleep(500);
+    }
+  } finally {
+    rmSync(simRoot, { recursive: true, force: true });
+  }
 }
 
 main().catch((error) => {

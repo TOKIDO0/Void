@@ -97,7 +97,8 @@ fn spawn_bridge_sidecar(
     bridge_token: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let resource_dir = app.path().resource_dir()?;
-    let entry = resource_dir.join("sidecar-app").join("void-bridge.cjs");
+    let sidecar_app_dir = resource_dir.join("sidecar-app");
+    let entry = sidecar_app_dir.join("void-bridge.cjs");
     if !entry.is_file() {
         return Err(format!(
             "sidecar 入口缺失：{}（安装包资源不完整）",
@@ -105,13 +106,17 @@ fn spawn_bridge_sidecar(
         )
         .into());
     }
-    let Some(entry_text) = entry.to_str() else {
-        return Err("sidecar 入口路径含非法字符，无法作为参数传递".into());
-    };
+    // 诊断生命线：0.2.6 曾出现 node 收到的入口被截成 `D:`（EISDIR 启动崩）。
+    // 无论截断发生在参数传输的哪一环，这里必须留下当时的入口与工作目录，否则下次依然盲猜。
+    log::info!("[void-bridge] 入口：{}，工作目录：{}", entry.display(), sidecar_app_dir.display());
+    // 不传绝对路径当参数：Windows 绝对路径（含盘符/反斜杠）在参数传输链上曾被截断；
+    // 改为把工作目录直接设到 sidecar-app，只传裸文件名，彻底消灭该故障面。
+    // node 按自身 cwd 解析相对入口；cjs 内部 require 按文件位置解析，不受 cwd 影响。
     let sidecar_command = app
         .shell()
         .sidecar("node")?
-        .args([entry_text])
+        .current_dir(&sidecar_app_dir)
+        .args(["void-bridge.cjs"])
         .env("VOID_BRIDGE_TOKEN", bridge_token);
     let (mut command_events, _child) = sidecar_command.spawn()?;
 
