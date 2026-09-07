@@ -11,7 +11,9 @@ import { runAgentToolLoop } from "./loop/agentToolLoop";
 import type { ConfirmationDecision, ConfirmationRequest } from "./permissions";
 import {
   doesTurnCapabilityRequireBridge,
+  READONLY_BASELINE_TOOL_NAMES,
   resolveTurnCapability,
+  withReadonlyBaseline,
   type TurnCapability
 } from "./turnRouting/turnCapabilityRouter";
 import { planBrowserSearchIntent } from "./turnRouting/searchIntentPlanner";
@@ -195,6 +197,22 @@ const DESKTOP_TOOL_USE_SUFFIX = [
   "禁止请求或声称执行任意程序、Shell、命令行或未注册系统位置。"
 ];
 
+/**
+ * 普通对话 + L0 只读基线纪律（混合基线方案，2026-09-07）。
+ * 三种失败必须区分，禁止混为一谈：
+ * 1. 没路由工具（本应有基线，若发生即路由 bug，如实说能力不足，不许说服务没连接）；
+ * 2. bridge 不可达（只有工具返回桥接不可达错误时，才可说本机服务未连接）；
+ * 3. Key 没配（模型调用失败报鉴权错误时，引导用户去设置页填 Key）。
+ */
+const CONVERSATION_TOOL_USE_SUFFIX = [
+  "本轮是普通对话，但带只读基线：web.search（联网搜标题/链接/摘要）、web.fetch（读单页原文）、agent.askUser（拿不准时追问一句）。",
+  "纯闲聊（打招呼、闲谈、已有上下文能答）直接回答，不要调工具；涉及新鲜事、榜单、排名、热度、资料、新闻类问题，必须先 web.search 查到真实结果再回答，结论逐条附完整 http(s) 来源链接。",
+  "没调工具时禁止说「工具服务没连接 / 桥接不可达 / 没权限 / 服务没启动」；纯聊没有工具失败，就不存在连接问题。",
+  "只有 web.search/web.fetch 工具返回桥接不可达错误时，才可说本机联网服务未连接，并请用户启动 VOID 桌面端或本机服务后重试；禁止在没调工具时预判连接失败。",
+  "检索意图但搜不到可靠来源时，必须如实说「没查到可靠来源 / 未能确认」，禁止编造排名、数字、项目名或 URL，禁止用训练记忆冒充刚查到的最新信息。",
+  "拿不准用户要查什么时，用 agent.askUser 问清一句再搜，不要瞎搜一轮浪费预算。"
+];
+
 const CLIPBOARD_TOOL_USE_SUFFIX = [
   "本轮只允许使用系统剪贴板工具。",
   "clipboard.read 只读；clipboard.write 会覆盖剪贴板并需用户确认，禁止写入密码或密钥。",
@@ -298,8 +316,13 @@ export async function sendVoidMessage(
   };
   const taskGate = runtimeOptions.behaviorDecision?.taskGate;
   const blockedByAffect = taskGate ? isBehaviorToolGateBlocked(taskGate) : false;
+  // 混合基线兜底（2026-09-07）：conversation 路由（或任何意外空路由）必须带 L0 只读基线，
+  // 保证 enableTools 可为 true；模型零工具时禁止编造「工具服务没连接」。
+  let effectiveAllowedToolNames = withReadonlyBaseline(turnRoute.allowedToolNames);
+  if (turnRoute.capability === "conversation" && effectiveAllowedToolNames.length === 0) {
+    effectiveAllowedToolNames = [...READONLY_BASELINE_TOOL_NAMES];
+  }
   // 根因修复：被情绪门禁挡住时，L0 只读工具仍应放行（如列应用、看窗口），避免一句道歉仍被卡
-  let effectiveAllowedToolNames = turnRoute.allowedToolNames;
   let effectiveBlockedByAffect = blockedByAffect;
   if (blockedByAffect && turnRoute.allowedToolNames.length > 0) {
     const l0Only = turnRoute.allowedToolNames.filter((name) => getTool(name)?.riskLevel === "L0");
@@ -427,24 +450,32 @@ export async function sendVoidMessage(
     }
   }
 
-  // 支持 tools 的 provider：走 agent loop（非流式拿 tool_calls，最终回复一次性返回）
+  // 根因修复：流式与工具共存。enableTools 分支把 onToken + signal 透进 loop，
+  // 不再强制 streamEnabled=false；loop 内部每轮优先用 provider.streamMessage
+  //（openai-compatible 流式累积 tool_calls + 逐字吐正文），仅 streamMessage==null
+  //（anthropic）回落 sendMessage。final 轮 token 自然逐字吐给 UI。
   if (enableTools) {
     try {
+      let streamedTokenCount = 0;
+      const loopOnToken = onToken
+        ? (token: string) => {
+            streamedTokenCount += 1;
+            onToken(token);
+          }
+        : undefined;
       const loopResult = await runAgentToolLoop({
         messages,
-        modelConfig: {
-          ...effectiveModelConfig,
-          // 工具循环内部统一非流式；避免半截 tool_calls
-          streamEnabled: false
-        },
+        modelConfig: effectiveModelConfig,
         requestConfirmation: runtimeOptions.requestConfirmation,
         onProgress: runtimeOptions.onProgress,
+        onToken: loopOnToken,
         signal: runtimeOptions.signal,
         allowedToolNames: effectiveAllowedToolNames,
         taskGate
       });
-      // 兼容旧调用方：若有 onToken，把最终文本整段推一次，便于显示层刷新
-      if (onToken && loopResult.content) {
+      // 兼容旧调用方：loop 内未走流式（如 anthropic 回落 sendMessage）时，
+      // 把最终文本整段推一次，便于显示层刷新；已逐字流式时不再重复推送。
+      if (onToken && loopResult.content && streamedTokenCount === 0) {
         onToken(loopResult.content);
       }
       return { content: loopResult.content };
@@ -522,7 +553,7 @@ function buildSystemPrompt(
     "【本轮边界】",
     `只处理最新用户消息：「${clipForBoundaryHint(latestUserInput)}」。`,
     capability === "conversation"
-      ? "本轮是普通对话，不调用任何工具，也不补做历史中的搜索、打开、下载或桌面操作。"
+      ? "本轮是普通对话 + 只读基线：可用 web.search（联网搜）、web.fetch（读网页原文）、agent.askUser（追问）。闲聊直接回答，不调工具；涉及新鲜事、榜单、排名、资料类问题必须先调只读工具查到真实来源再回答。没有调用工具时，禁止声称「工具服务没连接 / 桥接不可达 / 没权限」；只有工具返回桥接不可达错误时，才可说本机服务未连接。也不补做历史中的搜索、打开、下载或桌面操作。"
       : "历史仅用于理解指代，不得顺带补做上一轮未完成任务。"
   ].join(""));
 
@@ -662,8 +693,10 @@ export function buildToolUseSystemSuffix(capability: TurnCapability) {
             ? SECURITY_TOOL_USE_SUFFIX
             : capability === "agent"
               ? AGENT_TOOL_USE_SUFFIX
-              : capability === "software"
-                ? SOFTWARE_TOOL_USE_SUFFIX
+          : capability === "software"
+              ? SOFTWARE_TOOL_USE_SUFFIX
+              : capability === "conversation"
+                ? CONVERSATION_TOOL_USE_SUFFIX
                 : [];
   // 阶段 W：file / browser 都会产出本地文件，追加同一段产物汇报纪律（39 号文档 §3.1）
   const artifactRules = capability === "browser" || capability === "file"

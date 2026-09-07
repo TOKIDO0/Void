@@ -69,8 +69,6 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
   const [fetchedModelsByPreset, setFetchedModelsByPreset] = useState<Record<string, ModelOption[]>>({});
   const [catalogStatus, setCatalogStatus] = useState<CatalogStatus>("idle");
   const [catalogMessage, setCatalogMessage] = useState("");
-  const [testConnectionStatus, setTestConnectionStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [testConnectionMessage, setTestConnectionMessage] = useState("");
 
   const copy = SETTINGS_COPY[language];
   // 优先展示自动拉取的模型；拉取失败或未拉取时回退内置列表，保证下拉框不空白。
@@ -260,11 +258,15 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     }));
   };
 
-  // 向厂商拉取该 Key 可用的模型列表，成功则缓存到对应 preset 并展示在下拉框。
+  // 唯一连通入口（测试连接与拉取模型列表已合并）：
+  // 用当前地址 + 密钥向厂商请求一次，成功则同时证明连通并刷新模型下拉 + 成功数，
+  // 失败则展示原因并回退内置列表。失焦自动拉取与下拉旁按钮都走这里。
   const refreshModelCatalog = async () => {
     const presetId = selectedPresetId;
     const { provider, baseUrl, apiKey } = draftConfig;
     if (!baseUrl.trim() || !apiKey.trim()) {
+      setCatalogStatus("error");
+      setCatalogMessage(copy.catalogKeyMissing);
       return;
     }
 
@@ -286,39 +288,10 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     }
   };
 
-  // Base URL / API Key 失焦后，若两者齐备则自动拉取一次（避免逐字符打接口）。
+  // 地址 / 密钥失焦后，若两者齐备则自动连通并刷新一次（避免逐字符打接口）。
   const handleProviderFieldBlur = () => {
     if (draftConfig.baseUrl.trim() && draftConfig.apiKey.trim()) {
       void refreshModelCatalog();
-    }
-  };
-
-  const handleTestConnection = async () => {
-    if (!draftConfig.baseUrl.trim() || !draftConfig.apiKey.trim()) {
-      setTestConnectionStatus("error");
-      setTestConnectionMessage(language === "zh-CN" ? "请先填写 Base URL 和 API Key" : "Please fill Base URL and API Key");
-      return;
-    }
-    setTestConnectionStatus("loading");
-    setTestConnectionMessage("");
-    const result = await fetchModelCatalog(draftConfig.provider, draftConfig.baseUrl, draftConfig.apiKey);
-    if (result.ok) {
-      setTestConnectionStatus("success");
-      setTestConnectionMessage(
-        language === "zh-CN"
-          ? `连接成功，发现 ${result.models.length} 个可用模型`
-          : `Connected, found ${result.models.length} models`
-      );
-    } else {
-      setTestConnectionStatus("error");
-      // 针对推理模型额度耗尽等常见情况，给出更具体的提示已在 provider 层处理，这里直接展示原始信息并追加 Base URL 检查提示
-      const extraHint =
-        result.message.includes("no_available_channel") || result.message.includes("503")
-          ? language === "zh-CN"
-            ? "（提示：请确认 Base URL 是否包含 /v1，如 https://api.a6api.com/v1）"
-            : " (hint: ensure Base URL includes /v1)"
-          : "";
-      setTestConnectionMessage(`${result.message}${extraHint}`);
     }
   };
 
@@ -673,21 +646,26 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
         <div className="model-settings-modal__body">
           <aside className="model-settings-modal__sidebar">
             <div className="model-settings-modal__sidebar-label">{copy.presetGroup}</div>
+            <p className="model-settings-modal__sidebar-explainer">{copy.presetExplainer}</p>
             <div className="model-settings-modal__preset-list">
-              {MODEL_PRESETS.map((preset) => {
-                const isActive = selectedPresetId === preset.id;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    className={`model-settings-modal__preset-card${isActive ? " is-active" : ""}`}
-                    onClick={() => applyPreset(preset.id)}
-                  >
-                    <span>{preset.label}</span>
-                    <span className="model-settings-modal__preset-dot" aria-hidden="true" />
-                  </button>
-                );
-              })}
+              {MODEL_PRESETS.length === 0 ? (
+                <p className="model-settings-modal__preset-empty">{copy.presetEmpty}</p>
+              ) : (
+                MODEL_PRESETS.map((preset) => {
+                  const isActive = selectedPresetId === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`model-settings-modal__preset-card${isActive ? " is-active" : ""}`}
+                      onClick={() => applyPreset(preset.id)}
+                    >
+                      <span>{preset.label}</span>
+                      <span className="model-settings-modal__preset-dot" aria-hidden="true" />
+                    </button>
+                  );
+                })
+              )}
             </div>
             <div className="model-settings-modal__sidebar-note">
               <strong>{copy.strengthRuleTitle}</strong>
@@ -734,7 +712,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                         onClick={() => void refreshModelCatalog()}
                         disabled={catalogStatus === "loading" || !draftConfig.baseUrl.trim() || !draftConfig.apiKey.trim()}
                       >
-                        {copy.refreshModelCatalog}
+                        {copy.verifyAndRefreshCatalog}
                       </button>
                     </div>
                     {catalogStatus !== "idle" ? (
@@ -774,36 +752,6 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                       onBlur={handleProviderFieldBlur}
                     />
                   </label>
-                </div>
-
-                <div className="model-settings-modal__test-connection">
-                  <button
-                    type="button"
-                    className="model-settings-modal__input-action"
-                    onClick={() => void handleTestConnection()}
-                    disabled={testConnectionStatus === "loading"}
-                  >
-                    {testConnectionStatus === "loading"
-                      ? language === "zh-CN"
-                        ? "测试中..."
-                        : "Testing..."
-                      : language === "zh-CN"
-                        ? "测试连接"
-                        : "Test connection"}
-                  </button>
-                  {testConnectionStatus !== "idle" ? (
-                    <small
-                      className={
-                        testConnectionStatus === "success"
-                          ? "model-settings-modal__test-success"
-                          : testConnectionStatus === "error"
-                            ? "model-settings-modal__test-error"
-                            : ""
-                      }
-                    >
-                      {testConnectionMessage}
-                    </small>
-                  ) : null}
                 </div>
 
                 <div className="model-settings-modal__advanced-model">

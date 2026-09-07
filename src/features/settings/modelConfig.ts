@@ -130,6 +130,20 @@ export const MODEL_PRESETS: ModelPreset[] = [
     modelName: "abab6.5s-chat"
   },
   {
+    id: "moonshot",
+    label: "Moonshot / Kimi",
+    provider: "openai-compatible",
+    baseUrl: "https://api.moonshot.cn/v1",
+    modelName: "kimi-k2"
+  },
+  {
+    id: "qwen",
+    label: "通义千问 Qwen",
+    provider: "openai-compatible",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    modelName: "qwen-max"
+  },
+  {
     id: "anthropic",
     label: "Anthropic Claude",
     provider: "anthropic",
@@ -173,6 +187,17 @@ export const MODEL_OPTIONS_BY_PRESET: Record<string, ModelOption[]> = {
   minimax: [
     { label: "abab6.5s", modelName: "abab6.5s-chat", strength: "middle" },
     { label: "abab6.5g", modelName: "abab6.5g-chat", strength: "high" }
+  ],
+  moonshot: [
+    { label: "Kimi K2", modelName: "kimi-k2", strength: "high" },
+    { label: "Moonshot V1 8K", modelName: "moonshot-v1-8k", strength: "low" },
+    { label: "Moonshot V1 32K", modelName: "moonshot-v1-32k", strength: "middle" },
+    { label: "Moonshot V1 128K", modelName: "moonshot-v1-128k", strength: "high" }
+  ],
+  qwen: [
+    { label: "Qwen Max", modelName: "qwen-max", strength: "max" },
+    { label: "Qwen Plus", modelName: "qwen-plus", strength: "high" },
+    { label: "Qwen Turbo", modelName: "qwen-turbo", strength: "low" }
   ],
   anthropic: [
     { label: "Claude Haiku 4.5", modelName: "claude-haiku-4-5", strength: "low" },

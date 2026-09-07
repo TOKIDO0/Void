@@ -127,11 +127,9 @@ export const openAiCompatibleProvider: ModelProvider = {
       throw new Error(validation.message);
     }
 
-    // 带 tools 的请求必须非流式，才能完整拿到 tool_calls；由上层 agent loop 走 sendMessage
-    if (request.tools && request.tools.length > 0) {
-      return this.sendMessage(request, config);
-    }
-
+    // 根因修复：流式与工具共存。readOpenAiCompatibleStream 早已支持 delta.content
+    // 逐 token 吐正文 + delta.tool_calls 按 index 累积，此处直接带 tools 走流式，
+    // 不再 early-return 到 sendMessage（那是“工具与流式二选一”的硬性封死）。
     const endpointUrl = buildProviderEndpointUrl(config.baseUrl, "chat/completions");
     const fetchTarget = buildFetchTarget(endpointUrl);
     logOpenAiCompatibleRequest("stream", endpointUrl, config);
@@ -139,15 +137,31 @@ export const openAiCompatibleProvider: ModelProvider = {
     if (config.apiKey.trim()) {
       streamHeaders.Authorization = buildBearerToken(config.apiKey);
     }
-    const response = await fetchWithProxyFallback(fetchTarget, {
-      method: "POST",
-      headers: streamHeaders,
-      body: JSON.stringify(buildOpenAiCompatibleBody(request, config, true)),
-      signal: request.signal
-    });
+    let response: Response;
+    try {
+      response = await fetchWithProxyFallback(fetchTarget, {
+        method: "POST",
+        headers: streamHeaders,
+        body: JSON.stringify(buildOpenAiCompatibleBody(request, config, true)),
+        signal: request.signal
+      });
+    } catch (error) {
+      if (request.tools && request.tools.length > 0 && isStreamingToolsUnsupportedError(error)) {
+        return this.sendMessage(request, config);
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       const errorMessage = await readErrorMessage(response);
+      // 降级语义保留：中转站对带 tools 的流式请求报 no_available_channel（或疑似
+      // 不支持“流式+工具”组合）时，fallback 到 sendMessage（其内部已有去工具重试），
+      // 避免比原来的纯非流式路径更脆。
+      if (request.tools && request.tools.length > 0
+        && (isNoAvailableChannelError(response.status, errorMessage)
+          || isStreamingToolsUnsupportedError(errorMessage))) {
+        return this.sendMessage(request, config);
+      }
       throw createHttpStatusError(
         response.status,
         buildOpenAiCompatibleServiceMessage(response.status, errorMessage, config),
@@ -156,10 +170,20 @@ export const openAiCompatibleProvider: ModelProvider = {
     }
 
     if (!response.body) {
+      if (request.tools && request.tools.length > 0) {
+        return this.sendMessage(request, config);
+      }
       throw new Error("模型没有返回可读取的流式内容。");
     }
 
-    return readOpenAiCompatibleStream(response.body, request.onToken);
+    try {
+      return await readOpenAiCompatibleStream(response.body, request.onToken);
+    } catch (error) {
+      if (request.tools && request.tools.length > 0 && isStreamingToolsUnsupportedError(error)) {
+        return this.sendMessage(request, config);
+      }
+      throw error;
+    }
   },
 
   normalizeResponse(response: unknown): ProviderResponse {
@@ -418,6 +442,36 @@ function logOpenAiCompatibleRequest(mode: "send" | "stream", endpointUrl: string
     apiKeyHasBearerPrefix: /^Bearer\s+/i.test(config.apiKey.trim()),
     streamEnabled: config.streamEnabled
   });
+}
+
+function isNoAvailableChannelError(status: number, errorMessage: string) {
+  if (status !== 503) {
+    return false;
+  }
+  const lower = (errorMessage || "").toLowerCase();
+  return lower.includes("no_available_channel") || lower.includes("no available channel");
+}
+
+/**
+ * 疑似中转不支持“流式 + 工具”组合：错误文案点名 stream/tools/tool_calls
+ * 不兼容时才允许 fallback 到 sendMessage，避免把鉴权/限流等真错吞掉。
+ */
+function isStreamingToolsUnsupportedError(error: unknown) {
+  const text = (error instanceof Error ? error.message : String(error ?? "")).toLowerCase();
+  if (!text) {
+    return false;
+  }
+  if (text.includes("no_available_channel") || text.includes("no available channel")) {
+    return true;
+  }
+  const mentionsStream = text.includes("stream");
+  const mentionsTool = text.includes("tool") || text.includes("function_call") || text.includes("function call");
+  const mentionsUnsupported = text.includes("not support")
+    || text.includes("unsupported")
+    || text.includes("not allowed")
+    || text.includes("invalid")
+    || text.includes("unknown parameter");
+  return mentionsStream && mentionsTool && mentionsUnsupported;
 }
 
 async function readOpenAiCompatibleStream(

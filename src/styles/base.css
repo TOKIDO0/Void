@@ -920,6 +920,23 @@ body {
   line-height: 1.55;
 }
 
+.model-settings-modal__sidebar-explainer {
+  margin: 6px 0 10px;
+  color: rgba(113, 113, 122, 0.95);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.model-settings-modal__preset-empty {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: rgba(113, 113, 122, 0.95);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
 .memory-manager__search {
   position: relative;
 }

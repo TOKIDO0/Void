@@ -33,6 +33,7 @@ const PLATFORM_SITE_URL: Record<string, string> = {
   小红书: "https://www.xiaohongshu.com",
   微博: "https://weibo.com",
   知乎: "https://www.zhihu.com",
+  github: "https://github.com/trending",
   youtube: "https://www.youtube.com",
   淘宝: "https://www.taobao.com",
   京东: "https://www.jd.com",
@@ -88,6 +89,10 @@ function detectPlatform(text: string): SearchPlatform {
   if (/(?:抖音|快手|小红书|微博|知乎|youtube|淘宝|京东|百度|谷歌|google)/i.test(text)) {
     return "web";
   }
+  // GitHub 热门/趋势类：归全网检索，不只懂 B 站
+  if (/(?:github|git\s*hub|开源项目|trending)/i.test(text)) {
+    return "web";
+  }
   return "unknown";
 }
 
@@ -111,6 +116,11 @@ function detectAction(text: string, platform: SearchPlatform): BrowserIntentActi
     return "open_site";
   }
   if (/(?:搜索|搜一下|搜一搜|帮我搜|给我搜|查一下|上网查|找.{0,8}(?:视频|博主|up主|主播)|好玩|有趣|推荐)/.test(text)) {
+    return "search";
+  }
+  // GitHub 本周热门类口语：「找一下 GitHub 这一周很火的项目」「总结一下热门仓库」
+  if (/(?:github|git\s*hub|trending|开源项目)/i.test(text)
+    && /(?:找|热门|很火|最火|流行|趋势|排行|榜单|总结|汇总|推荐|介绍|说说|讲讲)/.test(text)) {
     return "search";
   }
   if (/(?:打开|看一下|看看).{0,16}(?:视频|博主|网页|网站|链接)/.test(text)) {
@@ -143,6 +153,16 @@ function buildQueryCandidates(
   // 模糊“最牛/最火网红”类：展开为跨平台榜单检索词，避免模型空搜
   if (/(?:最牛|最强|最厉害|最红|最火|最热门).{0,10}(?:网红|博主|主播|up主)/.test(text)) {
     candidates.push("全球 YouTube 订阅最多网红 2024", "MrBeast YouTube channel", "抖音最火网红排行");
+  }
+
+  // GitHub 本周热门类：产出英文 trending 检索词 + 站点线索，不只懂 B 站
+  if (/(?:github|git\s*hub)/i.test(text) && /(?:热门|很火|最火|流行|趋势|排行|榜单|项目|仓库|trending)/i.test(text)) {
+    const weekly = /(?:本周|这一周|这周|weekly|7天|七天)/i.test(text);
+    candidates.push(
+      weekly ? "github trending weekly" : "github trending",
+      weekly ? "GitHub 本周最火开源项目" : "GitHub 热门开源项目",
+      "github.com/trending"
+    );
   }
 
   if (action === "open_latest_video") {
@@ -185,10 +205,12 @@ function resolveSiteUrlHint(
   platform: SearchPlatform,
   action: BrowserIntentAction
 ): string | undefined {
+  // GitHub 趋势榜有唯一权威落地页：search 动作也给站点线索，供 web.fetch 直接精读。
+  if (/(?:github|git\s*hub|trending)/i.test(text)) {
+    return PLATFORM_SITE_URL.github;
+  }
   if (action !== "open_site" && action !== "generic_browse") {
-    return platform === "bilibili" && action === "search"
-      ? undefined
-      : undefined;
+    return undefined;
   }
   if (/(?:B\s*站|哔哩哔哩|bilibili)/i.test(text) || platform === "bilibili" && action === "open_site") {
     return PLATFORM_SITE_URL.bilibili;
@@ -268,6 +290,12 @@ function buildPromptHint(input: {
       "B 站三连：browser.extract 定位点赞按钮后 browser.longPress（默认 holdMs=3000）；其它平台无三连则说明并改点赞/收藏。",
       "评论：extract/click 打开评论区 → browser.type 写入用户原话 → 发送；需确认则走确认。",
       "未登录、点不到或 longPress/click 失败时如实说明，禁止假称已点赞/已三连/已评论。"
+    );
+  }
+
+  if (input.siteUrlHint === PLATFORM_SITE_URL.github) {
+    lines.push(
+      "GitHub 热门：先 web.search（英文词如 github trending weekly 优先）拿候选仓库，再 web.fetch 榜单页或仓库页核对 star 数、语言与简介；结论逐条附仓库完整 URL，禁止编造项目名和 star 数。"
     );
   }
 

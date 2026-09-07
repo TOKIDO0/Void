@@ -33,6 +33,30 @@ const TASK_COLLAB_TOOL_NAMES = [
   "agent.spawnTask"
 ];
 
+/**
+ * L0 只读基线（混合基线方案，2026-09-07）：
+ * web.search + web.fetch + agent.askUser 每轮常驻，模型自主决策是否调用；
+ * 高风险工具仍走路由 + 确认。researchIntent 只做 prompt 增强，不再决定给不给工具。
+ * 根因：「GitHub 本周很火」类口语命中不了正则白名单时会掉进 conversation 空工具，
+ * 模型零工具却编造「工具服务没连接」；基线兜底后 conversation 也有只读检索能力。
+ */
+export const READONLY_BASELINE_TOOL_NAMES: readonly string[] = [
+  "web.search",
+  "web.fetch",
+  "agent.askUser"
+];
+
+/** 把只读基线并入某能力组（去重）；高风险工具不受影响，仍走原路由 + 确认。 */
+export function withReadonlyBaseline(toolNames: readonly string[]): string[] {
+  const merged = [...toolNames];
+  for (const baselineName of READONLY_BASELINE_TOOL_NAMES) {
+    if (!merged.includes(baselineName)) {
+      merged.push(baselineName);
+    }
+  }
+  return merged;
+}
+
 const BROWSER_TOOL_NAMES = [
   "web.search",
   "web.fetch",
@@ -935,20 +959,20 @@ function classifyDirectCapability(userInput: string): TurnCapabilityRoute {
   if (BROWSER_PATTERN.test(userInput)) {
     return createRoute("browser", BROWSER_TOOL_NAMES);
   }
-  // 阶段 F：信息检索/搜集类意图需要 search/extract 拿真实来源，不能当纯闲聊。
-  if (isResearchIntent(userInput)) {
-    return createRoute("browser", BROWSER_TOOL_NAMES);
-  }
-  return createRoute("conversation", []);
+  // 混合基线方案：researchIntent 只做 prompt 增强（thinking + 来源硬规则），不再决定给不给工具。
+  // 检索类口语落到 conversation + 只读基线（web.search/web.fetch），模型自主决策是否检索；
+  // 只有显式浏览器动作（BROWSER_PATTERN 等）才升级到全量 browser 工具组。
+  return createRoute("conversation", [...READONLY_BASELINE_TOOL_NAMES]);
 }
 
 function createRoute(
   capability: TurnCapability,
   allowedToolNames: string[]
 ): TurnCapabilityRoute {
+  // L0 只读基线每轮常驻：各能力组在原有工具之外都带 web.search/web.fetch/agent.askUser。
   return {
     capability,
-    allowedToolNames: [...allowedToolNames],
+    allowedToolNames: withReadonlyBaseline(allowedToolNames),
     resumedFromHistory: false
   };
 }

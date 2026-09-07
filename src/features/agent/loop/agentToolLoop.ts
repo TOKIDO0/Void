@@ -71,6 +71,8 @@ export type AgentToolLoopOptions = {
   ) => Promise<ConfirmationDecision>;
   /** 轻量进度文案（给回复层 / 状态机，不是工具控制台） */
   onProgress?: (message: string) => void;
+  /** 流式透传：每轮优先走 provider.streamMessage 逐 token 吐正文；tool 轮 content 为空自然不打扰 */
+  onToken?: (token: string) => void;
   signal?: AbortSignal;
   /** 模型请求轮次上限（含最终回复轮）；默认 8 */
   maxRounds?: number;
@@ -280,10 +282,7 @@ async function runAgentToolLoopInternal(
   }
 
   if (!provider.supportsTools) {
-    const response = await provider.sendMessage(
-      { messages: options.messages, signal: options.signal },
-      options.modelConfig
-    );
+    const response = await requestSingleRoundModelResponse(provider, options, undefined, "none");
     return {
       content: blockedByAffect && options.taskGate
         ? formatBehaviorToolRefusal(options.taskGate)
@@ -323,10 +322,7 @@ async function runAgentToolLoopInternal(
           || allowedToolNames.has(fromModelToolName(definition.function.name))
         );
   if (tools.length === 0) {
-    const response = await provider.sendMessage(
-      { messages: options.messages, signal: options.signal },
-      options.modelConfig
-    );
+    const response = await requestSingleRoundModelResponse(provider, options, undefined, "none");
     return {
       content: blockedByAffect && options.taskGate
         ? formatBehaviorToolRefusal(options.taskGate)
@@ -394,14 +390,16 @@ async function runAgentToolLoopInternal(
     rounds += 1;
     let response: ProviderResponse;
     try {
-      response = await provider.sendMessage(
-        {
-          messages,
-          tools: forceFinalText ? undefined : tools,
-          toolChoice: forceFinalText ? "none" : "auto",
-          signal: options.signal
-        },
-        options.modelConfig
+      // 根因修复：流式与工具共存。每轮优先用 provider.streamMessage（openai-compatible
+      // 已支持流式 tool_calls 累积 + onToken 吐正文），仅 provider.streamMessage==null
+      //（如 anthropic）才回落 sendMessage。forceFinalText 时 tools=undefined +
+      // toolChoice=none 语义保留；tool 轮 content 通常为空自然不打扰，final 轮逐字吐给 UI。
+      response = await requestSingleRoundModelResponse(
+        provider,
+        options,
+        forceFinalText ? undefined : tools,
+        forceFinalText ? "none" : "auto",
+        messages
       );
     } catch (error) {
       throw provider.mapError(error);
@@ -1235,4 +1233,46 @@ function createAbortedError() {
   const error = new Error("任务已取消");
   error.name = "AbortError";
   return error;
+}
+
+/**
+ * 根因修复：单轮模型请求统一走“流式优先 + 零 token 失败回落非流式”。
+ * 流式与工具共存（content 逐字吐 + tool_calls 累积），streamMessage==null
+ *（如 anthropic）或流式在吐出任何 token 前失败时用 sendMessage，保证不比原来更脆。
+ * 已吐 token 后失败直接抛，避免同一轮内容在 UI 重复。
+ */
+async function requestSingleRoundModelResponse(
+  provider: ReturnType<typeof getModelProvider>,
+  options: AgentToolLoopOptions,
+  tools: ProviderToolDefinition[] | undefined,
+  toolChoice: "auto" | "none",
+  messages: ProviderMessage[] = options.messages
+): Promise<ProviderResponse> {
+  if (!provider.streamMessage) {
+    return provider.sendMessage(
+      { messages, tools, toolChoice, signal: options.signal },
+      options.modelConfig
+    );
+  }
+  let streamedTokens = 0;
+  const roundOnToken = options.onToken
+    ? (token: string) => {
+        streamedTokens += 1;
+        options.onToken?.(token);
+      }
+    : undefined;
+  try {
+    return await provider.streamMessage(
+      { messages, tools, toolChoice, onToken: roundOnToken, signal: options.signal },
+      options.modelConfig
+    );
+  } catch (streamError) {
+    if (streamedTokens > 0 || options.signal?.aborted) {
+      throw streamError;
+    }
+    return provider.sendMessage(
+      { messages, tools, toolChoice, signal: options.signal },
+      options.modelConfig
+    );
+  }
 }
