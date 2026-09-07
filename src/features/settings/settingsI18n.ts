@@ -42,6 +42,12 @@ type SettingsCopy = {
   sectionGeneration: string;
   sectionMemory: string;
   sectionVoice: string;
+  sectionWebSearch: string;
+  webSearchProvider: string;
+  webSearchKey: string;
+  webSearchKeyHint: string;
+  webSearchGetKey: string;
+  webSearchNoKeyHint: string;
   semanticSearch: string;
   semanticSearchHint: string;
   strengthRuleTitle: string;
@@ -124,6 +130,12 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     sectionGeneration: "回答偏好",
     sectionMemory: "记忆",
     sectionVoice: "语音",
+    sectionWebSearch: "联网搜索",
+    webSearchProvider: "搜索服务商",
+    webSearchKey: "搜索密钥",
+    webSearchKeyHint: "去服务商官网免费申请，只保存在本机。不填也能用基础搜索，填了更快更准。",
+    webSearchGetKey: "获取 Key",
+    webSearchNoKeyHint: "没填密钥时用免费链路；GitHub 周榜这类实时榜单建议填 Tavily Key。",
     semanticSearch: "更懂你的记忆搜索",
     semanticSearchHint: "打开后找过去的记忆更准确，第一次用会多花一点时间准备，失败会自动用回普通搜索。",
     strengthRuleTitle: "档位说明",
@@ -202,6 +214,12 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     sectionGeneration: "Reply preferences",
     sectionMemory: "Memory",
     sectionVoice: "Voice",
+    sectionWebSearch: "Web search",
+    webSearchProvider: "Search provider",
+    webSearchKey: "Search API key",
+    webSearchKeyHint: "Free from the provider website. Stored on this device only. Basic search works without it; a key is faster and more accurate.",
+    webSearchGetKey: "Get key",
+    webSearchNoKeyHint: "Without a key the free path is used; a Tavily key is recommended for live rankings like GitHub Trending.",
     semanticSearch: "Smarter memory search",
     semanticSearchHint: "Finds past memories more accurately. The first use takes a little extra setup time, and falls back to normal search if anything fails.",
     strengthRuleTitle: "About tiers",

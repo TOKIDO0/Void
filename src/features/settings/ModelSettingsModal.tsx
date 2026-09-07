@@ -34,6 +34,14 @@ import { ModelUsageSection } from "../agent/usage/ModelUsageSection";
 import { UpdaterSection } from "./UpdaterSection";
 import { isHighPermissionMode, setHighPermissionMode } from "./highPermissionMode";
 import { SETTINGS_COPY as SHARED_SETTINGS_COPY } from "./settingsI18n";
+import {
+  WEB_SEARCH_PROVIDER_LABELS,
+  getWebSearchKeyUrl,
+  loadWebSearchConfig,
+  saveWebSearchConfig,
+  type WebSearchConfig,
+  type WebSearchProviderId
+} from "./webSearchConfig";
 
 /** 单厂商模型列表拉取状态。 */
 type CatalogStatus = "idle" | "loading" | "error" | "ready";
@@ -64,6 +72,8 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
   const [selectedPresetId, setSelectedPresetId] = useState(() => findPresetId(loadModelConfig()));
   const [isAdvancedModelOpen, setIsAdvancedModelOpen] = useState(false);
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
+  const [isWebSearchKeyVisible, setIsWebSearchKeyVisible] = useState(false);
+  const [webSearchDraft, setWebSearchDraft] = useState<WebSearchConfig>(() => loadWebSearchConfig());
   const [isDirty, setIsDirty] = useState(false);
   // 自动拉取的模型列表（按 presetId 缓存），与内置列表合并展示。
   const [fetchedModelsByPreset, setFetchedModelsByPreset] = useState<Record<string, ModelOption[]>>({});
@@ -95,6 +105,8 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     setDraftConfig(storedConfig);
     setVoiceRuntimeConfig(storedVoiceRuntimeConfig);
     setSemanticSearchDraft(storedSemanticSearchEnabled);
+    setWebSearchDraft(loadWebSearchConfig());
+    setIsWebSearchKeyVisible(false);
     setSelectedPresetId(storedPresetId);
     setIsAdvancedModelOpen(
       !storedModelOptions.some((option: { modelName: string }) => option.modelName === storedConfig.modelName)
@@ -344,6 +356,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     saveVoiceRuntimeConfig({
       doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId
     });
+    saveWebSearchConfig(webSearchDraft);
     setSemanticSearchEnabled(semanticSearchDraft);
     if (semanticSearchDraft) {
       void import("../memory/memorySemanticWarmup").then(({ scheduleIdleSemanticWarmup, warmupSemanticEmbedIfEnabled }) => {
@@ -775,6 +788,64 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                       <small>{copy.advancedModelHint}</small>
                     </label>
                   ) : null}
+                </div>
+              </div>
+            </section>
+
+            <section className="model-settings-modal__section">
+              <h3 className="model-settings-modal__section-title">{copy.sectionWebSearch}</h3>
+              <div className="model-settings-modal__card">
+                <div className="model-settings-modal__grid">
+                  <label className="model-settings-modal__field">
+                    <span>{copy.webSearchProvider}</span>
+                    <DarkSelect
+                      aria-label={copy.webSearchProvider}
+                      value={webSearchDraft.provider}
+                      onChange={(next) => {
+                        markDirty();
+                        setWebSearchDraft((current) => ({
+                          ...current,
+                          provider: next as WebSearchProviderId
+                        }));
+                      }}
+                      options={(
+                        Object.entries(WEB_SEARCH_PROVIDER_LABELS) as Array<[WebSearchProviderId, string]>
+                      ).map(([value, label]) => ({ value, label }))}
+                    />
+                  </label>
+
+                  <label className="model-settings-modal__field">
+                    <span>{copy.webSearchKey}</span>
+                    <div className="model-settings-modal__input-with-action">
+                      <input
+                        type={isWebSearchKeyVisible ? "text" : "password"}
+                        value={webSearchDraft.apiKey}
+                        autoComplete="off"
+                        placeholder={copy.webSearchKeyHint}
+                        onChange={(event) => {
+                          markDirty();
+                          const nextValue = event.target.value;
+                          setWebSearchDraft((current) => ({ ...current, apiKey: nextValue }));
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="model-settings-modal__input-action"
+                        onClick={() => setIsWebSearchKeyVisible((current) => !current)}
+                      >
+                        {isWebSearchKeyVisible ? copy.hideSecret : copy.showSecret}
+                      </button>
+                      <button
+                        type="button"
+                        className="model-settings-modal__input-action"
+                        onClick={() => window.open(getWebSearchKeyUrl(webSearchDraft.provider), "_blank", "noopener,noreferrer")}
+                        title={copy.webSearchKeyHint}
+                      >
+                        {copy.webSearchGetKey}
+                      </button>
+                    </div>
+                    <small>{copy.webSearchNoKeyHint}</small>
+                  </label>
                 </div>
               </div>
             </section>
