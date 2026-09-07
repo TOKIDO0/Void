@@ -9,6 +9,7 @@
     "core:default",
     "notification:allow-notify",
     "updater:default",
-    "process:default"
+    "process:default",
+    "shell:allow-open"
   ]
 }

@@ -42,6 +42,7 @@ import {
   type WebSearchConfig,
   type WebSearchProviderId
 } from "./webSearchConfig";
+import { openExternalUrl } from "../../lib/runtime/openExternalUrl";
 
 /** 单厂商模型列表拉取状态。 */
 type CatalogStatus = "idle" | "loading" | "error" | "ready";
@@ -795,7 +796,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
             <section className="model-settings-modal__section">
               <h3 className="model-settings-modal__section-title">{copy.sectionWebSearch}</h3>
               <div className="model-settings-modal__card">
-                <div className="model-settings-modal__grid">
+                <div className="model-settings-modal__grid model-settings-modal__grid--single">
                   <label className="model-settings-modal__field">
                     <span>{copy.webSearchProvider}</span>
                     <DarkSelect
@@ -816,7 +817,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
 
                   <label className="model-settings-modal__field">
                     <span>{copy.webSearchKey}</span>
-                    <div className="model-settings-modal__input-with-action">
+                    <div className="model-settings-modal__key-row">
                       <input
                         type={isWebSearchKeyVisible ? "text" : "password"}
                         value={webSearchDraft.apiKey}
@@ -830,15 +831,15 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                       />
                       <button
                         type="button"
-                        className="model-settings-modal__input-action"
+                        className="model-settings-modal__key-button"
                         onClick={() => setIsWebSearchKeyVisible((current) => !current)}
                       >
                         {isWebSearchKeyVisible ? copy.hideSecret : copy.showSecret}
                       </button>
                       <button
                         type="button"
-                        className="model-settings-modal__input-action"
-                        onClick={() => window.open(getWebSearchKeyUrl(webSearchDraft.provider), "_blank", "noopener,noreferrer")}
+                        className="model-settings-modal__key-button is-primary"
+                        onClick={() => void openExternalUrl(getWebSearchKeyUrl(webSearchDraft.provider))}
                         title={copy.webSearchKeyHint}
                       >
                         {copy.webSearchGetKey}

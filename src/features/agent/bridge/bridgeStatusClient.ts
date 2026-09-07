@@ -55,7 +55,7 @@ export function getBridgeOriginForDisplay(): string {
   }
 }
 
-/** 归因首行：spawn 失败 > 进程异常退出 > 单纯不可达。 */
+/** 归因首行：spawn 失败 > 进程异常退出 > 按运行态给可执行的下一步。 */
 export function describeBridgeDownCause(result: Extract<BridgeProbeResult, { kind: "down" }>): string {
   if (result.sidecar?.spawnError) {
     return `sidecar 启动失败：${result.sidecar.spawnError}`;
@@ -63,10 +63,12 @@ export function describeBridgeDownCause(result: Extract<BridgeProbeResult, { kin
   if (result.sidecar?.terminated) {
     return `sidecar 进程异常：${result.sidecar.terminated}`;
   }
-  if (result.sidecar && !result.sidecar.spawned) {
-    return "sidecar 未被拉起（开发期请用 npm run dev:all 启动）。";
+  // Tauri 内：sidecar 只在正式包由 Rust 拉起；开发期需另起桥接进程。
+  if (isTauriRuntime()) {
+    return "本地工具服务没起来：正式包会自动拉起；开发期请再开一个终端跑 npm run dev:bridge（或 npm run dev:all 后另起 tauri dev）。填了搜索 Key 的话，联网搜索不受影响。";
   }
-  return "未能连上本地工具服务端口。";
+  // 纯网页预览：本来就没有本地服务，不是故障。
+  return "网页预览没有本地工具服务（正常现象）：联网搜索走云 Key 可用，打开应用、读写文件等本机操作请用桌面端。";
 }
 
 export async function fetchBridgeHealthSnapshot(signal?: AbortSignal): Promise<string | null> {
