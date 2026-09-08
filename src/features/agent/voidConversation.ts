@@ -471,6 +471,8 @@ export async function sendVoidMessage(
         onToken: loopOnToken,
         signal: runtimeOptions.signal,
         allowedToolNames: effectiveAllowedToolNames,
+        // 检索意图或非闲聊能力轮：首轮保调用（防中转流式吞 tool_calls 导致空承诺）。
+        firstRoundToolsRequired: forceThinkingThisTurn || turnRoute.capability !== "conversation",
         taskGate
       });
       // 兼容旧调用方：loop 内未走流式（如 anthropic 回落 sendMessage）时，

@@ -40,6 +40,7 @@ type LuminousTextEntryProps = {
   onVoiceOutputToggle: () => void;
   onOpenModelConfig: () => void;
   onOpenConversationHistory: () => void;
+  onNewConversation: () => void;
   onOpenMemoryManager: () => void;
 };
 
@@ -180,6 +181,7 @@ export function LuminousTextEntry({
   onVoiceOutputToggle,
   onOpenModelConfig,
   onOpenConversationHistory,
+  onNewConversation,
   onOpenMemoryManager
 }: LuminousTextEntryProps) {
   const [inputValue, setInputValue] = useState(() => {
@@ -486,7 +488,7 @@ export function LuminousTextEntry({
     pinOpen();
   };
 
-  const handleAgentActionClick = (action: "thinking" | "voice-input" | "voice-output" | "upload" | "history" | "memory" | "settings") => {
+  const handleAgentActionClick = (action: "thinking" | "voice-input" | "voice-output" | "upload" | "history" | "new-chat" | "memory" | "settings") => {
     pinOpen();
     if (action === "thinking") {
       onThinkingModeChange(!thinkingModeEnabled);
@@ -506,6 +508,11 @@ export function LuminousTextEntry({
     if (action === "history") {
       setIsAgentMenuOpen(false);
       onOpenConversationHistory();
+    }
+
+    if (action === "new-chat") {
+      setIsAgentMenuOpen(false);
+      onNewConversation();
     }
 
     if (action === "memory") {
@@ -904,6 +911,9 @@ export function LuminousTextEntry({
             </button>
             <button type="button" onClick={() => handleAgentActionClick("history")}>
               {menuCopy.menuHistory}
+            </button>
+            <button type="button" onClick={() => handleAgentActionClick("new-chat")}>
+              {menuCopy.menuNewConversation}
             </button>
             <button type="button" onClick={() => handleAgentActionClick("memory")}>
               {menuCopy.menuMemory}

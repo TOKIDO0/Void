@@ -78,6 +78,13 @@ export type AgentToolLoopOptions = {
   maxRounds?: number;
   /** 单轮对话最多成功执行的工具次数；默认 8 */
   maxToolInvocations?: number;
+  /**
+   * 首轮是否必须拿到可靠 tool_calls。
+   * 根因：部分 OpenAI 兼容中转在流式（SSE）下吞掉 tool_calls，只回正文，
+   * 导致检索轮首轮零调用、开场白被当最终回复（“说了去查然后没结果”）。
+   * 置 true 时首轮走非流式 sendMessage 保调用，之后轮次仍可流式。
+   */
+  firstRoundToolsRequired?: boolean;
 };
 
 export type AgentToolLoopResult = {
@@ -390,17 +397,26 @@ async function runAgentToolLoopInternal(
     rounds += 1;
     let response: ProviderResponse;
     try {
-      // 根因修复：流式与工具共存。每轮优先用 provider.streamMessage（openai-compatible
-      // 已支持流式 tool_calls 累积 + onToken 吐正文），仅 provider.streamMessage==null
-      //（如 anthropic）才回落 sendMessage。forceFinalText 时 tools=undefined +
-      // toolChoice=none 语义保留；tool 轮 content 通常为空自然不打扰，final 轮逐字吐给 UI。
-      response = await requestSingleRoundModelResponse(
-        provider,
-        options,
-        forceFinalText ? undefined : tools,
-        forceFinalText ? "none" : "auto",
-        messages
-      );
+      // 首轮保调用：工具轮次（检索/浏览器/文件等）首轮走非流式 sendMessage，
+      // 中转在流式下吞 tool_calls 也能拿到真调用；之后轮次仍走流式共存。
+      if (rounds === 1 && options.firstRoundToolsRequired && !forceFinalText && tools.length > 0) {
+        response = await provider.sendMessage(
+          { messages, tools, toolChoice: "auto", signal: options.signal },
+          options.modelConfig
+        );
+      } else {
+        // 根因修复：流式与工具共存。每轮优先用 provider.streamMessage（openai-compatible
+        // 已支持流式 tool_calls 累积 + onToken 吐正文），仅 provider.streamMessage==null
+        //（如 anthropic）才回落 sendMessage。forceFinalText 时 tools=undefined +
+        // toolChoice=none 语义保留；tool 轮 content 通常为空自然不打扰，final 轮逐字吐给 UI。
+        response = await requestSingleRoundModelResponse(
+          provider,
+          options,
+          forceFinalText ? undefined : tools,
+          forceFinalText ? "none" : "auto",
+          messages
+        );
+      }
     } catch (error) {
       throw provider.mapError(error);
     }

@@ -9,6 +9,7 @@ const BlobScene = lazy(() =>
 );
 import {
   applyAssistantStreamContent,
+  clearCurrentConversationHistory,
   createPendingAssistantConversation,
   finalizeAssistantStreamContent,
   loadCurrentConversationHistory,
@@ -1039,6 +1040,36 @@ export function VoidStage() {
     }
   }, [commitConversationHistory, settleConfirmation, stopVoicePlayback]);
 
+  // 新开对话：打断当前回合→清空上下文（含工作摘要与待确认记忆）→回到干净状态。
+  // 进行中的回合按打断语义作废（exchangeId 递增使迟到回调自动失效），不写残留历史。
+  const handleNewConversation = useCallback(() => {
+    activeExchangeIdRef.current += 1;
+    exchangeAbortControllerRef.current?.abort();
+    exchangeAbortControllerRef.current = null;
+    const pending = pendingConfirmationRef.current;
+    if (pending) {
+      settleConfirmation({
+        requestId: pending.id,
+        approved: false,
+        decidedAt: Date.now(),
+        note: "新开对话，已作废"
+      });
+    }
+    textExchangeActiveRef.current = false;
+    stopVoicePlayback();
+    setIsExpandedResponseOpen(false);
+    clearCurrentConversationHistory();
+    syncConversationHistory([]);
+    showResponseLayer({
+      text: "已开新对话，之前的聊天清空了。",
+      tone: "quiet",
+      source: "text",
+      pulseKey: "new-conversation"
+    });
+    scheduleResponseLayerHide();
+    setVisualState("idle");
+  }, [settleConfirmation, stopVoicePlayback, syncConversationHistory, scheduleResponseLayerHide, showResponseLayer]);
+
   const handleVoiceOutputToggle = useCallback(() => {
     const nextVoiceOutputEnabled = !voicePreferences.voiceOutputEnabled;
     updateVoicePreferences({
@@ -1739,6 +1770,7 @@ export function VoidStage() {
         onVoiceOutputToggle={handleVoiceOutputToggle}
         onOpenModelConfig={handleOpenModelConfig}
         onOpenConversationHistory={openExpandedResponse}
+        onNewConversation={handleNewConversation}
         onOpenMemoryManager={handleOpenMemoryManager}
       />
       <TakeoverIndicator />

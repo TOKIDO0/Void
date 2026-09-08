@@ -62,11 +62,11 @@ export function ModelUsageSection({ language }: { language: SettingsLanguage }) 
   return (
     <div>
       <span>
-        <strong>{zh ? "模型用量与预算" : "Model usage & budget"}</strong>
+        <strong>{zh ? "今日用量" : "Today's usage"}</strong>
         <p>
           {zh
-            ? "只统计上游回执的 tokens（拿不到时只记次数与流量，不编造）。超限后请求直接拒绝，不转发。"
-            : "Counts only provider-reported tokens. Over-budget requests are rejected without forwarding."}
+            ? "今天花了多少、调了几次，一眼看到。下面填每天最多花多少，0 就是不管，超了直接停掉不再花钱。"
+            : "What you spent today and how many calls. Set a daily cap below; 0 means no cap, and over-budget requests are stopped."}
         </p>
       </span>
       {error ? <p className="model-settings-modal__hint model-settings-modal__hint--error">{error}</p> : null}

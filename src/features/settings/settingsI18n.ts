@@ -85,6 +85,7 @@ type SettingsCopy = {
   menuVoiceOutputOff: string;
   menuUploadFile: string;
   menuHistory: string;
+  menuNewConversation: string;
   menuMemory: string;
   menuSettings: string;
   /** 设置模态顶部页签：安全状态（2026-08-24 信息架构调整：从操作栏迁入设置中心）。 */
@@ -116,8 +117,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     advancedModelHint: "只有下拉列表里找不到你的模型时才需要手动填写。",
     verifyAndRefreshCatalog: "检查连通并刷新模型",
     catalogKeyMissing: "请先填好服务地址和密钥，再检查连通。",
-    modelCatalogLoading: "正在用你的密钥连接服务商…",
-    modelCatalogLoaded: "连接成功，这个密钥可用 {count} 个模型，已刷新到下拉框。",
+    modelCatalogLoading: "正在连接…",
+    modelCatalogLoaded: "连接成功，检测到可用 {count} 个模型。",
     modelCatalogFallback: "先用内置的常用模型顶着，不影响保存。",
     modelStrength: "模型档位",
     temperature: "回答风格",
@@ -173,6 +174,7 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuVoiceOutputOff: "语音播报已关闭",
     menuUploadFile: "上传文件",
     menuHistory: "历史记录",
+    menuNewConversation: "新开对话",
     menuMemory: "记忆面板",
     menuSettings: "设置",
     securityTab: "安全状态",
@@ -200,8 +202,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     advancedModelHint: "Only type here when the dropdown doesn't have your model.",
     verifyAndRefreshCatalog: "Check connection & refresh models",
     catalogKeyMissing: "Fill in the service address and key first, then check the connection.",
-    modelCatalogLoading: "Connecting with your key…",
-    modelCatalogLoaded: "Connected — this key can use {count} models, now in the dropdown.",
+    modelCatalogLoading: "Connecting…",
+    modelCatalogLoaded: "Connected, {count} models available.",
     modelCatalogFallback: "Showing the built-in popular models for now; saving still works.",
     modelStrength: "Model tier",
     temperature: "Response style",
@@ -257,6 +259,7 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuVoiceOutputOff: "Voice output off",
     menuUploadFile: "Upload file",
     menuHistory: "History",
+    menuNewConversation: "New chat",
     menuMemory: "Memory",
     menuSettings: "Settings",
     securityTab: "Security",

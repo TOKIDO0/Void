@@ -740,7 +740,7 @@ body {
 
 .security-status__toolbar {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 12px;
   width: 100%;
 }
@@ -752,6 +752,9 @@ body {
 
 .security-status__toolbar .security-status__refresh {
   flex: 0 0 auto;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
 }
 
 .model-settings-modal__close:hover,
@@ -1079,6 +1082,40 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+/* 用哪个模型独占一整行：下拉与服务类型等宽，按钮并排不挤 */
+.model-settings-modal__field--full {
+  grid-column: 1 / -1;
+}
+
+/* 连通结果右上 toast：醒目但不挡关闭按钮，4 秒自散 */
+.model-settings-modal__toast {
+  position: absolute;
+  top: 14px;
+  right: 60px;
+  z-index: 5;
+  max-width: min(420px, calc(100% - 120px));
+  border-radius: 12px;
+  padding: 9px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #fff;
+  background: rgba(18, 18, 22, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.model-settings-modal__toast--loading {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.model-settings-modal__toast--success {
+  border: 1px solid rgba(16, 185, 129, 0.55);
+}
+
+.model-settings-modal__toast--error {
+  border: 1px solid rgba(239, 68, 68, 0.55);
 }
 
 .model-settings-modal__field {
@@ -1413,102 +1450,123 @@ body {
   font-weight: 600;
 }
 
-.model-settings-modal__slider-shell {
+/* 四点式档位：所有档位共用一条几何中心线，光晕属于小球自身 */
+.model-settings-modal__dot-line {
   position: relative;
-  height: 28px;
-  display: flex;
-  align-items: center;
+  height: 50px;
+  margin-top: 4px;
 }
 
-.model-settings-modal__range {
-  --range-progress: 0%;
-  appearance: none;
-  width: 100%;
-  height: 4px;
-  margin: 0;
+.model-settings-modal__dot-track,
+.model-settings-modal__dot-active {
+  position: absolute;
+  left: 0;
+  top: 18px;
+  height: 2px;
   border-radius: 999px;
-  background:
-    linear-gradient(#fff, #fff) 0 / var(--range-progress) 100% no-repeat,
-    rgba(255, 255, 255, 0.08);
-  outline: 0;
-  cursor: pointer;
 }
 
-.model-settings-modal__range::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 999px;
-  background: transparent;
-}
-
-.model-settings-modal__range::-webkit-slider-thumb {
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  margin-top: -5px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.model-settings-modal__range::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
-}
-
-.model-settings-modal__range::-moz-range-track {
-  height: 4px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.model-settings-modal__range::-moz-range-progress {
-  height: 4px;
-  border-radius: 999px;
-  background: #fff;
-}
-
-.model-settings-modal__range::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border: 0;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
-}
-
-.model-settings-modal__level-labels {
-  display: grid;
-  grid-template-columns: repeat(var(--level-count, 3), minmax(0, 1fr));
-  gap: 6px;
-}
-
-.model-settings-modal__level-labels button {
-  min-width: 0;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 10px;
-  padding: 7px 8px;
-  background: rgba(9, 9, 11, 0.35);
-  color: rgba(161, 161, 170, 0.9);
-  font: inherit;
-  font-size: 11px;
-  line-height: 1.2;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.model-settings-modal__level-labels button:hover,
-.model-settings-modal__level-labels button:focus-visible {
-  outline: 0;
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #fff;
-}
-
-.model-settings-modal__level-labels button.is-active {
-  border-color: rgba(255, 255, 255, 0.28);
+.model-settings-modal__dot-track {
+  right: 0;
   background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+}
+
+.model-settings-modal__dot-active {
+  width: 0;
+  background: #dedfdb;
+  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.model-settings-modal__dot-points {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+}
+
+.model-settings-modal__dot-point {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.model-settings-modal__dot-dot {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4b4e49;
+  transition:
+    width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
+    height 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 0.35s ease;
+}
+
+.model-settings-modal__dot-dot::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  background: rgba(255, 255, 255, 0.1);
+  filter: blur(7px);
+  opacity: 0;
+  transition:
+    transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.4s ease;
+}
+
+.model-settings-modal__dot-point.is-active .model-settings-modal__dot-dot {
+  width: 17px;
+  height: 17px;
+  background: #f1f2ee;
+  box-shadow:
+    0 0 0 5px rgba(18, 18, 22, 1),
+    0 0 0 6px #30332f,
+    0 2px 10px rgba(255, 255, 255, 0.08);
+}
+
+.model-settings-modal__dot-point.is-active .model-settings-modal__dot-dot::before {
+  transform: translate(-50%, -50%) scale(2.4);
+  opacity: 0.42;
+  animation: model-dot-glow 2s ease-in-out infinite;
+}
+
+@keyframes model-dot-glow {
+  0%, 100% { transform: translate(-50%, -50%) scale(2); opacity: 0.2; }
+  50% { transform: translate(-50%, -50%) scale(2.55); opacity: 0.4; }
+}
+
+.model-settings-modal__dot-label {
+  position: absolute;
+  left: 50%;
+  top: 42px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  color: #5e615b;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  transition: color 0.3s ease;
+}
+
+.model-settings-modal__dot-point.is-active .model-settings-modal__dot-label {
+  color: #e7e8e4;
+  font-weight: 600;
+}
+
+.model-settings-modal__dot-point:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
 .model-settings-modal__switch-row {
@@ -1686,6 +1744,18 @@ body {
 .model-settings-modal__confirm-actions input {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* 用量上限输入：去掉浏览器自带数字增减，保持产品输入样式 */
+.model-settings-modal__confirm-actions input[type="number"]::-webkit-outer-spin-button,
+.model-settings-modal__confirm-actions input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.model-settings-modal__confirm-actions input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .model-settings-modal__confirm-actions button {
@@ -2299,10 +2369,26 @@ body {
   overflow-x: hidden;
   overflow-y: auto;
   min-width: 0;
-  padding: 2px 8px 18px 2px;
+  /* 右侧留出滚动条槽位：不与面板边框/角饰重叠，Windows 经典滚动条不抖动 */
+  padding: 2px 14px 18px 2px;
+  margin-right: 2px;
   scroll-behavior: smooth;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
   scrollbar-color: rgba(255, 123, 209, 0.42) transparent;
+}
+
+.expanded-response-overlay__messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.expanded-response-overlay__messages::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 123, 209, 0.42);
+}
+
+.expanded-response-overlay__messages::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .expanded-response-overlay__scroll-bottom {

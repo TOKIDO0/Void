@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MAX_OUTPUT_LEVELS,
   MODEL_PRESETS,
@@ -79,7 +79,31 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
   // 自动拉取的模型列表（按 presetId 缓存），与内置列表合并展示。
   const [fetchedModelsByPreset, setFetchedModelsByPreset] = useState<Record<string, ModelOption[]>>({});
   const [catalogStatus, setCatalogStatus] = useState<CatalogStatus>("idle");
-  const [catalogMessage, setCatalogMessage] = useState("");
+  // 连通结果走右上 toast，不再挤在选项栏下方。
+  const [catalogToast, setCatalogToast] = useState<{ kind: "loading" | "success" | "error"; text: string } | null>(null);
+  const catalogToastTimerRef = useRef<number | null>(null);
+
+  const showCatalogToast = (toast: { kind: "loading" | "success" | "error"; text: string }) => {
+    if (catalogToastTimerRef.current !== null) {
+      window.clearTimeout(catalogToastTimerRef.current);
+      catalogToastTimerRef.current = null;
+    }
+    setCatalogToast(toast);
+    if (toast.kind !== "loading") {
+      catalogToastTimerRef.current = window.setTimeout(() => {
+        setCatalogToast(null);
+        catalogToastTimerRef.current = null;
+      }, 4000);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (catalogToastTimerRef.current !== null) {
+        window.clearTimeout(catalogToastTimerRef.current);
+      }
+    };
+  }, []);
 
   const copy = SETTINGS_COPY[language];
   // 优先展示自动拉取的模型；拉取失败或未拉取时回退内置列表，保证下拉框不空白。
@@ -90,7 +114,6 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     }
     return getModelOptionsForPreset(selectedPresetId);
   }, [fetchedModelsByPreset, selectedPresetId]);
-  const availableStrengths = useMemo(() => MODEL_STRENGTH_ORDER, []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -113,6 +136,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
       !storedModelOptions.some((option: { modelName: string }) => option.modelName === storedConfig.modelName)
     );
     setIsApiKeyVisible(false);
+    setCatalogToast(null);
     setIsDirty(false);
     setActiveTab(initialTab);
     setHighPermissionEnabled(isHighPermissionMode());
@@ -279,12 +303,12 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     const { provider, baseUrl, apiKey } = draftConfig;
     if (!baseUrl.trim() || !apiKey.trim()) {
       setCatalogStatus("error");
-      setCatalogMessage(copy.catalogKeyMissing);
+      showCatalogToast({ kind: "error", text: copy.catalogKeyMissing });
       return;
     }
 
     setCatalogStatus("loading");
-    setCatalogMessage("");
+    showCatalogToast({ kind: "loading", text: copy.modelCatalogLoading });
     const result = await fetchModelCatalog(provider, baseUrl, apiKey);
     if (result.ok) {
       const options: ModelOption[] = result.models.map((model) => ({
@@ -294,10 +318,10 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
       }));
       setFetchedModelsByPreset((current) => ({ ...current, [presetId]: options }));
       setCatalogStatus("ready");
-      setCatalogMessage(copy.modelCatalogLoaded.replace("{count}", String(options.length)));
+      showCatalogToast({ kind: "success", text: copy.modelCatalogLoaded.replace("{count}", String(options.length)) });
     } else {
       setCatalogStatus("error");
-      setCatalogMessage(`${result.message} ${copy.modelCatalogFallback}`);
+      showCatalogToast({ kind: "error", text: result.message });
     }
   };
 
@@ -656,11 +680,18 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
             onClick={onClose}
           />
         </div>
+        {catalogToast ? (
+          <div
+            className={`model-settings-modal__toast model-settings-modal__toast--${catalogToast.kind}`}
+            role="status"
+          >
+            {catalogToast.text}
+          </div>
+        ) : null}
 
         <div className="model-settings-modal__body">
           <aside className="model-settings-modal__sidebar">
             <div className="model-settings-modal__sidebar-label">{copy.presetGroup}</div>
-            <p className="model-settings-modal__sidebar-explainer">{copy.presetExplainer}</p>
             <div className="model-settings-modal__preset-list">
               {MODEL_PRESETS.length === 0 ? (
                 <p className="model-settings-modal__preset-empty">{copy.presetEmpty}</p>
@@ -680,10 +711,6 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                   );
                 })
               )}
-            </div>
-            <div className="model-settings-modal__sidebar-note">
-              <strong>{copy.strengthRuleTitle}</strong>
-              <p>{copy.strengthRuleText}</p>
             </div>
           </aside>
 
@@ -705,7 +732,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                     />
                   </label>
 
-                  <label className="model-settings-modal__field">
+                  <label className="model-settings-modal__field model-settings-modal__field--full">
                     <span>{copy.modelName}</span>
                     <div className="model-settings-modal__input-with-action model-settings-modal__input-with-action--select">
                       <DarkSelect
@@ -729,11 +756,6 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                         {copy.verifyAndRefreshCatalog}
                       </button>
                     </div>
-                    {catalogStatus !== "idle" ? (
-                      <small>
-                        {catalogStatus === "loading" ? copy.modelCatalogLoading : catalogMessage}
-                      </small>
-                    ) : null}
                   </label>
 
                   <label className="model-settings-modal__field">
@@ -854,20 +876,18 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
             <section className="model-settings-modal__section">
               <h3 className="model-settings-modal__section-title">{copy.sectionGeneration}</h3>
               <div className="model-settings-modal__card">
-                <label className="model-settings-modal__field">
-                  <span>{copy.modelStrength}</span>
-                  <DarkSelect
-                    aria-label={copy.modelStrength}
-                    value={selectedStrength}
-                    onChange={handleStrengthChange}
-                    options={availableStrengths.map((strength) => ({
-                      value: strength,
-                      label: MODEL_STRENGTH_LABELS[strength]
-                    }))}
-                  />
-                </label>
+                <DotSlider
+                  label={copy.modelStrength}
+                  hint={copy.strengthRuleText}
+                  levels={MODEL_STRENGTH_ORDER.map((strength) => ({
+                    label: MODEL_STRENGTH_LABELS[strength],
+                    value: MODEL_STRENGTH_ORDER.indexOf(strength)
+                  }))}
+                  selectedIndex={MODEL_STRENGTH_ORDER.indexOf(selectedStrength)}
+                  onSelect={(levelIndex) => handleStrengthChange(MODEL_STRENGTH_ORDER[levelIndex] ?? selectedStrength)}
+                />
 
-                <LevelSlider
+                <DotSlider
                   label={copy.temperature}
                   hint={copy.temperatureHint}
                   levels={TEMPERATURE_LEVELS}
@@ -875,7 +895,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                   onSelect={handleTemperatureLevelChange}
                 />
 
-                <LevelSlider
+                <DotSlider
                   label={copy.maxOutput}
                   hint={copy.maxOutputHint}
                   levels={MAX_OUTPUT_LEVELS}
@@ -981,7 +1001,8 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
   );
 }
 
-function LevelSlider({
+/** 四点式档位：N 个档共用一条中心线，点选切换，无 range 拖杆。 */
+function DotSlider({
   label,
   hint,
   levels,
@@ -994,41 +1015,36 @@ function LevelSlider({
   selectedIndex: number;
   onSelect: (levelIndex: number) => void;
 }) {
-  const progress = levels.length <= 1 ? 0 : (selectedIndex / (levels.length - 1)) * 100;
-  const selectedLabel = levels[selectedIndex]?.label ?? "";
+  const safeIndex = Math.min(Math.max(selectedIndex, 0), levels.length - 1);
+  const progress = levels.length <= 1 ? 0 : (safeIndex / (levels.length - 1)) * 100;
+  const selectedLabel = levels[safeIndex]?.label ?? "";
 
   return (
-    <div className="model-settings-modal__field model-settings-modal__level-field">
+    <div className="model-settings-modal__field model-settings-modal__dot-field">
       <div className="model-settings-modal__level-header">
         <span>{label}</span>
         <strong>{selectedLabel}</strong>
       </div>
-      <div className="model-settings-modal__slider-shell">
-        <input
-          className="model-settings-modal__range"
-          type="range"
-          min={0}
-          max={levels.length - 1}
-          step={1}
-          value={selectedIndex}
-          style={{ ["--range-progress" as string]: `${progress}%` }}
-          onChange={(event) => onSelect(Number(event.target.value))}
-        />
-      </div>
-      <div
-        className="model-settings-modal__level-labels"
-        style={{ ["--level-count" as string]: levels.length }}
-      >
-        {levels.map((level, index) => (
-          <button
-            key={level.label}
-            className={index === selectedIndex ? "is-active" : ""}
-            type="button"
-            onClick={() => onSelect(index)}
-          >
-            {level.label}
-          </button>
-        ))}
+      <div className="model-settings-modal__dot-line" role="group" aria-label={label}>
+        <div className="model-settings-modal__dot-track" />
+        <div className="model-settings-modal__dot-active" style={{ width: `${progress}%` }} />
+        <div className="model-settings-modal__dot-points">
+          {levels.map((level, index) => (
+            <button
+              key={level.label}
+              type="button"
+              className={`model-settings-modal__dot-point${index === safeIndex ? " is-active" : ""}`}
+              aria-pressed={index === safeIndex}
+              aria-label={level.label}
+              onClick={() => onSelect(index)}
+            >
+              <span className="model-settings-modal__dot-dot" aria-hidden="true" />
+              <span className="model-settings-modal__dot-label" aria-hidden="true">
+                {level.label}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
       <small>{hint}</small>
     </div>
