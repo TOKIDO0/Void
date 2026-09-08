@@ -48,6 +48,10 @@ type SettingsCopy = {
   webSearchKeyHint: string;
   webSearchGetKey: string;
   webSearchNoKeyHint: string;
+  webSearchTest: string;
+  webSearchTesting: string;
+  webSearchTestOk: string;
+  webSearchTestEmpty: string;
   semanticSearch: string;
   semanticSearchHint: string;
   strengthRuleTitle: string;
@@ -137,6 +141,10 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     webSearchKeyHint: "去服务商官网免费申请，只保存在本机。不填也能用基础搜索，填了更快更准。",
     webSearchGetKey: "获取 Key",
     webSearchNoKeyHint: "没填也能用基础搜索；填上自己的 Key，实时内容更快更稳。",
+    webSearchTest: "测试搜索",
+    webSearchTesting: "正在测试搜索…",
+    webSearchTestOk: "搜索可用，本次返回 {count} 条结果。",
+    webSearchTestEmpty: "搜索通了，但没返回结果，换个词再测一次。",
     semanticSearch: "更懂你的记忆搜索",
     semanticSearchHint: "打开后找过去的记忆更准确，第一次用会多花一点时间准备，失败会自动用回普通搜索。",
     strengthRuleTitle: "档位说明",
@@ -222,6 +230,10 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     webSearchKeyHint: "Free from the provider website. Stored on this device only. Basic search works without it; a key is faster and more accurate.",
     webSearchGetKey: "Get key",
     webSearchNoKeyHint: "Basic search works without a key; adding your own key is faster and fresher.",
+    webSearchTest: "Test search",
+    webSearchTesting: "Testing search…",
+    webSearchTestOk: "Search works, {count} result(s) returned.",
+    webSearchTestEmpty: "Search went through but returned nothing; try another query.",
     semanticSearch: "Smarter memory search",
     semanticSearchHint: "Finds past memories more accurately. The first use takes a little extra setup time, and falls back to normal search if anything fails.",
     strengthRuleTitle: "About tiers",

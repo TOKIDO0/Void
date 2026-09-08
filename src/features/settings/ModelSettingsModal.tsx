@@ -332,6 +332,23 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     }
   };
 
+  // 联网搜索自检：用当前草稿里的服务商+Key 直连验一次，不依赖已保存配置与 bridge。
+  const handleTestWebSearch = async () => {
+    showCatalogToast({ kind: "loading", text: copy.webSearchTesting });
+    try {
+      const { testWebSearchConnection } = await import("../agent/web/webBridgeClient");
+      const count = await testWebSearchConnection(webSearchDraft.provider, webSearchDraft.apiKey);
+      showCatalogToast({
+        kind: "success",
+        text: count > 0
+          ? copy.webSearchTestOk.replace("{count}", String(count))
+          : copy.webSearchTestEmpty
+      });
+    } catch (error) {
+      showCatalogToast({ kind: "error", text: error instanceof Error ? error.message : copy.webSearchTestEmpty });
+    }
+  };
+
   const handleTemperatureLevelChange = (levelIndex: number) => {
     const level = TEMPERATURE_LEVELS[levelIndex];
     if (!level) {
@@ -868,6 +885,15 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                       </button>
                     </div>
                     <small>{copy.webSearchNoKeyHint}</small>
+                    <div>
+                      <button
+                        type="button"
+                        className="model-settings-modal__text-button"
+                        onClick={() => void handleTestWebSearch()}
+                      >
+                        {copy.webSearchTest}
+                      </button>
+                    </div>
                   </label>
                 </div>
               </div>

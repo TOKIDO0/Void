@@ -158,6 +158,8 @@ export function VoidStage() {
   const [thinkingModePulseEventId, setThinkingModePulseEventId] = useState(0);
   const [thinkingModePulseDirection, setThinkingModePulseDirection] = useState<ThinkingModePulseDirection>("on");
   const [expandedResponseProgress, setExpandedResponseProgress] = useState(0);
+  // 历史视图里的 AI 实时状态（工具进度中文）：活跃时挂在末尾待回复行；收尾/失败/打断即清。
+  const [liveStatusLabel, setLiveStatusLabel] = useState<string | null>(null);
   const [voiceTranscriptPreview, setVoiceTranscriptPreview] = useState("");
   const [responseLayer, setResponseLayer] = useState<ResponseLayerState>({
     isVisible: false,
@@ -740,6 +742,7 @@ export function VoidStage() {
           if (!progressMessage.trim()) {
             return;
           }
+          setLiveStatusLabel(progressMessage);
           showResponseLayer({
             text: progressMessage,
             tone: "thinking",
@@ -759,6 +762,7 @@ export function VoidStage() {
   }, []);
 
   const completeTextResponse = useCallback(async (responseText: string, pulseKey: string) => {
+    setLiveStatusLabel(null);
     showResponseLayer({
       text: stripStageDirections(responseText),
       tone: "quiet",
@@ -973,6 +977,7 @@ export function VoidStage() {
     assistantMessageIndex: number
   ) => {
     textExchangeActiveRef.current = false;
+    setLiveStatusLabel(null);
     const errorMessage = error instanceof Error ? error.message : MODEL_CONNECTION_FALLBACK_ERROR;
     const hasStreamedAssistantContent = Boolean(pendingHistory[assistantMessageIndex]?.content.trim());
     const nextConversationHistory = hasStreamedAssistantContent
@@ -1034,6 +1039,7 @@ export function VoidStage() {
     }
     textExchangeActiveRef.current = false;
     stopVoicePlayback();
+    setLiveStatusLabel(null);
     if (wasGenerating) {
       // 模型仍在生成：回滚到回合开始前的历史，丢弃这一被打断的问答，避免残留与过期提交
       commitConversationHistory(exchangeBaseHistoryRef.current);
@@ -1058,6 +1064,7 @@ export function VoidStage() {
     textExchangeActiveRef.current = false;
     stopVoicePlayback();
     setIsExpandedResponseOpen(false);
+    setLiveStatusLabel(null);
     clearCurrentConversationHistory();
     syncConversationHistory([]);
     showResponseLayer({
@@ -1777,6 +1784,7 @@ export function VoidStage() {
       <ExpandedResponseOverlay
         isOpen={isExpandedResponseOpen}
         messages={conversationHistory}
+        liveStatusLabel={liveStatusLabel}
         onClose={closeExpandedResponse}
         onClosingChange={setIsExpandedResponseClosing}
         onOpenProgressChange={setExpandedProgress}

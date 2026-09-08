@@ -343,6 +343,29 @@ async function runAgentToolLoopInternal(
   const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
   const maxToolInvocations = options.maxToolInvocations ?? DEFAULT_MAX_TOOL_INVOCATIONS;
   const messages: ProviderMessage[] = options.messages.map((item) => ({ ...item }));
+  // 断桥注记（省预算）：本机 bridge 不可达时，一次性告诉模型哪些工具必然失败，
+  // 别拿它们反复试错烧预算；web.search/web.fetch 走云 Key 不受影响，照常用。
+  // fail-open：探针自身失败就不注记，不挡正常轮次。
+  try {
+    const needsBridge = tools.some((definition) =>
+      /^(browser|desktop|file|clipboard|security|software)\./.test(fromModelToolName(definition.function.name))
+    );
+    if (needsBridge) {
+      const { isVoidBridgeReachable } = await import("../bridge/bridgeHealthClient");
+      const reachable = await isVoidBridgeReachable(options.signal).catch(() => true);
+      if (!reachable) {
+        messages.push({
+          role: "system",
+          content: [
+            "【本机服务状态】本机 bridge 当前不可达：browser.open/click 等浏览器自动化、",
+            "desktop.*/file.*/clipboard.*/security.*/software.* 调用必然失败，不要反复尝试它们烧预算。",
+            "web.search/web.fetch 走云 Key 可用，优先用它们完成检索；若它们也失败，如实说明原因",
+            "（Key 无效就直说 Key 无效），不要编造结果，也不要只留一句“换个方式”就收尾。"
+          ].join("")
+        });
+      }
+    }
+  } catch {}
   let usedTools = false;
   let rounds = 0;
   let toolInvocationCount = 0;

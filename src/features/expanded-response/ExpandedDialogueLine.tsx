@@ -2,6 +2,7 @@ import { Icon } from "@iconify/react";
 import type { CSSProperties, FormEvent } from "react";
 import type { VoidConversationMessage } from "../agent/voidConversation";
 import { stripStageDirections } from "../agent/responseTextDisplay";
+import { AgentLiveStatus, CitationChips, extractCitationLinks } from "./AgentLiveStatus";
 
 type ExpandedDialogueLineProps = {
   message: VoidConversationMessage;
@@ -11,6 +12,8 @@ type ExpandedDialogueLineProps = {
   editingMessageIndex: number | null;
   editingDraft: string;
   isRegenerating: boolean;
+  /** 仅末尾待回复行：AI 正在做什么（有值时替代 "..."）。 */
+  liveStatusLabel?: string | null;
   onCopy: (message: VoidConversationMessage, index: number) => void;
   onStartEdit: (index: number, content: string) => void;
   onCancelEdit: () => void;
@@ -26,6 +29,7 @@ export function ExpandedDialogueLine({
   editingMessageIndex,
   editingDraft,
   isRegenerating,
+  liveStatusLabel,
   onCopy,
   onStartEdit,
   onCancelEdit,
@@ -42,6 +46,10 @@ export function ExpandedDialogueLine({
   const displayedContent = message.role === "assistant"
     ? stripStageDirections(message.content)
     : message.content;
+  // 搜索类回复下方挂来源徽标：从正文抽链接，favicon + 域名可点可验。
+  const citationLinks = message.role === "assistant" && displayedContent.trim()
+    ? extractCitationLinks(displayedContent)
+    : [];
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -102,8 +110,11 @@ export function ExpandedDialogueLine({
       ) : (
         <>
           <p className={isPendingAssistantMessage ? "expanded-dialogue-line__pending" : undefined}>
-            {isPendingAssistantMessage ? "..." : displayedContent}
+            {isPendingAssistantMessage
+              ? (liveStatusLabel ? <AgentLiveStatus label={liveStatusLabel} /> : "...")
+              : displayedContent}
           </p>
+          {citationLinks.length ? <CitationChips links={citationLinks} /> : null}
           {attachments.length ? (
             <div className="expanded-dialogue-line__attachments">
               {attachments.map((attachment) => (

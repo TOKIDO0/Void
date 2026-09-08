@@ -1396,6 +1396,23 @@ body {
   color: #fff;
 }
 
+/* 联网搜索自检：文本小按钮，不抢主按钮视觉 */
+.model-settings-modal__text-button {
+  border: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: rgba(161, 161, 170, 0.95);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.model-settings-modal__text-button:hover {
+  color: #fff;
+}
+
 .model-settings-modal__test-connection {
   display: flex;
   align-items: center;
@@ -2418,6 +2435,89 @@ body {
 .expanded-response-overlay__scroll-bottom svg {
   width: 18px;
   height: 18px;
+}
+
+/* 历史视图 AI 实时状态：三点呼吸 + 当前动作，接工具进度中文文案 */
+.agent-live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 210, 245, 0.92);
+  font-size: 12px;
+}
+
+.agent-live-status__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.agent-live-status__dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 123, 209, 0.9);
+  animation: agent-live-blink 1.1s ease-in-out infinite;
+}
+
+.agent-live-status__dots span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.agent-live-status__dots span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes agent-live-blink {
+  0%, 100% { opacity: 0.25; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-live-status__dots span {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+/* 来源徽标：favicon + 域名，点击走系统浏览器打开原文 */
+.citation-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.citation-chips__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid rgba(255, 210, 245, 0.22);
+  border-radius: 999px;
+  padding: 3px 10px 3px 5px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 235, 250, 0.85);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.citation-chips__chip:hover {
+  border-color: rgba(255, 210, 245, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.citation-chips__brand {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.citation-chips__domain {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .expanded-dialogue-line {

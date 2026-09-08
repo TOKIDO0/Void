@@ -12,6 +12,8 @@ gsap.registerPlugin(useGSAP);
 type ExpandedResponseOverlayProps = {
   isOpen: boolean;
   messages: VoidConversationMessage[];
+  /** AI 正在回复时的实时状态（工具进度文案）；不活跃时传 null。 */
+  liveStatusLabel?: string | null;
   onClose: () => void;
   onClosingChange: (isClosing: boolean) => void;
   onOpenProgressChange: (progress: number) => void;
@@ -21,6 +23,7 @@ type ExpandedResponseOverlayProps = {
 export function ExpandedResponseOverlay({
   isOpen,
   messages,
+  liveStatusLabel,
   onClose,
   onClosingChange,
   onOpenProgressChange,
@@ -43,6 +46,14 @@ export function ExpandedResponseOverlay({
   const copyBubbleTimeoutRef = useRef(0);
   const shouldStickToBottomRef = useRef(true);
   const latestUserMessageIndex = findLatestUserMessageIndex(messages);
+  // 实时状态只挂在末尾待回复行：最后一条是空 assistant 才算 AI 正在写。
+  const lastIndex = messages.length - 1;
+  const pendingLiveIndex = liveStatusLabel
+    && lastIndex >= 0
+    && messages[lastIndex]?.role === "assistant"
+    && !messages[lastIndex]?.content.trim()
+    ? lastIndex
+    : -1;
 
   const updateScrollButtonVisibility = useCallback(() => {
     const messagesElement = messagesRef.current;
@@ -273,6 +284,7 @@ export function ExpandedResponseOverlay({
               editingMessageIndex={editingMessageIndex}
               editingDraft={editingDraft}
               isRegenerating={isRegenerating}
+              liveStatusLabel={index === pendingLiveIndex ? liveStatusLabel : null}
               onCopy={handleCopyMessage}
               onStartEdit={handleStartEdit}
               onCancelEdit={handleCancelEdit}

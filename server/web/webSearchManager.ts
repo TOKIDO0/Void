@@ -12,11 +12,17 @@ export type WebSearchResultItem = {
 };
 
 export type WebSearchData = {
-  engine: "duckduckgo";
+  engine: "duckduckgo" | "tavily" | "brave" | "exa";
   query: string;
   resultPageUrl: string;
   results: WebSearchResultItem[];
   searchedAt: number;
+};
+
+export type WebSearchCloudOptions = {
+  /** 用户自备 Key：仅本次请求内存使用，从不落盘，前端经回环传入。 */
+  apiKey?: string;
+  provider?: "tavily" | "brave" | "exa";
 };
 
 const DUCK_HTML = "https://html.duckduckgo.com/html/";
@@ -32,7 +38,103 @@ function resolveTarget(href: string): string {
   } catch { return h; }
 }
 
-export async function webSearch(query: string, limit = 8, signal?: AbortSignal): Promise<WebSearchData> {
+export async function webSearch(query: string, limit = 8, signal?: AbortSignal, cloud?: WebSearchCloudOptions): Promise<WebSearchData> {
+  const q = query.trim();
+  if (!q) throw Object.assign(new Error("缺少 query"), { webCode: "INVALID_REQUEST" });
+  // 有用户自备 Key 时走云索引（服务端直调，无浏览器 CORS 问题，Key 只活在本次请求内存里）。
+  if (cloud?.apiKey?.trim()) {
+    return webSearchViaCloud(q, limit, cloud.provider ?? "tavily", cloud.apiKey.trim(), signal);
+  }
+  return webSearchViaDuck(q, limit, signal);
+}
+
+async function webSearchViaCloud(
+  query: string,
+  limit: number,
+  provider: "tavily" | "brave" | "exa",
+  apiKey: string,
+  signal?: AbortSignal
+): Promise<WebSearchData> {
+  const capped = Math.min(Math.max(limit, 1), 10);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  const onAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
+  try {
+    if (provider === "brave") {
+      const r = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${capped}`, {
+        headers: { "X-Subscription-Token": apiKey },
+        signal: controller.signal
+      });
+      if (r.status === 401 || r.status === 403) {
+        throw Object.assign(new Error("搜索 Key 无效，请去设置 → 联网搜索里检查后重试。"), { webCode: "KEY_INVALID" });
+      }
+      if (!r.ok) throw Object.assign(new Error(`搜索服务异常（${r.status}）`), { webCode: "INTERNAL_ERROR" });
+      const j = await r.json() as { web?: { results?: Array<{ title?: string; url?: string; description?: string }> } };
+      const results = (j.web?.results ?? []).filter((x) => x.url).map((x, i) => ({
+        rank: i + 1,
+        title: (x.title ?? x.url ?? "").trim() || "Untitled",
+        url: (x.url ?? "").trim(),
+        snippet: (x.description ?? "").slice(0, 500),
+        displayUrl: undefined
+      }));
+      return { engine: "brave", query, resultPageUrl: results[0]?.url ?? "", results, searchedAt: Date.now() };
+    }
+    if (provider === "exa") {
+      const r = await fetch("https://api.exa.ai/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+        body: JSON.stringify({ query, numResults: capped }),
+        signal: controller.signal
+      });
+      if (r.status === 401 || r.status === 403) {
+        throw Object.assign(new Error("搜索 Key 无效，请去设置 → 联网搜索里检查后重试。"), { webCode: "KEY_INVALID" });
+      }
+      if (!r.ok) throw Object.assign(new Error(`搜索服务异常（${r.status}）`), { webCode: "INTERNAL_ERROR" });
+      const j = await r.json() as { results?: Array<{ title?: string; url?: string; text?: string }> };
+      const results = (j.results ?? []).filter((x) => x.url).map((x, i) => ({
+        rank: i + 1,
+        title: (x.title ?? x.url ?? "").trim() || "Untitled",
+        url: (x.url ?? "").trim(),
+        snippet: (x.text ?? "").slice(0, 500),
+        displayUrl: undefined
+      }));
+      return { engine: "exa", query, resultPageUrl: results[0]?.url ?? "", results, searchedAt: Date.now() };
+    }
+    const r = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey, query, max_results: capped, search_depth: "advanced", include_answer: false }),
+      signal: controller.signal
+    });
+    if (r.status === 401 || r.status === 403) {
+      throw Object.assign(new Error("搜索 Key 无效，请去设置 → 联网搜索里检查后重试。"), { webCode: "KEY_INVALID" });
+    }
+    if (!r.ok) throw Object.assign(new Error(`搜索服务异常（${r.status}）`), { webCode: "INTERNAL_ERROR" });
+    const j = await r.json() as { results?: Array<{ title?: string; url?: string; content?: string }> };
+    const results = (j.results ?? []).filter((x) => x.url).map((x, i) => ({
+      rank: i + 1,
+      title: (x.title ?? x.url ?? "").trim() || "Untitled",
+      url: (x.url ?? "").trim(),
+      snippet: (x.content ?? "").slice(0, 500),
+      displayUrl: undefined
+    }));
+    return { engine: "tavily", query, resultPageUrl: results[0]?.url ?? "", results, searchedAt: Date.now() };
+  } catch (e) {
+    const err = e as Error & { webCode?: string; name?: string };
+    if (err.webCode) throw e;
+    if (err.name === "AbortError") throw Object.assign(new Error("搜索超时"), { webCode: "TIMEOUT" });
+    throw Object.assign(new Error(err.message || "搜索失败"), { webCode: "INTERNAL_ERROR" });
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+async function webSearchViaDuck(query: string, limit: number, signal?: AbortSignal): Promise<WebSearchData> {
   const q = query.trim();
   if (!q) throw Object.assign(new Error("缺少 query"), { webCode: "INVALID_REQUEST" });
   const url = `${DUCK_HTML}?q=${encodeURIComponent(q)}`;
