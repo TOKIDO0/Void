@@ -16,6 +16,9 @@ type BannerState =
   | { phase: "ok" }
   | { phase: "down"; result: Extract<BridgeProbeResult, { kind: "down" }> };
 
+// 存活门禁重查间隔：down 期间静默重探，恢复即停。
+const BRIDGE_AUTO_RETRY_MS = 5000;
+
 export function BridgeStatusBanner() {
   const [state, setState] = useState<BannerState>({ phase: "checking" });
   const [isRetrying, setIsRetrying] = useState(false);
@@ -34,6 +37,17 @@ export function BridgeStatusBanner() {
   useEffect(() => {
     void runProbe();
   }, [runProbe]);
+
+  // 存活门禁：down 期间每 5 秒静默重探，bridge 起來横幅自动消失；ok/卸载即停。
+  useEffect(() => {
+    if (state.phase !== "down") {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void runProbe();
+    }, BRIDGE_AUTO_RETRY_MS);
+    return () => window.clearInterval(timer);
+  }, [state.phase, runProbe]);
 
   const handleRetry = useCallback(() => {
     if (isRetrying) {

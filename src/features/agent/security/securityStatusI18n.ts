@@ -66,6 +66,8 @@ type SecurityStatusCopy = {
   errorTitle: string;
   errorTextPrefix: string;
   errorCodeLabel: string;
+  /** 403 令牌不一致时的可执行指引（前后端 token 文件未收敛，多见于 dev 只重启了一边）。 */
+  tokenMismatchHint: string;
   privacyNote: string;
 };
 
@@ -134,6 +136,7 @@ const SECURITY_STATUS_COPY: Record<SettingsLanguage, SecurityStatusCopy> = {
     errorTitle: "暂时无法获取安全状态",
     errorTextPrefix: "本地工具桥没有返回有效结果",
     errorCodeLabel: "错误码",
+    tokenMismatchHint: "前后端会话令牌不一致：把 vite 和 bridge 都重启（npm run dev:all 重开），等令牌文件收敛后本页会自动恢复，无需手动点检查。",
     privacyNote: "本面板只做只读检查：不执行命令、不扫描磁盘、不返回真实网卡 IP。"
   },
   "en-US": {
@@ -200,6 +203,7 @@ const SECURITY_STATUS_COPY: Record<SettingsLanguage, SecurityStatusCopy> = {
     errorTitle: "Security status unavailable",
     errorTextPrefix: "The local tool bridge did not return a valid result",
     errorCodeLabel: "Error code",
+    tokenMismatchHint: "Frontend/backend session token mismatch: restart both vite and bridge (re-run npm run dev:all) so the token file reconverges; this page recovers automatically, no manual refresh needed.",
     privacyNote: "This panel is read-only: no commands, no disk scans, and no real NIC IPs are returned."
   }
 };

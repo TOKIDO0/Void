@@ -1,5 +1,7 @@
 import { isTauriRuntime } from "./voidBridgeRuntime";
 
+// 头名互通：此处大写 X-VOID-Bridge-Token，Node 收包自动小写为 x-void-bridge-token
+// （服务端 bridgeAuth.BRIDGE_TOKEN_HEADER），HTTP 语义等价，不用改名。
 export const BRIDGE_TOKEN_HEADER_NAME = "X-VOID-Bridge-Token";
 
 let cachedBridgeToken: string | null | undefined;
@@ -39,9 +41,13 @@ async function resolveBridgeToken(): Promise<string | null> {
   if (!pendingBridgeToken) {
     pendingBridgeToken = readTauriBridgeToken().catch(() => null);
   }
-  cachedBridgeToken = await pendingBridgeToken;
+  const resolved = await pendingBridgeToken;
   pendingBridgeToken = null;
-  return cachedBridgeToken;
+  // bridge 可能晚于前端启动：null 不缓存，下次调用重试（拿到 token 后才缓存）。
+  if (resolved) {
+    cachedBridgeToken = resolved;
+  }
+  return resolved;
 }
 
 /**

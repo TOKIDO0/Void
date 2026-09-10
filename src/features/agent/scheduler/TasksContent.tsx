@@ -78,6 +78,9 @@ const COPY: Record<SettingsLanguage, Record<string, string>> = {
   }
 };
 
+// 存活门禁重查间隔：报错期间静默重查，恢复即停。
+const BRIDGE_AUTO_RETRY_MS = 5000;
+
 export function TasksContent() {
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
   const [fetchState, setFetchState] = useState<FetchState>({ phase: "loading" });
@@ -86,8 +89,11 @@ export function TasksContent() {
 
   const copy = COPY[language];
 
-  const load = useCallback(async (signal: AbortSignal) => {
-    setFetchState({ phase: "loading" });
+  // silent=true：后台静默重查，成功转绿，失败保持原报错，不闪 loading。
+  const load = useCallback(async (signal: AbortSignal, silent = false) => {
+    if (!silent) {
+      setFetchState({ phase: "loading" });
+    }
     try {
       const [status, jobs, runs] = await Promise.all([
         getSchedulerStatus(signal),
@@ -115,6 +121,18 @@ export function TasksContent() {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  // 存活门禁：报错期间每 5 秒静默重查，bridge 起來自动转绿；恢复或卸载即停。
+  useEffect(() => {
+    if (fetchState.phase !== "error") {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      const controller = new AbortController();
+      void load(controller.signal, true);
+    }, BRIDGE_AUTO_RETRY_MS);
+    return () => window.clearInterval(timer);
+  }, [fetchState.phase, load]);
 
   const handleRefresh = useCallback(() => {
     if (isRefreshing) {

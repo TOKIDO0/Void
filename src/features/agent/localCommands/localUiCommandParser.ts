@@ -3,7 +3,12 @@
  *
  * 位置：文字与语音输入在 VoidStage.handleTextMessage 汇合处，先于对话链路执行。
  * 命中「纯控制指令」（开关模态框 / 麦克风 / 语音播报 / 单独的思考模式开关）时由 UI 直接执行并短路对话；
- * 命中「带要求的提问」（句中含深度思考类措辞）时只切换思考模式，原话继续进入对话。
+ * 命中「带要求的提问」（句中含深度思考类措辞）时只影响本轮，原话继续进入对话。
+ *
+ * 根因约束（ – 子串误触持久开关）：
+ * 持久 thinking 开关只认整句显式指令（「打开深度思考」「关闭思考模式」及单发
+ * 措辞本身）；句中顺带的措辞一律降级为本轮有效（thinkingOnce），绝不写盘，
+ * 避免「你自己分析」「直接告诉我」这类正常说话悄悄篡改用户设置。
  *
  * 设计约束：
  *   - 纯控制指令要求整句匹配（允许礼貌前缀与语气尾词），避免误伤正常聊天
@@ -18,7 +23,13 @@ export type LocalUiCommand =
   | { kind: "voiceInput"; enable: boolean }
   | { kind: "voiceOutput"; enable: boolean }
   /** standalone=true 表示整句就是开关指令（短路对话）；false 表示句中带要求，切换后继续对话。 */
-  | { kind: "thinking"; enable: boolean; standalone: boolean };
+  | { kind: "thinking"; enable: boolean; standalone: boolean }
+  /**
+   * 本轮思考覆盖（不写盘、不改持久开关）：
+   * enable=true 本轮强制多想；false 本轮强制简单直接（仅压住持久开关的贡献，
+   * 不压检索意图的本轮强制思考——那是 researchIntent 的独立语义）。
+   */
+  | { kind: "thinkingOnce"; enable: boolean };
 
 /** 礼貌前缀：匹配前剥离，不参与语义。 */
 const POLITE_PREFIX_PATTERN = /^(请|麻烦|帮我|帮忙|给我)+/;
@@ -149,14 +160,22 @@ function parseThinkingCommand(normalized: string): LocalUiCommand | null {
   }
 
   // 关闭类措辞先查（「不要深度思考」内含「深度思考」，顺序颠倒会误判为开启）。
+  // 整句单发措辞（如全文就是「深度思考」）视为显式指令，走持久开关；
+  // 句中顺带一律降级为本轮覆盖，绝不写盘。
   const disablePhrase = THINKING_DISABLE_PHRASES.find((phrase) => normalized.includes(phrase));
   if (disablePhrase) {
-    return { kind: "thinking", enable: false, standalone: normalized === disablePhrase };
+    if (normalized === disablePhrase) {
+      return { kind: "thinking", enable: false, standalone: true };
+    }
+    return { kind: "thinkingOnce", enable: false };
   }
 
   const enablePhrase = THINKING_ENABLE_PHRASES.find((phrase) => normalized.includes(phrase));
   if (enablePhrase) {
-    return { kind: "thinking", enable: true, standalone: normalized === enablePhrase };
+    if (normalized === enablePhrase) {
+      return { kind: "thinking", enable: true, standalone: true };
+    }
+    return { kind: "thinkingOnce", enable: true };
   }
 
   return null;

@@ -38,7 +38,21 @@ struct BridgeSidecarStatus {
 struct BridgeSidecarState(Mutex<BridgeSidecarStatus>);
 
 #[tauri::command]
+#[cfg(not(debug_assertions))]
 fn get_bridge_token(state: tauri::State<'_, BridgeTokenState>) -> String {
+    state.0.clone()
+}
+
+/// debug 下每次调用都 live 重读（env → 共享文件），不只用启动快照：
+/// tauri dev 常先于 bridge(tsx) 启动，启动快照恒为空会导致 bridge 起后仍 403。
+/// release 保持启动时随机 token 不变（sidecar env 同源注入，不读文件）。
+#[tauri::command]
+#[cfg(debug_assertions)]
+fn get_bridge_token(state: tauri::State<'_, BridgeTokenState>) -> String {
+    let live = resolve_bridge_token();
+    if !live.is_empty() {
+        return live;
+    }
     state.0.clone()
 }
 
@@ -71,12 +85,59 @@ fn generate_bridge_token() -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
+/// debug dev token 单一真源：环境变量优先，否则读 Node 侧共享文件
+/// （server/bridge/bridgeAuth.ts resolveDevBridgeTokenFilePath 同约定：
+/// VOID_BRIDGE_TOKEN_FILE > VOID_RUNTIME_DIR > VOID_RUNTIME_ROOT > 默认 D 盘运行时目录）。
+/// 读不到视同 bridge 未起，返回空由前端给诚实错误（Failed to fetch），不伪造 token。
+#[cfg(debug_assertions)]
+fn resolve_dev_token_file_path() -> std::path::PathBuf {
+    if let Ok(direct) = std::env::var("VOID_BRIDGE_TOKEN_FILE") {
+        let trimmed = direct.trim().to_string();
+        if !trimmed.is_empty() {
+            return std::path::PathBuf::from(trimmed);
+        }
+    }
+    let runtime_dir = read_non_empty_env("VOID_RUNTIME_DIR")
+        .or_else(|| read_non_empty_env("VOID_RUNTIME_ROOT"))
+        .unwrap_or_else(|| "D:\\AI\\void-runtime".to_string());
+    std::path::Path::new(&runtime_dir).join(".bridge-token")
+}
+
+#[cfg(debug_assertions)]
+fn read_non_empty_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(debug_assertions)]
+fn read_dev_token_file() -> String {
+    let path = resolve_dev_token_file_path();
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    let token = content.trim().to_string();
+    // 与 Node 侧同口径：拒绝空/夹带换行/超长垃圾，防投毒文件。
+    if token.len() < 16
+        || token.len() > 512
+        || !token
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '+' | '/' | '.' | '='))
+    {
+        return String::new();
+    }
+    token
+}
+
 #[cfg(debug_assertions)]
 fn resolve_bridge_token() -> String {
-    std::env::var("VOID_BRIDGE_TOKEN")
+    let from_env = std::env::var("VOID_BRIDGE_TOKEN")
         .unwrap_or_default()
         .trim()
-        .to_string()
+        .to_string();
+    if !from_env.is_empty() {
+        return from_env;
+    }
+    read_dev_token_file()
 }
 
 #[cfg(not(debug_assertions))]
@@ -206,10 +267,6 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_stronghold::Builder::new(|salt| {
-            use tauri_plugin_stronghold::Stronghold;
-            Stronghold::load(salt)
-        }).build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(BridgeTokenState(bridge_token.clone()))
         .manage(BridgeSidecarState(Mutex::new(BridgeSidecarStatus::default())))
@@ -224,6 +281,18 @@ pub fn run() {
             ocr::ocr_image_file
         ])
         .setup(move |app| {
+            // Stronghold 密钥库：官方文档模式，salt 落 app 本地数据目录。
+            {
+                use tauri::Manager;
+                let salt_path = app
+                    .path()
+                    .app_local_data_dir()
+                    .expect("could not resolve app local data path")
+                    .join("salt.txt");
+                app.handle().plugin(
+                    tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build(),
+                )?;
+            }
             // 日志常开（debug 与 release 一致）：release 无控制台，sidecar 转发的日志
             // 只写文件（LogDir/void.log）才不会丢失；0.2.4 盲飞的教训。
             app.handle().plugin(

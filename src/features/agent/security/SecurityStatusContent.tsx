@@ -22,6 +22,9 @@ type FetchState =
   | { phase: "error"; code: string; message: string }
   | { phase: "ready"; data: LocalRuntimeSecurityStatusData };
 
+// 存活门禁重查间隔：报错期间静默重查，恢复即停。
+const BRIDGE_AUTO_RETRY_MS = 5000;
+
 export function SecurityStatusContent() {
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSecurityPanelLanguage());
   const [fetchState, setFetchState] = useState<FetchState>({ phase: "loading" });
@@ -29,8 +32,11 @@ export function SecurityStatusContent() {
 
   const copy = getSecurityStatusCopy(language);
 
-  const runInspection = useCallback(async (signal: AbortSignal) => {
-    setFetchState({ phase: "loading" });
+  const runInspection = useCallback(async (signal: AbortSignal, silent = false) => {
+    // 静默重查只在后台收敛：成功转绿，失败保持原报错，不闪 loading。
+    if (!silent) {
+      setFetchState({ phase: "loading" });
+    }
     try {
       const data = await inspectLocalRuntimeSecurity(signal);
       if (!signal.aborted) {
@@ -52,6 +58,19 @@ export function SecurityStatusContent() {
     void runInspection(controller.signal);
     return () => controller.abort();
   }, [runInspection]);
+
+  // 存活门禁：报错期间每 5 秒静默重查，bridge 起來/令牌收敛后自动转绿；
+  // 恢复或卸载即停，不做常驻轮询。
+  useEffect(() => {
+    if (fetchState.phase !== "error") {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      const controller = new AbortController();
+      void runInspection(controller.signal, true);
+    }, BRIDGE_AUTO_RETRY_MS);
+    return () => window.clearInterval(timer);
+  }, [fetchState.phase, runInspection]);
 
   const handleRefresh = useCallback(() => {
     if (isRefreshing) {
@@ -114,6 +133,9 @@ export function SecurityStatusContent() {
             </summary>
             <p className="security-status__error-code">{fetchState.message}</p>
           </details>
+          {fetchState.code === "BRIDGE_TOKEN_FORBIDDEN" && (
+            <p className="security-status__error-message">{copy.tokenMismatchHint}</p>
+          )}
           <button type="button" className="security-status__refresh" onClick={handleRefresh}>
             {copy.refresh}
           </button>

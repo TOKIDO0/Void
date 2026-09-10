@@ -57,7 +57,9 @@ export default defineConfig({
       name: "void-model-proxy",
       configureServer(server) {
         // P0-1：vite dev 的 /void-model-proxy 不再是无鉴权开放代理。
-        // dev 启动即生成一次性 bridge token（bridgeAuth），此处先验 Host/Origin，
+        // dev token 单一真源为运行时共享文件（bridgeAuth resolveDevBridgeTokenFilePath）：
+        // 此处 ensure 只做文件收敛（bridge 先起则复用，无文件才原子生成），不再有
+        // per-process 分叉；无文件才原子生成并落盘（双进程竞写后来者复用赢家）。
         // 恶意 Origin 直接 403；同源 dev 缺 token 时内部补齐，再进 handleModelProxy
         // 第二道统一校验 + 严格目标 allowlist。取舍：同源 dev 免手填 token 保可用，
         // 跨站一律凭 token，空 token 裸奔关闭。

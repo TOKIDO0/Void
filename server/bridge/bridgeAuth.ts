@@ -1,7 +1,12 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, normalize } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { resolveRuntimeRoot } from "../file/fileRuntimePaths";
 
 export const BRIDGE_TOKEN_HEADER = "x-void-bridge-token";
+// 头名互通说明：服务端用全小写 x-void-bridge-token；Node 收包自动小写请求头，
+// 前端发 X-VOID-Bridge-Token 经 HTTP 语义等价互通，不用改名。
 
 /**
  * P0-1 鉴权下沉：dev 不再允许空 token 裸奔。
@@ -13,18 +18,80 @@ export const BRIDGE_TOKEN_HEADER = "x-void-bridge-token";
  */
 let devTokenLogged = false;
 
+const DEV_TOKEN_FILENAME = ".bridge-token";
+
+/**
+ * dev token 共享文件路径（单一真源，与 Rust debug 回退同约定）。
+ * 优先级：VOID_BRIDGE_TOKEN_FILE > VOID_RUNTIME_DIR > VOID_RUNTIME_ROOT > 默认 D 盘运行时目录。
+ * Rust 侧（src-tauri/src/lib.rs debug resolve_bridge_token）按同一优先级读取，release 不读文件。
+ */
+export function resolveDevBridgeTokenFilePath(): string {
+  const direct = process.env.VOID_BRIDGE_TOKEN_FILE?.trim();
+  if (direct) return normalize(direct);
+  const runtimeDir = process.env.VOID_RUNTIME_DIR?.trim()
+    || process.env.VOID_RUNTIME_ROOT?.trim()
+    || resolveRuntimeRoot();
+  return join(normalize(runtimeDir), DEV_TOKEN_FILENAME);
+}
+
+/** 读共享文件 token：无文件/空/格式非法一律视同缺失（调用方给诚实错误，不抛）。 */
+export function readDevSharedBridgeToken(): string {
+  let raw: string;
+  try {
+    raw = readFileSync(resolveDevBridgeTokenFilePath(), "utf8");
+  } catch {
+    return "";
+  }
+  const token = raw.trim();
+  // dev 生成 hex(64) / release 侧 base64url 均放行；拒绝空、换行夹带、超长垃圾防投毒。
+  if (!/^[\w\-+/=.]{16,512}$/.test(token)) return "";
+  return token;
+}
+
+/**
+ * 原子持久化 dev token：已存在有效文件则直接复用（双进程竞写时后来者认输），
+ * 用 wx 独占创建避免覆盖；失败一律 best-effort（返回内存 token，不抛）。
+ */
+function persistDevBridgeTokenBestEffort(token: string): string {
+  const target = resolveDevBridgeTokenFilePath();
+  const existing = readDevSharedBridgeToken();
+  if (existing) return existing;
+  try {
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, `${token}\n`, { flag: "wx", mode: 0o600 });
+    return token;
+  } catch (error) {
+    // EEXIST：竞写输了，读赢家的。
+    if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
+      return readDevSharedBridgeToken() || token;
+    }
+    // 落盘失败（如只读目录）：保持内存 token 可用，不阻断 dev。
+    try {
+      if (!existsSync(target)) return token;
+    } catch { /* best-effort */ }
+    return readDevSharedBridgeToken() || token;
+  }
+}
+
 export function ensureBridgeTokenInitialized(): string {
   const configured = process.env.VOID_BRIDGE_TOKEN?.trim() ?? "";
   if (configured) return configured;
   if (process.env.VOID_ALLOW_EMPTY_BRIDGE_TOKEN === "1") return "";
   if (process.env.NODE_ENV === "production") return "";
+  // dev 单一真源：优先复用共享文件（bridge/vite 谁先起谁落地，后起复用），无文件才生成并原子写入。
+  const shared = readDevSharedBridgeToken();
+  if (shared) {
+    process.env.VOID_BRIDGE_TOKEN = shared;
+    return shared;
+  }
   const generated = randomBytes(32).toString("hex");
-  process.env.VOID_BRIDGE_TOKEN = generated;
+  const settled = persistDevBridgeTokenBestEffort(generated);
+  process.env.VOID_BRIDGE_TOKEN = settled;
   if (!devTokenLogged) {
     devTokenLogged = true;
-    console.log("[void-bridge] dev token auto-generated (ephemeral, process-only)");
+    console.log("[void-bridge] dev token ready (shared file, all dev processes converge)");
   }
-  return generated;
+  return settled;
 }
 
 export function readConfiguredBridgeToken(): string {

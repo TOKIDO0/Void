@@ -695,11 +695,15 @@ export function VoidStage() {
     behaviorDecision: BehaviorDecision,
     signal: AbortSignal,
     skillPromptHint?: string,
-    inputMode: "voice" | "text" = "text"
+    inputMode: "voice" | "text" = "text",
+    // 本轮思考覆盖（thinkingOnce 指令）：只影响本轮 modelConfig，不写盘。
+    // null=无覆盖；true=本轮强制多想；false=本轮强制简单（仅压住持久开关，
+    // 检索意图的本轮强制思考是 researchIntent 的独立语义，不在此压）。
+    turnThinkingOverride?: boolean | null
   ) => {
     const modelConfig = {
       ...loadModelConfig(),
-      thinkingModeEnabled
+      thinkingModeEnabled: turnThinkingOverride ?? thinkingModeEnabled
     };
     // 根因修复（两分钟零反馈）：工具循环内部本就支持流式与工具共存
     //（final 轮逐字吐、tool 轮 content 为空不打扰，失败自动回落非流式），
@@ -764,6 +768,9 @@ export function VoidStage() {
     setThinkingModePulseEventId((currentEventId) => currentEventId + 1);
     updateThinkingModeEnabled(nextThinkingModeEnabled);
   }, []);
+
+  // 本轮思考覆盖（thinkingOnce 指令写入，不写盘；handleTextMessage 消费后即清零）。
+  const turnThinkingOnceRef = useRef<boolean | null>(null);
 
   const completeTextResponse = useCallback(async (responseText: string, pulseKey: string) => {
     setLiveStatusLabel(null);
@@ -1150,7 +1157,14 @@ export function VoidStage() {
       return true;
     }
 
-    // thinking：独立句是纯控制指令；带要求的句子只切换模式，继续走对话。
+    // thinkingOnce：句中顺带措辞的本轮覆盖，不写盘、不碰持久开关；告知一句后继续走对话。
+    if (command.kind === "thinkingOnce") {
+      turnThinkingOnceRef.current = command.enable;
+      acknowledge(command.enable ? "这轮我会多想一下，下轮自动恢复。" : "这轮简单直接说，下轮自动恢复。");
+      return false;
+    }
+
+    // thinking：独立句是纯控制指令（持久开关）；其他情况到此的只有 thinking。
     handleThinkingModeChange(command.enable);
     if (command.standalone) {
       acknowledge(command.enable ? "深度思考模式已开启。" : "深度思考模式已关闭。");
@@ -1164,6 +1178,8 @@ export function VoidStage() {
     attachments: VoidConversationAttachment[],
     inputMode: "voice" | "text" = "text"
   ) => {
+    // 本轮思考覆盖每条消息独立结算：先清零，本地指令解析时可能写入，消费后即清。
+    turnThinkingOnceRef.current = null;
     // 确认门挂起时，短指令「好/取消」优先结算，不新开对话。
     if (attachments.length === 0 && trySettlePendingConfirmationByUtterance(message)) {
       return;
@@ -1189,12 +1205,15 @@ export function VoidStage() {
     }
 
     // 本地 UI 指令（打开设置/历史/记忆、开关麦克风/语音/思考模式）先于对话链路识别。
+    // thinkingOnce 不短路：tryExecute 只写 turnThinkingOnceRef 并告知，本轮消费。
     if (attachments.length === 0) {
       const localCommand = parseLocalUiCommand(message);
       if (localCommand && tryExecuteLocalUiCommand(localCommand)) {
         return;
       }
     }
+    const turnThinkingOnce = turnThinkingOnceRef.current;
+    turnThinkingOnceRef.current = null;
 
     const previousHistory = conversationHistoryRef.current;
     const { exchangeId, signal } = beginExchange(previousHistory);
@@ -1240,7 +1259,8 @@ export function VoidStage() {
         signal,
         // 阶段 Y：命中本地技能剧本时注入提示；解析失败/超时为 null 零副作用
         await resolveSkillPromptHint(message, signal),
-        inputMode
+        inputMode,
+        turnThinkingOnce
       );
       if (activeExchangeIdRef.current !== exchangeId) {
         return; // 已被打断：放弃本回合的历史提交与 UI/语音收尾（历史已回滚）
