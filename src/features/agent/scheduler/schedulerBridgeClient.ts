@@ -4,6 +4,7 @@
  */
 
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
+import { isVaultRef, resolveSecretValue } from "../../../lib/runtime/secretVault";
 import {
   getBridgeUnavailableHint,
   resolveVoidBridgeOrigin
@@ -186,18 +187,23 @@ async function getSchedulerApi<T>(pathname: string, signal?: AbortSignal): Promi
 
 /** 回填模型 Key 进 sidecar 内存（创建任务前调用；幂等）。 */
 export async function ensureSchedulerUnlocked(modelConfig: ModelConfig, signal?: AbortSignal): Promise<void> {
+  // P0-2 vault 链路：apiKey 若为 vault: 引用，前端先 resolve 成当次明文再经回环发送；
+  // 引用串本身随包发往 sidecar 备查（jobs.json/内存永不存明文，见 schedulerStore）。
+  const rawApiKey = modelConfig.apiKey.trim();
+  const apiKey = isVaultRef(rawApiKey) ? await resolveSecretValue(rawApiKey) : rawApiKey;
   await postSchedulerApi<{ unlocked: boolean }>("/void-scheduler/unlock", {
     modelConfig: {
       provider: modelConfig.provider,
       presetId: modelConfig.presetId,
-      apiKey: modelConfig.apiKey,
+      apiKey,
       baseUrl: modelConfig.baseUrl,
       modelName: modelConfig.modelName,
       modelStrength: modelConfig.modelStrength,
       thinkingModeEnabled: modelConfig.thinkingModeEnabled,
       temperature: modelConfig.temperature,
       maxOutputTokens: modelConfig.maxOutputTokens,
-      streamEnabled: false
+      streamEnabled: false,
+      modelVaultRef: isVaultRef(rawApiKey) ? rawApiKey : undefined
     }
   }, signal);
 }

@@ -1,0 +1,35 @@
+# P2 安全门禁：bridge 鉴权/SSRF 回归 + 类型检查，PR 与主分支推送必跑。
+# 发布流水线（release.yml）在构建前同样执行 agent-bridge-security-smoke。
+
+name: Security Gate
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  agent-bridge-security:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: install frontend dependencies
+        run: npm ci
+
+      - name: typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: agent-bridge-security-smoke (required)
+        run: npx tsx scripts/agent-bridge-security-smoke.mjs
+        env:
+          VOID_ALLOW_EMPTY_BRIDGE_TOKEN: "1"

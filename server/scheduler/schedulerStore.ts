@@ -30,6 +30,15 @@ function emptyState(): SchedulerState {
   return { version: 1, jobs: [], runs: [] };
 }
 
+/** 只接受 vault: 引用；其余（含明文）一律丢弃且不落盘。 */
+function readJobVaultRef(job: Record<string, unknown>): string | undefined {
+  const candidate = job.modelVaultRef;
+  if (typeof candidate !== "string") return undefined;
+  const trimmed = candidate.trim();
+  if (!trimmed.startsWith("vault:") || trimmed.length > 160) return undefined;
+  return trimmed;
+}
+
 function sanitizeState(raw: unknown): SchedulerState {
   const state = emptyState();
   if (typeof raw !== "object" || raw === null) {
@@ -62,6 +71,9 @@ function sanitizeState(raw: unknown): SchedulerState {
         speakOnDeliver: job.speakOnDeliver === true,
         enabled: job.enabled !== false,
         createdAt: typeof job.createdAt === "number" ? job.createdAt : Date.now(),
+        // P0-2：jobs.json 永不存明文 Key。历史残留 apiKey/key/secret/token 字段直接丢弃；
+        // vault 引用（vault:<alias>）才允许持久化。
+        modelVaultRef: readJobVaultRef(job),
         nextRunAtMs: typeof job.nextRunAtMs === "number" ? job.nextRunAtMs : undefined,
         lastRunAtMs: typeof job.lastRunAtMs === "number" ? job.lastRunAtMs : undefined,
         lastStatus: typeof job.lastStatus === "string"
@@ -97,6 +109,24 @@ function sanitizeState(raw: unknown): SchedulerState {
     }
   }
   return state;
+}
+
+/** 写入前剥离任何明文秘密字段；仅保留合法 vault: 引用。 */
+function stripJobSecrets<T extends Record<string, unknown>>(job: T): T {
+  const cleaned = { ...job } as Record<string, unknown>;
+  for (const field of ["apiKey", "key", "secret", "token", "api_secret", "accessKey"]) {
+    if (field in cleaned) delete cleaned[field];
+  }
+  const ref = cleaned.modelVaultRef;
+  if (typeof ref === "string") {
+    const trimmed = ref.trim();
+    if (!trimmed.startsWith("vault:") || trimmed.length > 160) {
+      delete cleaned.modelVaultRef;
+    } else {
+      cleaned.modelVaultRef = trimmed;
+    }
+  }
+  return cleaned as T;
 }
 
 class SchedulerStore {
@@ -145,7 +175,12 @@ class SchedulerStore {
       throw createScheduleError("JOB_LIMIT", `调度任务已达上限 ${MAX_JOBS} 个，先删除不用再建`);
     }
     const now = Date.now();
-    const job: ScheduleJob = { ...draft, allowedToolNames: [...draft.allowedToolNames], id: nextJobId(), createdAt: now };
+    const job: ScheduleJob = {
+      ...stripJobSecrets(draft),
+      allowedToolNames: [...draft.allowedToolNames],
+      id: nextJobId(),
+      createdAt: now
+    };
     state.jobs.push(job);
     this.flush();
     return { ...job, allowedToolNames: [...job.allowedToolNames] };
@@ -157,7 +192,10 @@ class SchedulerStore {
     if (index < 0) {
       throw createScheduleError("NOT_FOUND", `任务不存在：${job.id}`);
     }
-    state.jobs[index] = { ...job, allowedToolNames: [...job.allowedToolNames] };
+    state.jobs[index] = {
+      ...stripJobSecrets(job),
+      allowedToolNames: [...job.allowedToolNames]
+    };
     this.flush();
   }
 

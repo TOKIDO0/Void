@@ -9,6 +9,8 @@ import { isInvalidJsonBody, isRequestBodyTooLarge, readJsonBody } from "../http/
 import type { ModelConfig } from "../../src/features/settings/modelConfig";
 import { computeNextRunAtMs, validateCreateInput } from "./schedulerEngine";
 import {
+  cancelSchedulerJobRuns,
+  cancelSchedulerRun,
   hasSchedulerModelKey,
   notifySchedulerChanged,
   requestManualRun,
@@ -190,9 +192,27 @@ export async function handleSchedulerHttpRequest(
         thinkingModeEnabled: modelConfig.thinkingModeEnabled === true,
         temperature: typeof modelConfig.temperature === "number" ? modelConfig.temperature : 0.7,
         maxOutputTokens: typeof modelConfig.maxOutputTokens === "number" ? modelConfig.maxOutputTokens : 2000,
-        streamEnabled: false
+        streamEnabled: false,
+        // P0-2：透传 vault 引用备查（jobs.json/内存均不存明文，见 runner）。
+        modelVaultRef: typeof modelConfig.modelVaultRef === "string" ? modelConfig.modelVaultRef : undefined
       } as ModelConfig);
       return { unlocked: true };
+    });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/void-scheduler/runs/cancel") {
+    await withSchedulerHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const runId = typeof body.runId === "string" ? body.runId : "";
+      const jobId = typeof body.jobId === "string" ? body.jobId : "";
+      if (runId.trim()) {
+        return cancelSchedulerRun(runId);
+      }
+      if (jobId.trim()) {
+        return cancelSchedulerJobRuns(jobId);
+      }
+      throw Object.assign(new Error("runId 或 jobId 至少提供一个"), { scheduleCode: "INVALID_REQUEST" });
     });
     return true;
   }

@@ -122,12 +122,183 @@ const PATH_RELEVANT_TOOL_NAMES = [
 ];
 
 /**
+ * P0-5 结构化规则引擎（Claude Code 式 allow/ask/deny）。
+ *
+ * - 规则形态：{ toolPattern（支持 * 通配，如 file.*、desktop.*、mcp__*），effect，reason }；
+ * - deny 优先：任意 deny 命中即整单 deny（执行期拒绝），ask 次之，allow 最弱；
+ * - 动态信号（敏感 URL/路径）是 ask 来源之一，不再是散落正则：classify* 只做分类，
+ *   生效走 evaluateToolPermission；
+ * - highPermissionMode 降级为快捷 profile：permissive（ask→allow，deny 不动），
+ *   见 getToolPermissionProfile/resolveEffectiveStaticRiskLevel。
+ */
+export type ToolPermissionEffect = "allow" | "ask" | "deny";
+
+export type ToolPermissionRule = {
+  toolPattern: string;
+  effect: ToolPermissionEffect;
+  reason: string;
+};
+
+export type ToolPermissionProfile = "default" | "permissive";
+
+export type ToolPermissionDecision = {
+  effect: ToolPermissionEffect;
+  reason: string;
+  matchedPattern?: string;
+};
+
+const TOOL_PERMISSION_STORAGE_KEY = "void.toolPermissionRules";
+const TOOL_PERMISSION_PROFILE_KEY = "void.toolPermissionProfile";
+
+/** 内置 deny 红线：默认即拒绝，无需确认通道。 */
+const BUILTIN_DENY_TOOL_PATTERNS: Array<{ pattern: string; reason: string }> = [
+  { pattern: "system.exec", reason: "系统命令执行默认拒绝（未启用沙箱审批链）" },
+  { pattern: "system.shell", reason: "Shell 执行默认拒绝" }
+];
+
+function matchesToolPattern(pattern: string, toolName: string): boolean {
+  if (pattern === "*") return true;
+  if (pattern === toolName) return true;
+  if (pattern.endsWith(".*")) {
+    const prefix = pattern.slice(0, -2);
+    return toolName === prefix || toolName.startsWith(`${prefix}.`);
+  }
+  if (pattern.includes("*")) {
+    const escaped = pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    return new RegExp(`^${escaped.join(".*")}$`).test(toolName);
+  }
+  return false;
+}
+
+function readCustomToolPermissionRules(): ToolPermissionRule[] {
+  try {
+    const raw = window.localStorage.getItem(TOOL_PERMISSION_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is ToolPermissionRule =>
+        !!item && typeof item === "object" &&
+        typeof (item as ToolPermissionRule).toolPattern === "string" &&
+        ((item as ToolPermissionRule).effect === "allow" ||
+          (item as ToolPermissionRule).effect === "ask" ||
+          (item as ToolPermissionRule).effect === "deny")
+      )
+      .slice(0, 100)
+      .map((rule) => ({
+        toolPattern: rule.toolPattern.trim().slice(0, 120),
+        effect: rule.effect,
+        reason: typeof rule.reason === "string" ? rule.reason.slice(0, 200) : ""
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export function listCustomToolPermissionRules(): ToolPermissionRule[] {
+  return readCustomToolPermissionRules();
+}
+
+export function saveCustomToolPermissionRules(rules: ToolPermissionRule[]): void {
+  try {
+    window.localStorage.setItem(TOOL_PERMISSION_STORAGE_KEY, JSON.stringify(rules.slice(0, 100)));
+  } catch {
+    // ignore
+  }
+}
+
+export function getToolPermissionProfile(): ToolPermissionProfile {
+  try {
+    // highPermissionMode 是 permissive profile 的快捷开关（P0-5 降级）。
+    if (window.localStorage.getItem("void.highPermissionMode") === "1") {
+      return "permissive";
+    }
+    return window.localStorage.getItem(TOOL_PERMISSION_PROFILE_KEY) === "permissive"
+      ? "permissive"
+      : "default";
+  } catch {
+    return "default";
+  }
+}
+
+export function setToolPermissionProfile(profile: ToolPermissionProfile): void {
+  try {
+    window.localStorage.setItem(TOOL_PERMISSION_PROFILE_KEY, profile);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * 结构化裁决：deny 优先；同 effect 取最具体 pattern。
+ * dynamicAskReason 由调用方传入（敏感 URL/路径分类结果），映射为 ask。
+ */
+export function evaluateToolPermission(
+  toolName: string,
+  dynamicAskReason?: string
+): ToolPermissionDecision {
+  const customRules = readCustomToolPermissionRules();
+  const denyBuiltin = BUILTIN_DENY_TOOL_PATTERNS.find((entry) =>
+    matchesToolPattern(entry.pattern, toolName)
+  );
+  if (denyBuiltin) {
+    return { effect: "deny", reason: denyBuiltin.reason, matchedPattern: denyBuiltin.pattern };
+  }
+  const denyCustom = customRules
+    .filter((rule) => rule.effect === "deny" && matchesToolPattern(rule.toolPattern, toolName))
+    .sort((a, b) => b.toolPattern.length - a.toolPattern.length)[0];
+  if (denyCustom) {
+    return { effect: "deny", reason: denyCustom.reason || "自定义 deny 规则命中", matchedPattern: denyCustom.toolPattern };
+  }
+  if (dynamicAskReason) {
+    if (getToolPermissionProfile() === "permissive") {
+      const denyStillApplies = false;
+      void denyStillApplies;
+      // permissive 放宽 ask→allow，但动态敏感信号（密钥/内网）不放宽：保持 ask。
+      return { effect: "ask", reason: dynamicAskReason };
+    }
+    return { effect: "ask", reason: dynamicAskReason };
+  }
+  const askCustom = customRules
+    .filter((rule) => rule.effect === "ask" && matchesToolPattern(rule.toolPattern, toolName))
+    .sort((a, b) => b.toolPattern.length - a.toolPattern.length)[0];
+  if (askCustom) {
+    if (getToolPermissionProfile() === "permissive") {
+      return { effect: "allow", reason: `${askCustom.reason || "自定义 ask 规则"}（permissive profile 放宽）`, matchedPattern: askCustom.toolPattern };
+    }
+    return { effect: "ask", reason: askCustom.reason || "自定义 ask 规则命中", matchedPattern: askCustom.toolPattern };
+  }
+  const allowCustom = customRules
+    .filter((rule) => rule.effect === "allow" && matchesToolPattern(rule.toolPattern, toolName))
+    .sort((a, b) => b.toolPattern.length - a.toolPattern.length)[0];
+  if (allowCustom) {
+    return { effect: "allow", reason: allowCustom.reason || "自定义 allow 规则命中", matchedPattern: allowCustom.toolPattern };
+  }
+  return { effect: "allow", reason: "无规则命中，默认放行（静态风险由工具注册表决定）" };
+}
+
+/**
  * 内置工具安全 hook。只抬升风险，不直接扩大或执行权限。
  * 当前覆盖本地/私网 URL 与敏感文件读取，避免模型被外部内容诱导探测端口或读取密钥。
  */
 export function inspectToolInputSafety(toolName: string, input: unknown): ToolSafetyReview {
   if (toolName === "agent.spawnTask") {
     return reviewSpawnTaskBatch(input);
+  }
+
+  // P0-5：deny 先行。红线工具直接给出去拒绝信号（执行期 fail-closed）。
+  const preDecision = evaluateToolPermission(toolName);
+  if (preDecision.effect === "deny") {
+    return {
+      riskLevel: "L3",
+      reason: preDecision.reason,
+      confirmationTitle: "该操作已被 deny 规则拒绝",
+      confirmationDescription: [
+        `工具：${toolName}`,
+        `原因：${preDecision.reason}`,
+        "拒绝则不会执行；如需放行请到 /permissions 调整规则。"
+      ].join("\n")
+    };
   }
 
   const urlRule = SENSITIVE_URL_TOOL_RULES.get(toolName);

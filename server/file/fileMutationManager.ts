@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, parse } from "node:path";
 import { assertAllowedFilePath } from "./filePathPolicy";
+import { createCheckpoint } from "./fileCheckpointManager";
 import { createFileError } from "./fileRuntimePaths";
 import { guessMediaKind } from "./fileDownloadManager";
 import type {
@@ -137,6 +138,12 @@ export class FileMutationManager {
     }
 
     const sourceStat = statSync(sourcePath);
+    // P1 checkpoint：重命名/移动前快照源与目标（失败不挡主流程）。
+    try {
+      createCheckpoint([sourcePath, destinationPath], `move ${basename(sourcePath)}`);
+    } catch {
+      // ignore
+    }
     try {
       renameSync(sourcePath, destinationPath);
     } catch (error) {
@@ -194,6 +201,14 @@ export class FileMutationManager {
     }
 
     try {
+      // P1 checkpoint：覆盖写前快照（失败不挡主流程）。
+      if (overwritten) {
+        try {
+          createCheckpoint([destinationPath], `write-text overwrite ${basename(destinationPath)}`);
+        } catch {
+          // ignore
+        }
+      }
       writeFileSync(destinationPath, buffer, { flag: overwritten ? "w" : "wx" });
     } catch (error) {
       throw createFileError(
@@ -256,6 +271,12 @@ export class FileMutationManager {
       throw createFileError("FILE_TOO_LARGE", "编辑后内容超过 512KB 上限");
     }
     try {
+      // P1 checkpoint：行级编辑前快照（失败不挡主流程）。
+      try {
+        createCheckpoint([path], `edit-text ${basename(path)}`);
+      } catch {
+        // ignore
+      }
       writeFileSync(path, buffer);
     } catch (error) {
       throw createFileError("WRITE_FAILED", error instanceof Error ? error.message : "文本写入失败", { destinationPath: path });

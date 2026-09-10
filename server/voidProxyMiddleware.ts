@@ -7,7 +7,13 @@
  * 供 vite 插件（开发）与 sidecar 服务（生产）复用，避免两份实现分叉。
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { isBridgeTokenAccepted, sendBridgeAuthReject } from "./bridge/bridgeAuth";
 import { HttpRequestError, isRequestBodyTooLarge } from "./http/httpRequest";
+import {
+  assertPublicUrl,
+  readPrivateHostAllowlist,
+  type PrivateHostRule
+} from "./net/ssrfGuard";
 import {
   extractRequestModel,
   modelUsageStore,
@@ -38,6 +44,15 @@ const PROXY_REQUEST_BODY_MAX_BYTES = 4 * 1024 * 1024;
 const PROXY_MAX_CONCURRENT_REQUESTS = readPositiveIntegerEnv(
   "VOID_PROXY_MAX_CONCURRENT_REQUESTS",
   8
+);
+/**
+ * 上游模型请求有界等待：前端超时（默认 90s）先向用户交代，
+ * bridge 侧再晚一拍兜底，保证慢上游占住的并发槽位一定被释放，
+ * 且失败以诚实 502（含超时原因）返回，而不是把连接拖到 120s 服务端超时。
+ */
+const MODEL_UPSTREAM_TIMEOUT_MS = readPositiveIntegerEnv(
+  "VOID_MODEL_UPSTREAM_TIMEOUT_MS",
+  100_000
 );
 
 let activeProxyRequests = 0;
@@ -145,12 +160,40 @@ export function isLoopbackHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
+/** 回环目标 allowlist：默认只允许 https 公网；回环/私网需显式 VOID_PROXY_ALLOW_PRIVATE_HOSTS。 */
+let cachedProxyAllowlist: PrivateHostRule[] | null = null;
+
+export function getProxyPrivateAllowlist(): PrivateHostRule[] {
+  if (cachedProxyAllowlist) return cachedProxyAllowlist;
+  cachedProxyAllowlist = readPrivateHostAllowlist("VOID_PROXY_ALLOW_PRIVATE_HOSTS");
+  return cachedProxyAllowlist;
+}
+
+/** 测试隔离：重置 allowlist 缓存。 */
+export function resetProxyPrivateAllowlistCache(): void {
+  cachedProxyAllowlist = null;
+}
+
+/**
+ * P0-1 鉴权下沉：代理层自己验 token，不依赖调用方（vite/bridge）是否验过。
+ * bridge 进程已验过一次，这里是纵深第二道；vite dev 经 attachDevTokenForSameOrigin
+ * 补齐后同样被校验；恶意 Origin 即使直达本层也过不了 token 关。
+ */
+function assertProxyAuth(request: IncomingMessage, response: ServerResponse): boolean {
+  if (isBridgeTokenAccepted(request)) return true;
+  sendBridgeAuthReject(response);
+  return false;
+}
+
 /**
  * 模型接口 HTTP 转发：仅允许 HTTPS（或回环）目标，SSE 流式逐块透传，其余整体读回。
  * 目标地址由请求头 `x-void-target-url` 指定。
  */
 export async function handleModelProxy(request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const parsedTargetUrl = resolveTargetUrl(request, response, "Only HTTPS model endpoints are allowed");
+  if (!assertProxyAuth(request, response)) {
+    return;
+  }
+  const parsedTargetUrl = await resolveTargetUrl(request, response, "Only HTTPS model endpoints are allowed");
   if (!parsedTargetUrl) {
     return;
   }
@@ -161,6 +204,7 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
   }
 
   let clientAbort: ReturnType<typeof createClientDisconnectAbortController> | null = null;
+  let upstreamTimeout: ReturnType<typeof createUpstreamTimeout> | null = null;
   try {
     let requestBody = await readRequestBody(request);
     const forwardedHeaders = buildForwardedHeaders(request.headers);
@@ -181,13 +225,16 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
     // 缺 stream_options 的流式请求补 include_usage（中转支持则回 usage，不支持则忽略）。
     requestBody = withUsageStreamOptions(requestBody);
     clientAbort = createClientDisconnectAbortController(request, response);
+    upstreamTimeout = createUpstreamTimeout(clientAbort.signal);
     const proxyResponse = await fetch(parsedTargetUrl, {
       method,
       headers: forwardedHeaders,
-      signal: clientAbort.signal,
+      signal: upstreamTimeout.signal,
       // GET/HEAD 不允许携带 body（undici 会直接抛错）；模型列表拉取即 GET。
       body: method === "GET" || method === "HEAD" ? undefined : requestBody
     });
+    upstreamTimeout.cleanup();
+    upstreamTimeout = null;
 
     response.statusCode = proxyResponse.status;
     response.setHeader("Content-Type", proxyResponse.headers.get("content-type") ?? "application/json");
@@ -238,6 +285,8 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
     }
     respondProxyError(response, error, parsedTargetUrl.toString(), "[void-model-proxy]");
   } finally {
+    upstreamTimeout?.cleanup();
+    upstreamTimeout = null;
     clientAbort?.cleanup();
     releaseProxySlot();
   }
@@ -248,7 +297,10 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
  * 目标地址由请求头 `x-void-target-url` 指定。
  */
 export async function handleVoiceProxy(request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const parsedTargetUrl = resolveTargetUrl(request, response, "Only HTTPS voice endpoints are allowed");
+  if (!assertProxyAuth(request, response)) {
+    return;
+  }
+  const parsedTargetUrl = await resolveTargetUrl(request, response, "Only HTTPS voice endpoints are allowed");
   if (!parsedTargetUrl) {
     return;
   }
@@ -290,6 +342,29 @@ export async function handleVoiceProxy(request: IncomingMessage, response: Serve
   }
 }
 
+function createUpstreamTimeout(clientSignal: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  let cleaned = false;
+  const onClientAbort = () => controller.abort();
+  const timer = setTimeout(() => controller.abort(), MODEL_UPSTREAM_TIMEOUT_MS);
+  if (clientSignal.aborted) {
+    controller.abort();
+  } else {
+    clientSignal.addEventListener("abort", onClientAbort, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      if (cleaned) {
+        return;
+      }
+      cleaned = true;
+      clearTimeout(timer);
+      clientSignal.removeEventListener("abort", onClientAbort);
+    }
+  };
+}
+
 function createClientDisconnectAbortController(
   request: IncomingMessage,
   response: ServerResponse
@@ -314,11 +389,11 @@ function createClientDisconnectAbortController(
 }
 
 /** 解析并校验 `x-void-target-url` 目标地址；不合法时直接写回错误并返回 null */
-function resolveTargetUrl(
+async function resolveTargetUrl(
   request: IncomingMessage,
   response: ServerResponse,
   protocolRejectMessage: string
-): URL | null {
+): Promise<URL | null> {
   const targetUrl = request.headers["x-void-target-url"];
   if (typeof targetUrl !== "string") {
     response.statusCode = 400;
@@ -326,22 +401,27 @@ function resolveTargetUrl(
     return null;
   }
 
-  let parsedTargetUrl: URL;
   try {
-    parsedTargetUrl = new URL(targetUrl);
-  } catch {
+    // 默认仅 https 公网；回环/私网需 VOID_PROXY_ALLOW_PRIVATE_HOSTS 显式放行；
+    // 含 DNS pin（解析到内网即阻断）+ 编码 IP 归一化，由共享 ssrfGuard 执行。
+    return await assertPublicUrl(targetUrl, {
+      allowHttp: false,
+      allowlist: getProxyPrivateAllowlist()
+    });
+  } catch (error) {
+    const code = (error as { ssrfCode?: string }).ssrfCode;
     response.statusCode = 400;
-    response.end("Invalid target URL");
+    response.setHeader("Content-Type", "application/json; charset=utf-8");
+    response.end(JSON.stringify({
+      ok: false,
+      error: {
+        code: code === "PRIVATE_NETWORK_URL" ? "PROXY_TARGET_BLOCKED" : "INVALID_TARGET_URL",
+        message: error instanceof Error ? error.message : protocolRejectMessage,
+        details: (error as { details?: unknown }).details ?? undefined
+      }
+    }));
     return null;
   }
-
-  if (parsedTargetUrl.protocol !== "https:" && !isLoopbackHostname(parsedTargetUrl.hostname)) {
-    response.statusCode = 400;
-    response.end(protocolRejectMessage);
-    return null;
-  }
-
-  return parsedTargetUrl;
 }
 
 /** 把 fetch 响应体逐块写入 Node 响应（不 end，由调用方决定收尾）；onChunk 旁路观测，不影响背压。 */

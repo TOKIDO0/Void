@@ -30,6 +30,9 @@ import { handleFileHttpRequest } from "./file/fileHttpHandlers";
 import { ensureRuntimeDirectories } from "./file/fileRuntimePaths";
 import { handleCodeHttpRequest } from "./code/codeHttpHandlers";
 import { handleMemoryHttpRequest } from "./memory/memoryEmbeddingHandlers";
+import { handleMcpHttpRequest } from "./mcp/mcpHttpHandlers";
+import { hooksRegistry } from "./hooks/hooksRegistry";
+import { buildSandboxStatus } from "./sandbox/sandboxStatus";
 import { handleSchedulerHttpRequest } from "./scheduler/schedulerHttpHandlers";
 import { handleUsageHttpRequest } from "./usage/usageHttpHandlers";
 import { startScheduler, stopScheduler } from "./scheduler/schedulerRunner";
@@ -473,6 +476,30 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
   // 41 号文档：本地技能注册表（只读任务剧本列表）
   if (pathname.startsWith("/void-skills")) {
     handleSkillsHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // P1：MCP 第三方工具（mcp__* 命名 + Origin/SSRF 守卫 + 默认 ask 审计）
+  if (pathname.startsWith("/void-mcp")) {
+    void handleMcpHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // P1：Hooks 只读列表（PreToolUse/PostToolUse 注册表）
+  if (pathname === "/void-hooks/list") {
+    sendJson(response, 200, { ok: true, data: hooksRegistry.list() });
+    return;
+  }
+
+  // P1：/sandbox 只读能力自检
+  if (pathname === "/void-sandbox/status") {
+    void buildSandboxStatus().then(
+      (data) => sendJson(response, 200, { ok: true, data }),
+      (error) => sendJson(response, 500, {
+        ok: false,
+        error: { code: "SANDBOX_STATUS_FAILED", message: error instanceof Error ? error.message : "沙箱自检失败" }
+      })
+    );
     return;
   }
 

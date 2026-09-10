@@ -30,6 +30,8 @@ export type ScheduleJob = {
   speakOnDeliver: boolean;
   enabled: boolean;
   createdAt: number;
+  /** 模型 Key 的 vault 引用（vault:<alias>）；jobs.json 永不存明文 Key。 */
+  modelVaultRef?: string;
   nextRunAtMs?: number;
   lastRunAtMs?: number;
   lastStatus?: SchedulerRunStatus;

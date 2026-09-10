@@ -1,4 +1,5 @@
-import { getSecret, setSecret } from "../../lib/runtime/secretStore";
+import { getSecret, getSecretAsync, migratePlaintextSecretsToVault, setSecret } from "../../lib/runtime/secretStore";
+import { resolveSecretValue } from "../../lib/runtime/secretVault";
 
 export type ModelProviderType = "openai-compatible" | "anthropic";
 
@@ -239,6 +240,39 @@ export const MAX_OUTPUT_LEVELS: readonly LevelOption[] = [
 export function loadModelConfig(): ModelConfig {
   const store = readStore();
   return composeModelConfig(store, store.activePresetId);
+}
+
+/**
+ * P0-2 vault 感知加载：同步版返回的 apiKey 在迁移后可能是 vault: 引用；
+ * 需要明文发请求的链路（scheduler unlock）用此异步版 resolve 后再用。
+ */
+export async function loadModelConfigAsync(): Promise<ModelConfig> {
+  const sync = loadModelConfig();
+  const apiKey = await resolveSecretValue(sync.apiKey);
+  return { ...sync, apiKey };
+}
+
+/**
+ * P0-2 一次性迁移：把全 preset 的 localStorage 明文 Key 搬进 vault 并清除明文。
+ * 返回实际迁移的 preset 列表。迁移后 loadModelConfig().apiKey 为 vault: 引用，
+ * 发请求前走 loadModelConfigAsync() resolve。
+ */
+export async function migrateModelKeysToVault(): Promise<string[]> {
+  const keys = MODEL_PRESETS.map((preset) => providerApiKeyStorageKey(preset.id));
+  keys.push(LEGACY_MODEL_API_KEY_STORAGE_KEY);
+  const migratedKeys = await migratePlaintextSecretsToVault(keys);
+  const migratedPresets = migratedKeys
+    .map((key) => {
+      const match = /^void\.modelApiKey\.(.+)$/.exec(key);
+      return match?.[1];
+    })
+    .filter((presetId): presetId is string => !!presetId);
+  return [...new Set(migratedPresets)];
+}
+
+/** 异步真相源读取指定 preset 的 Key（vault 引用自动 resolve）。 */
+export async function loadPresetApiKeyAsync(presetId: string): Promise<string> {
+  return getSecretAsync(providerApiKeyStorageKey(presetId));
 }
 
 export function saveModelConfig(modelConfig: ModelConfig) {

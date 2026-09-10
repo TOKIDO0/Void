@@ -14,6 +14,7 @@ import { mediaPageDownloadManager } from "./mediaPageDownloadManager";
 import { genericMediaDownloadManager } from "./genericMediaDownloadManager";
 import { fileAccessManager } from "./fileAccessManager";
 import { fileMutationManager } from "./fileMutationManager";
+import { createCheckpoint, listCheckpoints, restoreCheckpoint } from "./fileCheckpointManager";
 import { fileOrganizeManager } from "./fileOrganizeManager";
 import { createExcelFile } from "./fileExcelManager";
 import { createPptxFile } from "./filePptManager";
@@ -282,6 +283,15 @@ export async function handleFileHttpRequest(
     return true;
   }
 
+  // P1 文件快照 checkpoint：列出与恢复（审计见 fileCheckpointManager）。
+  if (request.method === "GET" && pathname === "/void-file/checkpoints") {
+    await withFileHandler(response, async () => {
+      await readJsonBody(request);
+      return { checkpoints: listCheckpoints(), count: listCheckpoints().length };
+    });
+    return true;
+  }
+
   if (request.method !== "POST") {
     sendJson(response, 405, {
       ok: false,
@@ -528,6 +538,18 @@ export async function handleFileHttpRequest(
         throw createInvalidFileRequest("缺少 newText");
       }
       return fileMutationManager.editText(path, oldText, newText);
+    });
+    return true;
+  }
+
+  if (pathname === "/void-file/checkpoint/restore") {
+    await withFileHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const id = readString(body, "id");
+      if (!id) {
+        throw createInvalidFileRequest("缺少 id");
+      }
+      return restoreCheckpoint(id);
     });
     return true;
   }

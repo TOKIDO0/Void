@@ -35,6 +35,12 @@ jobs:
       - name: install frontend dependencies
         run: npm ci
 
+      # P2 必跑门禁：bridge 鉴权/SSRF 回归不过即阻断发版。
+      - name: agent-bridge-security-smoke (required gate)
+        run: npx tsx scripts/agent-bridge-security-smoke.mjs
+        env:
+          VOID_ALLOW_EMPTY_BRIDGE_TOKEN: "1"
+
       - name: build sidecar
         run: npm run sidecar:build
 

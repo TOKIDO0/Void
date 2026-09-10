@@ -1,8 +1,14 @@
 /**
  * WebFetch 通用精读：GET 单页 → 文本/ Markdown
  * 对标 Claude Code WebFetch / Hermes WebFetch
- * 只读、大小/超时/SSRF 防护，复用 fileDownloadSafety 同策略
+ * 只读、大小/超时/SSRF 防护，统一消费 server/net/ssrfGuard（DNS pin + 编码IP归一化 + 逐跳重验）。
  */
+
+import {
+  SSRF_DEFAULT_MAX_BYTES,
+  SSRF_DEFAULT_TIMEOUT_MS,
+  assertPublicUrl
+} from "../net/ssrfGuard";
 
 export type WebFetchData = {
   url: string;
@@ -14,17 +20,26 @@ export type WebFetchData = {
   fetchedAt: number;
 };
 
-const MAX_BYTES = 1 * 1024 * 1024;
-const TIMEOUT_MS = 12000;
-const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
+const MAX_BYTES = SSRF_DEFAULT_MAX_BYTES;
+const TIMEOUT_MS = SSRF_DEFAULT_TIMEOUT_MS;
+const MAX_REDIRECTS = 5;
 
-function isPrivateHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (h === "localhost" || h === "127.0.0.1" || h === "::1") return true;
-  if (/^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  if (h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")) return true;
-  if (!h.includes(".")) return true;
-  return false;
+/** 简易速率守卫：10 秒窗口至多 20 次抓取，防止模型循环打爆出口。 */
+const RATE_WINDOW_MS = 10_000;
+const RATE_MAX_REQUESTS = 20;
+let rateWindowStart = 0;
+let rateWindowCount = 0;
+
+function assertFetchRate(): void {
+  const now = Date.now();
+  if (now - rateWindowStart >= RATE_WINDOW_MS) {
+    rateWindowStart = now;
+    rateWindowCount = 0;
+  }
+  rateWindowCount += 1;
+  if (rateWindowCount > RATE_MAX_REQUESTS) {
+    throw Object.assign(new Error("抓取频率过高，请稍后再试"), { webCode: "RATE_LIMITED" });
+  }
 }
 
 function htmlToText(html: string): string {
@@ -38,17 +53,13 @@ function htmlToText(html: string): string {
 }
 
 export async function webFetch(url: string, signal?: AbortSignal): Promise<WebFetchData> {
-  let parsed: URL;
+  assertFetchRate();
+  const startUrl = url.trim();
+  // 首跳校验（含 DNS pin + 编码 IP 归一化）
   try {
-    parsed = new URL(url.trim());
-  } catch {
-    throw Object.assign(new Error("URL 格式不正确"), { webCode: "INVALID_REQUEST" });
-  }
-  if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
-    throw Object.assign(new Error("仅支持 http/https"), { webCode: "INVALID_REQUEST" });
-  }
-  if (isPrivateHost(parsed.hostname)) {
-    throw Object.assign(new Error("不允许访问本地/私网/内网地址"), { webCode: "INVALID_REQUEST" });
+    await assertPublicUrl(startUrl, { allowHttp: true });
+  } catch (error) {
+    throw toWebError(error);
   }
 
   const controller = new AbortController();
@@ -59,43 +70,90 @@ export async function webFetch(url: string, signal?: AbortSignal): Promise<WebFe
     else signal.addEventListener("abort", onAbort, { once: true });
   }
 
-  let res: Response;
+  let current = startUrl;
+  let res: Response | null = null;
   try {
-    res = await fetch(parsed.toString(), {
-      headers: { "User-Agent": "VOID/1.0", Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
-      signal: controller.signal,
-      redirect: "follow"
-    });
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      // 逐跳重验：重定向目标重新走 DNS pin + 分类
+      try {
+        const checked = await assertPublicUrl(current, { allowHttp: true });
+        current = checked.toString();
+      } catch (error) {
+        throw toWebError(error);
+      }
+      try {
+        res = await fetch(current, {
+          headers: { "User-Agent": "VOID/1.0", Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
+          signal: controller.signal,
+          redirect: "manual"
+        });
+      } catch (e) {
+        const err = e as Error & { name?: string };
+        if (err.name === "AbortError") throw Object.assign(new Error("抓取超时"), { webCode: "TIMEOUT" });
+        throw Object.assign(new Error(err.message || "抓取失败"), { webCode: "INTERNAL_ERROR" });
+      }
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        try {
+          await res.body?.cancel();
+        } catch {
+          // ignore
+        }
+        if (!location) {
+          throw Object.assign(new Error(`重定向缺少 Location（HTTP ${res.status}）`), { webCode: "INTERNAL_ERROR" });
+        }
+        current = new URL(location, current).toString();
+        continue;
+      }
+      break;
+    }
+    if (!res) {
+      throw Object.assign(new Error("抓取失败"), { webCode: "INTERNAL_ERROR" });
+    }
+    if (res.status >= 300 && res.status < 400) {
+      throw Object.assign(new Error("重定向次数过多"), { webCode: "INTERNAL_ERROR" });
+    }
+    if (!res.ok) {
+      throw Object.assign(new Error(`目标返回 ${res.status}`), { webCode: "INTERNAL_ERROR" });
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.length > MAX_BYTES) {
+      throw Object.assign(new Error("页面过大"), { webCode: "TOO_LARGE" });
+    }
+    const textRaw = new TextDecoder().decode(buf);
+    const isHtml = contentType.includes("html") || textRaw.trim().startsWith("<");
+    const text = isHtml ? htmlToText(textRaw) : textRaw.slice(0, 20000);
+    const truncated = textRaw.length > 20000 || buf.length >= MAX_BYTES;
+
+    return {
+      url: startUrl,
+      finalUrl: current,
+      contentType: contentType || (isHtml ? "text/html" : "text/plain"),
+      status: res.status,
+      text,
+      truncated,
+      fetchedAt: Date.now()
+    };
   } catch (e) {
-    const err = e as Error & { name?: string };
+    const err = e as Error & { name?: string; webCode?: string; ssrfCode?: string };
+    if (err.webCode) throw e;
     if (err.name === "AbortError") throw Object.assign(new Error("抓取超时"), { webCode: "TIMEOUT" });
-    throw Object.assign(new Error(err.message || "抓取失败"), { webCode: "INTERNAL_ERROR" });
+    throw e;
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", onAbort);
   }
+}
 
-  if (!res.ok) {
-    throw Object.assign(new Error(`目标返回 ${res.status}`), { webCode: "INTERNAL_ERROR" });
+function toWebError(error: unknown): Error {
+  const coded = error as { ssrfCode?: string; message?: string };
+  if (coded?.ssrfCode === "PRIVATE_NETWORK_URL") {
+    return Object.assign(new Error("不允许访问本地/私网/内网地址"), { webCode: "INVALID_REQUEST" });
   }
-
-  const contentType = res.headers.get("content-type") || "";
-  const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.length > MAX_BYTES) {
-    throw Object.assign(new Error("页面过大"), { webCode: "TOO_LARGE" });
+  if (coded?.ssrfCode === "DNS_LOOKUP_FAILED") {
+    return Object.assign(new Error(coded.message || "主机解析失败"), { webCode: "INVALID_REQUEST" });
   }
-  const textRaw = new TextDecoder().decode(buf);
-  const isHtml = contentType.includes("html") || textRaw.trim().startsWith("<");
-  const text = isHtml ? htmlToText(textRaw) : textRaw.slice(0, 20000);
-  const truncated = textRaw.length > 20000 || buf.length >= MAX_BYTES;
-
-  return {
-    url: parsed.toString(),
-    finalUrl: res.url || parsed.toString(),
-    contentType: contentType || (isHtml ? "text/html" : "text/plain"),
-    status: res.status,
-    text,
-    truncated,
-    fetchedAt: Date.now()
-  };
+  return Object.assign(new Error((error as Error)?.message || "URL 格式不正确"), { webCode: "INVALID_REQUEST" });
 }

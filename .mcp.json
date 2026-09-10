@@ -1,0 +1,12 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/mcp.json",
+  "mcpServers": {
+    "_comment": "VOID MCP 注册表：stdio 本地优先；远程 http(s) 强制 Origin 校验 + SSRF 守卫。默认无远程 server，需要时按示例增补并加入 VOID_MCP_ALLOWLIST。",
+    "example-local-stdio": {
+      "_disabledComment": "示例（默认禁用）：去掉下划线前缀并填真实 command 后启用",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "disabled": true
+    }
+  }
+}

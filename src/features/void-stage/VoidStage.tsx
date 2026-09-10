@@ -701,10 +701,14 @@ export function VoidStage() {
       ...loadModelConfig(),
       thinkingModeEnabled
     };
-    // 工具循环内部非流式；仅纯聊天且 openai-compatible 时流式
+    // 根因修复（两分钟零反馈）：工具循环内部本就支持流式与工具共存
+    //（final 轮逐字吐、tool 轮 content 为空不打扰，失败自动回落非流式），
+    // 所以 openai-compatible 下永远接通 token 管道，让用户秒级看到进展；
+    // 持久化 streamEnabled 开关只控制纯闲聊是否流式 + 语音批处理，不再掐断工具轮。
     const canStream =
       modelConfig.streamEnabled
       && modelConfig.provider === "openai-compatible";
+    const canReceiveTokens = modelConfig.provider === "openai-compatible";
     let streamedContent = "";
     let didStartStreaming = false;
 
@@ -716,7 +720,7 @@ export function VoidStage() {
         streamEnabled: canStream
       },
       attachments,
-      canStream
+      canReceiveTokens
         ? (token) => {
           streamedContent += token;
           onStreamContent?.(streamedContent);

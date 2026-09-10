@@ -19,6 +19,8 @@ export const MAX_SKILL_DIRECTORIES = 50;
 export const MAX_MANIFEST_BYTES = 64 * 1024;
 
 const SKILL_MANIFEST_FILE_NAME = "void-skill.json";
+const SKILL_MARKDOWN_FILE_NAME = "SKILL.md";
+const SKILL_FRONTMATTER_MAX_BYTES = 8 * 1024;
 const SKILL_DIRECTORY_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,47}$/;
 
 export type SkillManifest = {
@@ -35,6 +37,12 @@ export type ValidSkillEntry = SkillManifest & {
   status: "valid";
   manifestPath: string;
   manifestBytes: number;
+  /** P1：技能来源（Claude 兼容 SKILL.md 与原生 void-skill.json 双轨）。 */
+  source: "void-skill.json" | "SKILL.md";
+  /** P1：第三方默认沙箱。受信 allowlist（VOID_SKILLS_TRUSTED）外一律 sandbox=true。 */
+  sandbox: boolean;
+  /** P1：requires 预检中不在 allowlist 的工具（为空才可执行）。 */
+  blockedTools: string[];
 };
 
 export type InvalidSkillEntry = {
@@ -124,7 +132,12 @@ function inspectSkillDirectory(skillRoot: string, directoryName: string): SkillE
   }
 
   if (!existsSync(manifestPath)) {
-    return invalid(directoryName, manifestPath, `缺少 ${SKILL_MANIFEST_FILE_NAME}`);
+    // P1：Claude 兼容形态——缺 void-skill.json 时回落 SKILL.md（frontmatter + 正文）。
+    const markdownPath = join(directoryPath, SKILL_MARKDOWN_FILE_NAME);
+    if (existsSync(markdownPath)) {
+      return inspectSkillMarkdown(skillRoot, directoryName, directoryPath, markdownPath);
+    }
+    return invalid(directoryName, manifestPath, `缺少 ${SKILL_MANIFEST_FILE_NAME}（或 Claude 兼容 ${SKILL_MARKDOWN_FILE_NAME}）`);
   }
 
   let raw: Buffer;
@@ -154,8 +167,152 @@ function inspectSkillDirectory(skillRoot: string, directoryName: string): SkillE
     status: "valid",
     ...validation.manifest,
     manifestPath,
-    manifestBytes: raw.byteLength
+    manifestBytes: raw.byteLength,
+    source: "void-skill.json",
+    sandbox: isSkillSandboxed(directoryName),
+    blockedTools: checkSkillToolAllowlist(validation.manifest.requiredTools)
   };
+}
+
+/**
+ * P1：Claude 兼容 SKILL.md 解析。
+ * frontmatter（--- 块）：name / description / version? / requires|allowed-tools|requiredTools? /
+ * triggers?；正文按段落切 steps（≤12 段，每段 ≤300 字，超长段截断标识）。
+ */
+function inspectSkillMarkdown(
+  _skillRoot: string,
+  directoryName: string,
+  directoryPath: string,
+  markdownPath: string
+): SkillEntry {
+  void _skillRoot;
+  void directoryPath;
+  let raw: Buffer;
+  try {
+    raw = readFileSync(markdownPath);
+  } catch {
+    return invalid(directoryName, markdownPath, "SKILL.md 文件无法读取");
+  }
+  if (raw.byteLength > MAX_MANIFEST_BYTES) {
+    return invalid(directoryName, markdownPath, `SKILL.md 超过 ${Math.floor(MAX_MANIFEST_BYTES / 1024)} KiB 上限`);
+  }
+  const text = raw.toString("utf8");
+  const parsed = parseSkillMarkdown(text);
+  if (!parsed.frontmatterFound) {
+    return invalid(directoryName, markdownPath, "SKILL.md 缺少 frontmatter（--- name/description 块）");
+  }
+  const name = parsed.fields.name?.trim() ?? "";
+  if (!name || name !== directoryName) {
+    return invalid(directoryName, markdownPath, `SKILL.md name（${name || "(空)"}）必须与目录名（${directoryName}）一致`);
+  }
+  const description = parsed.fields.description?.trim() ?? "";
+  if (!description || description.length > 200) {
+    return invalid(directoryName, markdownPath, "SKILL.md description 必须是 1-200 字符");
+  }
+  const requiredTools = parseSkillToolList(
+    parsed.fields.requires ?? parsed.fields["allowed-tools"] ?? parsed.fields.requiredtools ?? ""
+  );
+  if (requiredTools.length === 0 || requiredTools.length > 10) {
+    return invalid(directoryName, markdownPath, "SKILL.md requires/allowed-tools 必须是 1-10 个工具名");
+  }
+  const triggers = parseSkillToolList(parsed.fields.triggers ?? "", 8, 40);
+  const steps = splitSkillBodySteps(parsed.body);
+  if (steps.length === 0) {
+    return invalid(directoryName, markdownPath, "SKILL.md 正文为空，无法生成 steps");
+  }
+  const manifest: SkillManifest = {
+    name,
+    version: (parsed.fields.version?.trim() || "1.0.0").slice(0, 16),
+    description,
+    triggers: triggers.length > 0 ? triggers : [name],
+    requiredTools,
+    steps,
+    boundaries: []
+  };
+  return {
+    status: "valid",
+    ...manifest,
+    manifestPath: markdownPath,
+    manifestBytes: raw.byteLength,
+    source: "SKILL.md",
+    sandbox: isSkillSandboxed(directoryName),
+    blockedTools: checkSkillToolAllowlist(requiredTools)
+  };
+}
+
+function parseSkillMarkdown(text: string): { frontmatterFound: boolean; fields: Record<string, string>; body: string } {
+  const lines = text.split(/\r?\n/);
+  if (lines[0]?.trim() !== "---") {
+    return { frontmatterFound: false, fields: {}, body: text };
+  }
+  let end = -1;
+  for (let i = 1; i < Math.min(lines.length, 60); i += 1) {
+    if (lines[i]?.trim() === "---") {
+      end = i;
+      break;
+    }
+    if (Buffer.byteLength(lines.slice(0, i + 1).join("\n"), "utf8") > SKILL_FRONTMATTER_MAX_BYTES) {
+      break;
+    }
+  }
+  if (end < 0) {
+    return { frontmatterFound: false, fields: {}, body: text };
+  }
+  const fields: Record<string, string> = {};
+  for (const line of lines.slice(1, end)) {
+    const match = /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/.exec(line);
+    if (match) {
+      fields[match[1].toLowerCase()] = match[2].trim();
+    }
+  }
+  return { frontmatterFound: true, fields, body: lines.slice(end + 1).join("\n") };
+}
+
+function parseSkillToolList(raw: string, maxItems = 10, itemMax = 80): string[] {
+  const cleaned = raw.replace(/^\[|\]$/g, "");
+  return cleaned
+    .split(/[,，\n]+/)
+    .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean)
+    .slice(0, maxItems)
+    .map((s) => s.slice(0, itemMax));
+}
+
+function splitSkillBodySteps(body: string): string[] {
+  const paragraphs = body
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return paragraphs.slice(0, 12).map((p) => (p.length > 300 ? `${p.slice(0, 297)}…` : p));
+}
+
+/** P1 requires 预检：requiredTools 必须全在 allowlist 内，否则进 blockedTools 禁止执行。 */
+function checkSkillToolAllowlist(requiredTools: string[]): string[] {
+  const allowRaw = process.env.VOID_SKILLS_ALLOWED_TOOLS?.trim();
+  if (!allowRaw) return [];
+  const allowed = new Set(
+    allowRaw.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean)
+  );
+  if (allowed.has("*")) return [];
+  return requiredTools.filter((tool) => !allowed.has(tool) && ![...allowed].some((pattern) => matchSkillToolPattern(pattern, tool)));
+}
+
+function matchSkillToolPattern(pattern: string, tool: string): boolean {
+  if (pattern === tool) return true;
+  if (pattern.endsWith(".*")) {
+    const prefix = pattern.slice(0, -2);
+    return tool === prefix || tool.startsWith(`${prefix}.`);
+  }
+  if (pattern === "mcp__*") return tool.startsWith("mcp__");
+  return false;
+}
+
+/** P1 第三方默认沙箱：仅 VOID_SKILLS_TRUSTED 内技能免沙箱。 */
+function isSkillSandboxed(directoryName: string): boolean {
+  const raw = process.env.VOID_SKILLS_TRUSTED?.trim();
+  if (!raw) return true;
+  const trusted = new Set(raw.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean));
+  return !trusted.has(directoryName);
 }
 
 type ManifestValidation =

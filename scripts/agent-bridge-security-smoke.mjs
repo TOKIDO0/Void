@@ -79,15 +79,35 @@ async function rawRequestWithHost(pathname, hostHeader) {
   });
 }
 
-async function runSecuritySuite(label, token) {
+async function runSecuritySuite(label, token, options = {}) {
   bridgeToken = token;
-  if (token) {
-    process.env.VOID_BRIDGE_TOKEN = token;
-  } else {
+  if (options.allowEmpty) {
+    process.env.VOID_ALLOW_EMPTY_BRIDGE_TOKEN = "1";
     delete process.env.VOID_BRIDGE_TOKEN;
+  } else {
+    delete process.env.VOID_ALLOW_EMPTY_BRIDGE_TOKEN;
+    if (token) {
+      process.env.VOID_BRIDGE_TOKEN = token;
+    } else {
+      delete process.env.VOID_BRIDGE_TOKEN;
+    }
   }
 
   console.log(`[agent-bridge-security-smoke] ${label} bridge=${bridgeOrigin}`);
+
+  // P0-1：dev 不再允许空 token 裸奔——未显式 allow-empty 时 bridge 应自动生成
+  // ephemeral token（tokenRequired=true）；显式 allow-empty（隔离测试）才允许空。
+  if (!options.allowEmpty && !bridgeToken) {
+    const autoHealth = await request("/void-bridge/health", {}, false);
+    assert(autoHealth.status === 403, "dev 自动 token 下，无 token 请求必须返回 403");
+    assert(
+      autoHealth.body?.error?.code === "BRIDGE_TOKEN_FORBIDDEN",
+      "dev 自动 token 下必须返回稳定错误码"
+    );
+    // 取自动生成的 token 继续本套件（仅进程内可见，不落盘）。
+    bridgeToken = process.env.VOID_BRIDGE_TOKEN?.trim() ?? "";
+    assert(bridgeToken.length > 0, "dev 应已自动生成 bridge token");
+  }
 
   if (bridgeToken) {
     const missingToken = await request("/void-bridge/health", {}, false);
@@ -224,6 +244,45 @@ async function runSecuritySuite(label, token) {
     "模型代理超长请求体必须返回稳定错误码"
   );
 
+  // P0-1 鉴权下沉到代理层：开启 token 后，无 token 的代理请求必须 403（不止 bridge 入口验）。
+  if (bridgeToken) {
+    const proxyNoToken = await request(
+      "/void-model-proxy",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-VOID-Target-URL": "https://example.com/v1/chat/completions"
+        },
+        body: JSON.stringify({ model: "smoke" })
+      },
+      false
+    );
+    assert(proxyNoToken.status === 403, "代理层缺失 token 必须返回 403");
+    assert(
+      proxyNoToken.body?.error?.code === "BRIDGE_TOKEN_FORBIDDEN",
+      "代理层缺失 token 必须返回稳定错误码"
+    );
+  }
+
+  // P0-1 目标 allowlist：默认仅 https 公网。回环字面 IP（无 allowlist）必须 400 阻断，
+  // 明文 http 必须 400 拒绝；均为离线可断言（不触网）。
+  for (const [target, code] of [
+    ["https://127.0.0.1:9/v1/chat/completions", "PROXY_TARGET_BLOCKED"],
+    ["http://example.com/v1/chat/completions", "INVALID_TARGET_URL"]
+  ]) {
+    const blocked = await request("/void-model-proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-VOID-Target-URL": target },
+      body: JSON.stringify({ model: "smoke" })
+    });
+    assert(blocked.status === 400, `代理目标 ${target} 必须返回 400`);
+    assert(
+      blocked.body?.error?.code === code,
+      `代理目标 ${target} 必须返回 ${code}，实际 ${blocked.body?.error?.code}`
+    );
+  }
+
   const finalHealth = await request("/void-bridge/health");
   assert(finalHealth.body.activeBrowserSessions === 0, "R1 smoke 结束后不得残留浏览器会话");
 }
@@ -271,14 +330,19 @@ async function assertUnsafeListenHostRejected(startBridgeServer) {
 
 async function main() {
   const originalToken = process.env.VOID_BRIDGE_TOKEN;
+  const originalAllowEmpty = process.env.VOID_ALLOW_EMPTY_BRIDGE_TOKEN;
 
   try {
     if (EXTERNAL_BRIDGE_MODE) {
-      await runSecuritySuite("external", bridgeToken);
+      await runSecuritySuite("external", bridgeToken, { allowEmpty: !bridgeToken });
     } else {
       await withInProcessBridge(async () => {
-        await runSecuritySuite("in-process/no-token", "");
+        await runSecuritySuite("in-process/no-token", "", { allowEmpty: true });
         await runSecuritySuite("in-process/token", "smoke-token");
+        // P0-1：dev 自动 token 套件（不预设 token，不断言裸奔可用）。
+        delete process.env.VOID_BRIDGE_TOKEN;
+        delete process.env.VOID_ALLOW_EMPTY_BRIDGE_TOKEN;
+        await runSecuritySuite("in-process/dev-auto-token", "");
       });
     }
 
@@ -288,6 +352,11 @@ async function main() {
       delete process.env.VOID_BRIDGE_TOKEN;
     } else {
       process.env.VOID_BRIDGE_TOKEN = originalToken;
+    }
+    if (originalAllowEmpty === undefined) {
+      delete process.env.VOID_ALLOW_EMPTY_BRIDGE_TOKEN;
+    } else {
+      process.env.VOID_ALLOW_EMPTY_BRIDGE_TOKEN = originalAllowEmpty;
     }
   }
 }

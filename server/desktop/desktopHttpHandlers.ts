@@ -4,11 +4,15 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { BRIDGE_TOKEN_HEADER } from "../bridge/bridgeAuth";
 import {
   isInvalidJsonBody,
   isRequestBodyTooLarge,
   readJsonBody
 } from "../http/httpRequest";
+import { appendToolAudit, fingerprintToken } from "../audit/toolAuditLog";
+import { hooksRegistry } from "../hooks/hooksRegistry";
+import { desktopAuthorizer } from "./desktopAuthorizer";
 import {
   CLIPBOARD_WRITE_MAX_CHARS,
   clipboardManager,
@@ -43,6 +47,112 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
+function callerFingerprint(request: IncomingMessage): string {
+  const token = request.headers[BRIDGE_TOKEN_HEADER];
+  return fingerprintToken(typeof token === "string" ? token : "");
+}
+
+/**
+ * P0-5 分级授权门：deny 一票否决 403；ask 在严格模式下无 confirmed:true 即 409，
+ * 默认模式记账放行（前端确认流仍是 ask 的第一道门，见 toolSafetyPolicy）。
+ * 拒绝时已直接回包，抛 sentinel 让 withDesktopHandler 跳过二次回包。
+ */
+function enforceDesktopGuard(
+  request: IncomingMessage,
+  response: ServerResponse,
+  action: string,
+  body: Record<string, unknown>
+): void {
+  const started = Date.now();
+  // P1 Hooks PreToolUse 先行：hook deny 一票否决（与 authorizer deny 同级）。
+  const hookDecision = hooksRegistry.consult("PreToolUse", action);
+  if (hookDecision?.effect === "deny") {
+    appendToolAudit({
+      at: Date.now(),
+      module: "desktop",
+      action,
+      decision: "deny",
+      reason: `Hook deny：${hookDecision.reason}`,
+      callerFingerprint: callerFingerprint(request),
+      durationMs: Date.now() - started,
+      errorCode: "HOOK_DENIED"
+    });
+    sendJson(response, 403, {
+      ok: false,
+      error: {
+        code: "HOOK_DENIED",
+        message: `桌面动作被 Hook 拒绝：${action}（${hookDecision.reason}）`,
+        permission: hookDecision
+      }
+    });
+    throw Object.assign(new Error("__DESKTOP_GUARD_SENT__"), { desktopGuardSent: true });
+  }
+  const decision = desktopAuthorizer.decide(action);
+  if (decision.effect === "deny") {
+    appendToolAudit({
+      at: Date.now(),
+      module: "desktop",
+      action,
+      decision: "deny",
+      reason: decision.reason,
+      callerFingerprint: callerFingerprint(request),
+      durationMs: Date.now() - started,
+      errorCode: "DESKTOP_PERMISSION_DENIED"
+    });
+    sendJson(response, 403, {
+      ok: false,
+      error: {
+        code: "DESKTOP_PERMISSION_DENIED",
+        message: `桌面动作被 deny 规则拒绝：${action}（${decision.reason}）`,
+        permission: decision
+      }
+    });
+    throw Object.assign(new Error("__DESKTOP_GUARD_SENT__"), { desktopGuardSent: true });
+  }
+  if (decision.effect === "ask") {
+    if (desktopAuthorizer.isStrictAsk() && body.confirmed !== true) {
+      appendToolAudit({
+        at: Date.now(),
+        module: "desktop",
+        action,
+        decision: "needs-confirmation",
+        reason: decision.reason,
+        callerFingerprint: callerFingerprint(request),
+        durationMs: Date.now() - started,
+        errorCode: "NEEDS_CONFIRMATION"
+      });
+      sendJson(response, 409, {
+        ok: false,
+        error: {
+          code: "NEEDS_CONFIRMATION",
+          message: `桌面动作需用户确认后重试（body.confirmed=true）：${action}`,
+          permission: decision
+        }
+      });
+      throw Object.assign(new Error("__DESKTOP_GUARD_SENT__"), { desktopGuardSent: true });
+    }
+    appendToolAudit({
+      at: Date.now(),
+      module: "desktop",
+      action,
+      decision: "ask-allow",
+      reason: decision.reason,
+      callerFingerprint: callerFingerprint(request),
+      durationMs: Date.now() - started
+    });
+    return;
+  }
+  appendToolAudit({
+    at: Date.now(),
+    module: "desktop",
+    action,
+    decision: "allow",
+    reason: decision.reason,
+    callerFingerprint: callerFingerprint(request),
+    durationMs: Date.now() - started
+  });
+}
+
 async function withDesktopHandler<T>(
   response: ServerResponse,
   work: () => Promise<T> | T
@@ -52,6 +162,9 @@ async function withDesktopHandler<T>(
     const payload: DesktopApiResponse<T> = { ok: true, data };
     sendJson(response, 200, payload);
   } catch (error) {
+    if ((error as { desktopGuardSent?: boolean })?.desktopGuardSent) {
+      return;
+    }
     if (isRequestBodyTooLarge(error)) {
       sendJson(response, 413, {
         ok: false,
@@ -106,10 +219,41 @@ export async function handleDesktopHttpRequest(
     return true;
   }
 
+  // P0-5 /permissions：查询与更新分级授权（规则 + profile + strictAsk）。
+  if (request.method === "GET" && pathname === "/void-desktop/permissions") {
+    sendJson(response, 200, { ok: true, data: desktopAuthorizer.getState() });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/void-desktop/permissions") {
+    await withDesktopHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      const current = desktopAuthorizer.getState();
+      const next = {
+        version: 1 as const,
+        profile: body.profile === "read-only" || body.profile === "permissive" || body.profile === "default"
+          ? body.profile
+          : current.profile,
+        strictAsk: typeof body.strictAsk === "boolean" ? body.strictAsk : current.strictAsk,
+        rules: Array.isArray(body.rules) ? body.rules as never : current.rules
+      };
+      appendToolAudit({
+        at: Date.now(),
+        module: "desktop",
+        action: "desktop.permissions.update",
+        decision: "ask-allow",
+        reason: "权限规则更新（显式管理动作）",
+        callerFingerprint: callerFingerprint(request)
+      });
+      return desktopAuthorizer.saveState(next);
+    });
+    return true;
+  }
+
   if (request.method !== "POST") {
     sendJson(response, 405, {
       ok: false,
-      error: { code: "INVALID_REQUEST", message: "仅支持 POST/GET health" }
+      error: { code: "INVALID_REQUEST", message: "仅支持 POST/GET health|permissions" }
     });
     return true;
   }
@@ -117,7 +261,8 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/clipboard/read") {
     await withDesktopHandler<ClipboardReadData>(response, async () => {
       // body 可空；预读一下以免客户端挂起
-      await readJsonBody(request);
+      const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.clipboard.read", body);
       return clipboardManager.read();
     });
     return true;
@@ -126,6 +271,7 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/clipboard/write") {
     await withDesktopHandler<ClipboardWriteData>(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.clipboard.write", body);
       if (typeof body.text !== "string") {
         throw Object.assign(new Error("缺少 text"), {
           desktopCode: "INVALID_REQUEST"
@@ -153,6 +299,7 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/reveal-path") {
     await withDesktopHandler<DesktopRevealPathData>(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.revealPath", body);
       const path = typeof body.path === "string" ? body.path.trim() : "";
       if (!path) {
         throw Object.assign(new Error("缺少 path"), {
@@ -167,6 +314,7 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/open-known-location") {
     await withDesktopHandler<DesktopOpenKnownLocationData>(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.openKnownLocation", body);
       const location = body.location;
       if (location !== "this_pc") {
         throw Object.assign(new Error("location 只允许 this_pc"), {
@@ -180,7 +328,8 @@ export async function handleDesktopHttpRequest(
 
   if (pathname === "/void-desktop/list-apps") {
     await withDesktopHandler(response, async () => {
-      await readJsonBody(request);
+      const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.listApps", body);
       const apps = listInstalledApplications();
       return { apps, count: apps.length, scannedAt: Date.now() };
     });
@@ -190,6 +339,7 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/launch-app") {
     await withDesktopHandler(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.launchApp", body);
       const name = typeof body.name === "string" ? body.name.trim() : "";
       if (!name) {
         throw Object.assign(new Error("缺少 name（应用名）"), { desktopCode: "INVALID_REQUEST" });
@@ -201,7 +351,8 @@ export async function handleDesktopHttpRequest(
 
   if (pathname === "/void-desktop/list-windows") {
     await withDesktopHandler(response, async () => {
-      await readJsonBody(request);
+      const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.listWindows", body);
       const windows = await listWindows();
       return { windows, count: windows.length, scannedAt: Date.now() };
     });
@@ -211,6 +362,7 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/focus-window") {
     await withDesktopHandler(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.focusWindow", body);
       const hwnd = typeof body.hwnd === "string" ? body.hwnd.trim() : undefined;
       const pid = typeof body.pid === "number" ? body.pid : typeof body.pid === "string" ? Number(body.pid) : undefined;
       const title = typeof body.title === "string" ? body.title.trim() : undefined;
@@ -226,6 +378,7 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/close-window") {
     await withDesktopHandler(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.closeWindow", body);
       const hwnd = typeof body.hwnd === "string" ? body.hwnd.trim() : undefined;
       const pid = typeof body.pid === "number" ? body.pid : typeof body.pid === "string" ? Number(body.pid) : undefined;
       const title = typeof body.title === "string" ? body.title.trim() : undefined;
@@ -240,7 +393,8 @@ export async function handleDesktopHttpRequest(
 
   if (pathname === "/void-desktop/system-info") {
     await withDesktopHandler(response, async () => {
-      await readJsonBody(request);
+      const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.getSystemInfo", body);
       const info = await getSystemInfo();
       return { ...info, collectedAt: Date.now() };
     });
@@ -249,7 +403,8 @@ export async function handleDesktopHttpRequest(
 
   if (pathname === "/void-desktop/screenshot") {
     await withDesktopHandler(response, async () => {
-      await readJsonBody(request);
+      const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.screenshot", body);
       return takeDesktopScreenshot();
     });
     return true;
@@ -258,6 +413,7 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/set-window-bounds") {
     await withDesktopHandler(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.setWindowBounds", body);
       const hwnd = typeof body.hwnd === "string" ? body.hwnd.trim() : undefined;
       const pid = typeof body.pid === "number" ? body.pid : typeof body.pid === "string" ? Number(body.pid) : undefined;
       const title = typeof body.title === "string" ? body.title.trim() : undefined;
@@ -276,6 +432,7 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/open-file") {
     await withDesktopHandler(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.openFile", body);
       const path = typeof body.path === "string" ? body.path.trim() : "";
       if (!path) throw Object.assign(new Error("缺少 path"), { desktopCode: "INVALID_REQUEST" });
       return desktopOpenManager.openFile(path);
@@ -286,6 +443,7 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/inspect-window-controls") {
     await withDesktopHandler(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.inspectWindowControls", body);
       const hwnd = typeof body.hwnd === "string" ? body.hwnd.trim() : undefined;
       const pid = typeof body.pid === "number" ? body.pid : typeof body.pid === "string" ? Number(body.pid) : undefined;
       const title = typeof body.title === "string" ? body.title.trim() : undefined;
@@ -300,6 +458,12 @@ export async function handleDesktopHttpRequest(
   if (pathname === "/void-desktop/set-control-text" || pathname === "/void-desktop/invoke-control") {
     await withDesktopHandler(response, async () => {
       const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(
+        request,
+        response,
+        pathname.endsWith("set-control-text") ? "desktop.setControlText" : "desktop.invokeControl",
+        body
+      );
       const hwnd = typeof body.hwnd === "string" ? body.hwnd.trim() : undefined;
       const pid = typeof body.pid === "number" ? body.pid : typeof body.pid === "string" ? Number(body.pid) : undefined;
       const title = typeof body.title === "string" ? body.title.trim() : undefined;

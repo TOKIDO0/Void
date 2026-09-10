@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { attachDevTokenForSameOrigin, ensureBridgeTokenInitialized } from "./server/bridge/bridgeAuth";
 import { handleModelProxy } from "./server/voidProxyMiddleware";
 
 export default defineConfig({
@@ -55,9 +56,22 @@ export default defineConfig({
     {
       name: "void-model-proxy",
       configureServer(server) {
-        // 文本模型 HTTP 转发逻辑与 sidecar 共享（server/voidProxyMiddleware.ts）。
-        // 豆包语音已由客户端直连托管 Worker，不再挂载本地语音桥接。
+        // P0-1：vite dev 的 /void-model-proxy 不再是无鉴权开放代理。
+        // dev 启动即生成一次性 bridge token（bridgeAuth），此处先验 Host/Origin，
+        // 恶意 Origin 直接 403；同源 dev 缺 token 时内部补齐，再进 handleModelProxy
+        // 第二道统一校验 + 严格目标 allowlist。取舍：同源 dev 免手填 token 保可用，
+        // 跨站一律凭 token，空 token 裸奔关闭。
+        ensureBridgeTokenInitialized();
         server.middlewares.use("/void-model-proxy", (request, response) => {
+          if (!attachDevTokenForSameOrigin(request)) {
+            response.statusCode = 403;
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            response.end(JSON.stringify({
+              ok: false,
+              error: { code: "ORIGIN_FORBIDDEN", message: "请求 Origin 不在允许列表内" }
+            }));
+            return;
+          }
           void handleModelProxy(request, response);
         });
       }

@@ -406,6 +406,25 @@ async function runAgentToolLoopInternal(
     updatedAt: Date.now()
   });
 
+  // 根因修复（两分钟零反馈）：模型每轮请求若 15 秒无首包，如实告诉用户仍在等，
+  // 而不是静态卡在上一句进度里让用户以为死了。首包到达/抛错/打断即清除。
+  // 文案只描述真实等待状态，不虚构进展。
+  const SLOW_FIRST_BYTE_MS = 15_000;
+  let slowTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearSlowTimer = () => {
+    if (slowTimer) {
+      clearTimeout(slowTimer);
+      slowTimer = null;
+    }
+  };
+  const armSlowTimer = () => {
+    clearSlowTimer();
+    slowTimer = setTimeout(() => {
+      slowTimer = null;
+      options.onProgress?.("模型回复较慢，仍在等待中…");
+    }, SLOW_FIRST_BYTE_MS);
+  };
+
   while (rounds < maxRounds) {
     if (options.signal?.aborted) {
       throw createAbortedError();
@@ -419,6 +438,7 @@ async function runAgentToolLoopInternal(
 
     rounds += 1;
     let response: ProviderResponse;
+    armSlowTimer();
     try {
       // 首轮保调用：工具轮次（检索/浏览器/文件等）首轮走非流式 sendMessage，
       // 中转在流式下吞 tool_calls 也能拿到真调用；之后轮次仍走流式共存。
@@ -441,8 +461,10 @@ async function runAgentToolLoopInternal(
         );
       }
     } catch (error) {
+      clearSlowTimer();
       throw provider.mapError(error);
     }
+    clearSlowTimer();
 
     const toolCalls = forceFinalText ? [] : (response.toolCalls ?? []);
     if (toolCalls.length === 0) {
