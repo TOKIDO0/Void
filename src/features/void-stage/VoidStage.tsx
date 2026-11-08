@@ -35,7 +35,7 @@ import { loadVoicePreferences, saveVoicePreferences, type VoicePreferences } fro
 import { loadVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
 import { VoiceSessionController } from "../voice/voiceSessionController";
 import { DEFAULT_VOICE_STATE, type VoiceActivityLevel, type VoiceStateSnapshot } from "../voice/voiceState";
-import { DoubaoStreamingSttProvider } from "../voice/stt/doubaoStreamingSttProvider";
+import { createVoiceSttProvider } from "../voice/stt/voiceSttProviderFactory";
 import { VoiceTtsOrchestrator } from "../voice/tts/voiceTtsOrchestrator";
 import { VoicePlaybackController } from "../voice/tts/voicePlaybackController";
 import type { VoiceSynthesisResult } from "../voice/tts/voiceTtsContract";
@@ -1500,7 +1500,7 @@ export function VoidStage() {
 
     const currentCallbacks = () => voiceInputCallbacksRef.current;
     const controller = new VoiceSessionController({
-      sttProvider: new DoubaoStreamingSttProvider(),
+      sttProvider: createVoiceSttProvider(voicePreferences.voiceSttProvider),
       onInterimTranscript: (text) => {
         if (voiceInputSessionIdRef.current === sessionId) currentCallbacks()?.onInterimTranscript(text);
       },
@@ -1532,12 +1532,19 @@ export function VoidStage() {
       }
       void controller.stop();
     };
-  }, [voicePreferences.voiceInputEnabled]);
+  }, [voicePreferences.voiceInputEnabled, voicePreferences.voiceSttProvider]);
 
   const handleVoiceInputToggle = useCallback(() => {
     updateVoicePreferences({
       ...voicePreferences,
       voiceInputEnabled: !voicePreferences.voiceInputEnabled
+    });
+  }, [updateVoicePreferences, voicePreferences]);
+
+  const handleVoiceSttProviderToggle = useCallback(() => {
+    updateVoicePreferences({
+      ...voicePreferences,
+      voiceSttProvider: voicePreferences.voiceSttProvider === "local" ? "managed" : "local"
     });
   }, [updateVoicePreferences, voicePreferences]);
 
@@ -1558,7 +1565,7 @@ export function VoidStage() {
     await showMainWindow();
     let settled = false;
     const controller = new VoiceSessionController({
-      sttProvider: new DoubaoStreamingSttProvider(),
+      sttProvider: createVoiceSttProvider(voicePreferences.voiceSttProvider),
       onInterimTranscript: (text) => {
         voiceInputCallbacksRef.current?.onInterimTranscript(text);
       },
@@ -1592,7 +1599,7 @@ export function VoidStage() {
     });
     pushToTalkRef.current = { controller };
     await controller.start();
-  }, []);
+  }, [voicePreferences.voiceSttProvider]);
 
   const handleOpenModelConfig = useCallback(() => {
     setSettingsInitialTab("model");
@@ -1795,10 +1802,12 @@ export function VoidStage() {
         thinkingModeEnabled={thinkingModeEnabled}
         voiceInputEnabled={voicePreferences.voiceInputEnabled}
         voiceOutputEnabled={voicePreferences.voiceOutputEnabled}
+        voiceSttProvider={voicePreferences.voiceSttProvider}
         onSend={handleTextMessage}
         onThinkingModeChange={handleThinkingModeChange}
         onVoiceInputToggle={handleVoiceInputToggle}
         onVoiceOutputToggle={handleVoiceOutputToggle}
+        onVoiceSttProviderToggle={handleVoiceSttProviderToggle}
         onOpenModelConfig={handleOpenModelConfig}
         onOpenConversationHistory={openExpandedResponse}
         onNewConversation={handleNewConversation}

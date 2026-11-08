@@ -1,3 +1,5 @@
+export type VoiceSttProviderMode = "local" | "managed";
+
 export type VoiceSttPartialResult = {
   text: string;
   isInterim: boolean;

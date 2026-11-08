@@ -87,6 +87,8 @@ type SettingsCopy = {
   menuThinkingOff: string;
   menuVoiceInputOn: string;
   menuVoiceInputOff: string;
+  menuVoiceSttLocal: string;
+  menuVoiceSttManaged: string;
   menuVoiceOutputOn: string;
   menuVoiceOutputOff: string;
   menuUploadFile: string;
@@ -182,6 +184,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuThinkingOff: "深度思考已关闭",
     menuVoiceInputOn: "语音输入已开启",
     menuVoiceInputOff: "语音输入已关闭",
+    menuVoiceSttLocal: "语音识别：本地",
+    menuVoiceSttManaged: "语音识别：托管",
     menuVoiceOutputOn: "语音播报已开启",
     menuVoiceOutputOff: "语音播报已关闭",
     menuUploadFile: "上传文件",
@@ -273,6 +277,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuThinkingOff: "Thinking off",
     menuVoiceInputOn: "Voice input on",
     menuVoiceInputOff: "Voice input off",
+    menuVoiceSttLocal: "Speech recognition: local",
+    menuVoiceSttManaged: "Speech recognition: hosted",
     menuVoiceOutputOn: "Voice output on",
     menuVoiceOutputOff: "Voice output off",
     menuUploadFile: "Upload file",

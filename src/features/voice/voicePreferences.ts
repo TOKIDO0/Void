@@ -1,13 +1,18 @@
+import type { VoiceSttProviderMode } from "./stt/voiceSttContract";
+
 export type VoicePreferences = {
   voiceInputEnabled: boolean;
   voiceOutputEnabled: boolean;
+  /** 本地优先；托管只能在设置里显式切换。 */
+  voiceSttProvider: VoiceSttProviderMode;
 };
 
 const VOICE_PREFERENCES_STORAGE_KEY = "void.voicePreferences";
 
-const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
+export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
   voiceInputEnabled: false,
-  voiceOutputEnabled: true
+  voiceOutputEnabled: true,
+  voiceSttProvider: "local"
 };
 
 export function loadVoicePreferences(): VoicePreferences {
@@ -24,7 +29,8 @@ export function loadVoicePreferences(): VoicePreferences {
       voiceInputEnabled: Boolean(parsedValue.voiceInputEnabled),
       voiceOutputEnabled: parsedValue.voiceOutputEnabled === undefined
         ? DEFAULT_VOICE_PREFERENCES.voiceOutputEnabled
-        : Boolean(parsedValue.voiceOutputEnabled)
+        : Boolean(parsedValue.voiceOutputEnabled),
+      voiceSttProvider: parsedValue.voiceSttProvider === "managed" ? "managed" : "local"
     };
   } catch {
     return { ...DEFAULT_VOICE_PREFERENCES };
@@ -34,6 +40,7 @@ export function loadVoicePreferences(): VoicePreferences {
 export function saveVoicePreferences(preferences: VoicePreferences) {
   window.localStorage.setItem(VOICE_PREFERENCES_STORAGE_KEY, JSON.stringify({
     voiceInputEnabled: Boolean(preferences.voiceInputEnabled),
-    voiceOutputEnabled: Boolean(preferences.voiceOutputEnabled)
+    voiceOutputEnabled: Boolean(preferences.voiceOutputEnabled),
+    voiceSttProvider: preferences.voiceSttProvider === "managed" ? "managed" : "local"
   }));
 }
