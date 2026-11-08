@@ -45,3 +45,6 @@ anthro-*.md
 ark-*.html
 ds-*.html
 glm4v.html
+
+# 阶段4 本地 STT 模型（构建期下载，不入库）
+src-tauri/resources/voice/

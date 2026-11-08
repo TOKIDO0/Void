@@ -32,6 +32,8 @@ import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import WebSocket from "ws";
+import { ensureSttModel } from "./fetch-stt-model.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(scriptDir, "..");
@@ -65,6 +67,8 @@ async function main() {
       "utf-8-validate",
       "playwright",
       "playwright-core",
+      "sherpa-onnx-node",
+      "sherpa-onnx-win-x64",
       "@huggingface/transformers",
       "onnxruntime-common",
       "onnxruntime-node",
@@ -84,11 +88,13 @@ async function main() {
   const appModulesDir = join(sidecarAppDir, "node_modules");
   mkdirSync(appModulesDir, { recursive: true });
   copyFileSync(bundlePath, join(sidecarAppDir, "void-bridge.cjs"));
-  cpSync(
-    join(projectRoot, "node_modules", "playwright-core"),
-    join(appModulesDir, "playwright-core"),
-    { recursive: true }
-  );
+  for (const pkg of ["playwright-core", "sherpa-onnx-node", "sherpa-onnx-win-x64"]) {
+    const source = join(projectRoot, "node_modules", pkg);
+    if (!existsSync(source)) {
+      throw new Error(`[build-sidecar] 缺少运行时依赖：${source}`);
+    }
+    cpSync(source, join(appModulesDir, pkg), { recursive: true });
+  }
 
   rmSync(buildDir, { recursive: true, force: true });
   console.log(`[build-sidecar] done → ${nodeExePath} + ${sidecarAppDir}`);
@@ -97,7 +103,8 @@ async function main() {
   // 项目 node_modules 造成“本地能跑、用户机器崩”的污染式验证），按安装包的
   // 真实拉起方式（cwd=sidecar-app + 相对入口）启动并探测端点。
   // 0.2.4（SEA 快照）与 0.2.6（绝对路径参数）两代事故本应都在这里被拦下。
-  await runProductionSimGate();
+  const sttModelDir = await ensureSttModel();
+  await runProductionSimGate(sttModelDir);
 }
 
 /**
@@ -141,14 +148,18 @@ async function probeHealth(port, timeoutMs = 8000) {
   }
 }
 
-async function runProductionSimGate() {
+async function runProductionSimGate(sttModelDir) {
   const cjs = join(sidecarAppDir, "void-bridge.cjs");
   const playwrightPkg = join(sidecarAppDir, "node_modules", "playwright-core", "package.json");
+  const sherpaPkg = join(sidecarAppDir, "node_modules", "sherpa-onnx-node", "package.json");
   if (!existsSync(cjs)) {
     throw new Error(`[prod-sim] 缺少入口：${cjs}`);
   }
   if (!existsSync(playwrightPkg)) {
     throw new Error(`[prod-sim] 缺少随包依赖：${playwrightPkg}`);
+  }
+  if (!existsSync(sherpaPkg)) {
+    throw new Error(`[prod-sim] 缺少随包依赖：${sherpaPkg}`);
   }
 
   const simRoot = resolveProdSimRoot();
@@ -162,7 +173,14 @@ async function runProductionSimGate() {
     // 与 Rust 拉起完全一致：cwd=sidecar-app，参数为相对文件名。
     const child = spawn(process.execPath, ["void-bridge.cjs"], {
       cwd: simAppDir,
-      env: { ...process.env, VOID_BRIDGE_PORT: String(port) },
+      env: {
+        ...process.env,
+        VOID_BRIDGE_PORT: String(port),
+        // 仅生产模拟：允许空 bridge token 以便门禁直接取票；真实安装仍走 token。
+        VOID_BRIDGE_TOKEN: "",
+        VOID_ALLOW_EMPTY_BRIDGE_TOKEN: "1",
+        ...(sttModelDir ? { VOID_STT_MODEL_DIR: sttModelDir } : {})
+      },
       stdio: ["ignore", "ignore", "pipe"]
     });
     let stderrTail = "";
@@ -188,12 +206,60 @@ async function runProductionSimGate() {
         throw new Error("[prod-sim] 45s 内 /void-bridge/health 未就绪");
       }
       console.log("[prod-sim] 健康检查通过，安装包拉起方式可服务");
+      if (sttModelDir) {
+        await probeVoiceStt(port);
+        console.log("[prod-sim] 本地 STT 引擎加载通过（DLL + 模型）");
+      } else {
+        console.log("[prod-sim] 跳过本地 STT 引擎门禁（无模型）");
+      }
     } finally {
       child.kill();
       await sleep(500);
     }
   } finally {
     rmSync(simRoot, { recursive: true, force: true });
+  }
+}
+
+async function probeVoiceStt(port, timeoutMs = 30_000) {
+  const response = await fetch(`http://127.0.0.1:${port}/void-voice/stt/ticket`, { method: "POST" });
+  const payload = await response.json();
+  if (!response.ok || !payload?.ok || !payload.data?.ticket) {
+    throw new Error(`[prod-sim] 本地 STT 取票失败：HTTP ${response.status} ${JSON.stringify(payload)}`);
+  }
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/void-voice/stt?ticket=${encodeURIComponent(payload.data.ticket)}`);
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("[prod-sim] 本地 STT WS 超时")), timeoutMs);
+      const cleanup = () => {
+        clearTimeout(timer);
+        ws.off("message", onMessage);
+        ws.off("error", onError);
+      };
+      const onMessage = (raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.type === "ready") {
+          cleanup();
+          resolve();
+        } else if (message.type === "error") {
+          cleanup();
+          reject(new Error(`[prod-sim] 本地 STT 引擎错误：${message.code ?? ""} ${message.message ?? ""}`));
+        }
+      };
+      const onError = (error) => {
+        cleanup();
+        reject(error);
+      };
+      ws.on("open", () => ws.send(JSON.stringify({ type: "start", sampleRate: 16000, format: "pcm_s16le" })));
+      ws.on("message", onMessage);
+      ws.on("error", onError);
+      ws.on("unexpected-response", (_request, responseMessage) => {
+        cleanup();
+        reject(new Error(`[prod-sim] 本地 STT WS 握手失败：HTTP ${responseMessage.statusCode}`));
+      });
+    });
+  } finally {
+    try { ws.close(); } catch { /* ignore */ }
   }
 }
 

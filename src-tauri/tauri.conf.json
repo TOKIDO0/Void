@@ -38,9 +38,10 @@
     "externalBin": [
       "binaries/node"
     ],
-    "resources": [
-      "sidecar-app"
-    ],
+    "resources": {
+      "sidecar-app": "sidecar-app",
+      "resources/voice/stt": "voice/stt"
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }

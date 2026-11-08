@@ -32,6 +32,11 @@ export function resolveVoiceSttModelDir(): string {
   if (existsSync(bundled)) {
     return bundled;
   }
+  // 开发态：仓库根 cwd 下的构建期资源目录。
+  const devBundled = join(process.cwd(), "src-tauri", "resources", "voice", "stt", VOICE_STT_MODEL_NAME);
+  if (existsSync(devBundled)) {
+    return devBundled;
+  }
   const runtimeRoot = process.env.VOID_RUNTIME_ROOT?.trim() || "D:\\AI\\void-runtime";
   return join(runtimeRoot, "models", "stt", VOICE_STT_MODEL_NAME);
 }

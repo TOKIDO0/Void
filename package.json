@@ -8,6 +8,7 @@
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
     "sidecar:build": "node scripts/build-sidecar.mjs",
+    "stt:model:fetch": "node scripts/fetch-stt-model.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "npm run sidecar:build && tauri build",
@@ -59,8 +60,10 @@
     "esbuild": "^0.28.1",
     "jimp": "^1.6.1",
     "postject": "^1.0.0-alpha.6",
+    "tar-stream": "^3.2.2",
     "tsx": "^4.23.0",
     "typescript": "^5.9.3",
+    "unbzip2-stream": "^1.4.3",
     "vite": "^7.2.7",
     "ws": "^8.21.0"
   }
