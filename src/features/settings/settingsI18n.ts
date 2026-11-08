@@ -38,6 +38,8 @@ type SettingsCopy = {
   maxOutputHint: string;
   streamOutput: string;
   streamOutputHint: string;
+  supportsVision: string;
+  supportsVisionHint: string;
   sectionProvider: string;
   sectionGeneration: string;
   sectionMemory: string;
@@ -131,6 +133,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     maxOutputHint: "一次回答最多写多长，写报告、代码时可以调大",
     streamOutput: "边想边显示",
     streamOutputHint: "打开后不用等整段写完，想到哪显示到哪。",
+    supportsVision: "这个模型能看图",
+    supportsVisionHint: "打开后截图与图片会直接交给模型识别。中转站或自建模型的名称不可靠，请按实际能力手动设置。",
     sectionProvider: "服务商配置",
     sectionGeneration: "回答偏好",
     sectionMemory: "记忆",
@@ -220,6 +224,8 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     maxOutputHint: "How long a single reply can be; turn it up for reports or code",
     streamOutput: "Show while thinking",
     streamOutputHint: "When on, the reply appears piece by piece instead of all at once.",
+    supportsVision: "This model can see images",
+    supportsVisionHint: "When on, screenshots and images go straight to the model. Names on relays or self-hosted setups are unreliable, so set this to match the model's real ability.",
     sectionProvider: "Provider setup",
     sectionGeneration: "Reply preferences",
     sectionMemory: "Memory",

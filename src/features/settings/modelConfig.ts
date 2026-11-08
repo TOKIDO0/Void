@@ -18,6 +18,12 @@ export type ModelConfig = {
   temperature: number;
   maxOutputTokens: number;
   streamEnabled: boolean;
+  /**
+   * 本 preset 的模型是否支持图片理解（发送 image 内容块）。
+   * undefined = 未声明，按厂商官方口径推断；true/false = 用户显式声明，直接采信。
+   * 中转站/私有部署的模型名不可靠，必须以用户声明为准。
+   */
+  supportsVision?: boolean;
 };
 
 export type ModelPreset = {
@@ -52,6 +58,8 @@ type ProviderSlot = {
   baseUrl: string;
   modelName: string;
   modelStrength: ModelStrength;
+  /** 见 ModelConfig.supportsVision；undefined 表示未声明。 */
+  supportsVision?: boolean;
 };
 
 /** V2 分仓存储：全局选择 + 每厂商一份配置 + 全局生成参数。 */
@@ -285,7 +293,8 @@ export function saveModelConfig(modelConfig: ModelConfig) {
   store.slots[presetId] = {
     baseUrl: normalizeBaseUrl(modelConfig.baseUrl, provider),
     modelName: modelConfig.modelName.trim() || fallbackModelName(provider),
-    modelStrength: normalizeModelStrength(modelConfig.modelStrength)
+    modelStrength: normalizeModelStrength(modelConfig.modelStrength),
+    supportsVision: normalizeSupportsVision(modelConfig.supportsVision)
   };
   store.generation = {
     thinkingModeEnabled: Boolean(modelConfig.thinkingModeEnabled),
@@ -315,7 +324,8 @@ function composeModelConfig(store: StoredModelConfigV2, presetId: string): Model
     thinkingModeEnabled: store.generation.thinkingModeEnabled,
     temperature: store.generation.temperature,
     maxOutputTokens: store.generation.maxOutputTokens,
-    streamEnabled: provider === "openai-compatible" && store.generation.streamEnabled
+    streamEnabled: provider === "openai-compatible" && store.generation.streamEnabled,
+    supportsVision: normalizeSupportsVision(slot.supportsVision)
   };
 }
 
@@ -403,7 +413,8 @@ function normalizeStore(store: StoredModelConfigV2): StoredModelConfigV2 {
       modelName: typeof slot?.modelName === "string" && slot.modelName.trim()
         ? slot.modelName.trim()
         : fallbackModelName(provider),
-      modelStrength: normalizeModelStrength(slot?.modelStrength)
+      modelStrength: normalizeModelStrength(slot?.modelStrength),
+      supportsVision: normalizeSupportsVision(slot?.supportsVision)
     };
   }
 
@@ -529,6 +540,11 @@ function normalizeModelStrength(value: unknown): ModelStrength {
   }
 
   return DEFAULT_MODEL_CONFIG.modelStrength;
+}
+
+/** 显式声明才保留；非 boolean（含 undefined / 脏数据）一律视为未声明。 */
+function normalizeSupportsVision(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function normalizePresetId(value: unknown, provider: ModelProviderType) {

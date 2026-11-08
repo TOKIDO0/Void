@@ -31,8 +31,11 @@ export async function handleWebHttpRequest(
       // 用户自备搜索 Key：随本次请求经回环传入，服务端只做内存转发，从不落盘。
       const apiKey = typeof body.apiKey === "string" ? body.apiKey : "";
       const provider = body.provider === "brave" || body.provider === "exa" ? body.provider : "tavily";
+      const topic = body.topic === "news" || body.topic === "finance" ? body.topic : undefined;
+      const timeRange = body.timeRange === "day" || body.timeRange === "week" || body.timeRange === "month" || body.timeRange === "year" ? body.timeRange : undefined;
+      const searchDepth = body.searchDepth === "advanced" ? "advanced" : undefined;
       if (!query) throw Object.assign(new Error("缺少 query"), { webCode: "INVALID_REQUEST" });
-      const data = await webSearch(query, limit, undefined, apiKey.trim() ? { apiKey: apiKey.trim(), provider } : undefined);
+      const data = await webSearch(query, limit, undefined, apiKey.trim() ? { apiKey: apiKey.trim(), provider, topic, timeRange, searchDepth } : undefined);
       sendJson(response, 200, { ok: true, data });
     } catch (error) {
       if (isRequestBodyTooLarge(error)) {
@@ -44,7 +47,7 @@ export async function handleWebHttpRequest(
         return true;
       }
       const code = (error as { webCode?: string }).webCode ?? "INTERNAL_ERROR";
-      const status = code === "INVALID_REQUEST" ? 400 : code === "TIMEOUT" ? 504 : code === "KEY_INVALID" ? 401 : 500;
+      const status = code === "INVALID_REQUEST" ? 400 : code === "TIMEOUT" ? 504 : code === "KEY_INVALID" ? 401 : code === "RATE_LIMITED" ? 429 : 500;
       sendJson(response, status, { ok: false, error: { code, message: (error as Error).message || "搜索失败" } });
     }
     return true;

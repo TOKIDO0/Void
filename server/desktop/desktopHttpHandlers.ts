@@ -22,7 +22,7 @@ import { desktopRevealManager } from "./desktopRevealManager";
 import { desktopKnownLocationManager } from "./desktopKnownLocationManager";
 import { listInstalledApplications, launchApplicationByName } from "./desktopAppManager";
 import { listWindows, focusWindow, closeWindow, getSystemInfo, setWindowBounds } from "./desktopWindowManager";
-import { takeDesktopScreenshot } from "./desktopScreenshotManager";
+import { readScreenshotImage, takeDesktopScreenshot } from "./desktopScreenshotManager";
 import { desktopOpenManager } from "./desktopOpenManager";
 import { inspectWindowControls } from "./desktopUiaManager";
 import { invokeControl, setControlText } from "./desktopUiaActManager";
@@ -180,20 +180,7 @@ async function withDesktopHandler<T>(
       return;
     }
     const payloadError = getDesktopErrorPayload(error);
-    const status =
-      payloadError.code === "INVALID_REQUEST" || payloadError.code === "TOO_LARGE"
-        ? 400
-        : payloadError.code === "PATH_NOT_ALLOWED"
-          ? 403
-          : payloadError.code === "PATH_NOT_FOUND" || payloadError.code === "APP_NOT_FOUND"
-            ? 404
-            : payloadError.code === "AMBIGUOUS_APP_NAME"
-              ? 409
-              : payloadError.code === "UNSUPPORTED_PLATFORM"
-                ? 501
-                : payloadError.code === "TIMEOUT"
-                  ? 504
-                  : 500;
+    const status = DESKTOP_ERROR_STATUS[payloadError.code] ?? 500;
     const payload: DesktopApiResponse<never> = {
       ok: false,
       error: payloadError
@@ -201,6 +188,21 @@ async function withDesktopHandler<T>(
     sendJson(response, status, payload);
   }
 }
+
+/**
+ * 桌面错误码 → HTTP 状态。未列出的按 500 处理（内部错误）。
+ */
+const DESKTOP_ERROR_STATUS: Record<string, number> = {
+  INVALID_REQUEST: 400,
+  TOO_LARGE: 400,
+  PATH_NOT_ALLOWED: 403,
+  PATH_NOT_FOUND: 404,
+  APP_NOT_FOUND: 404,
+  AMBIGUOUS_APP_NAME: 409,
+  UNSUPPORTED_MEDIA: 415,
+  UNSUPPORTED_PLATFORM: 501,
+  TIMEOUT: 504
+};
 
 /**
  * 处理 /void-desktop/* 。命中返回 true。
@@ -406,6 +408,17 @@ export async function handleDesktopHttpRequest(
       const body = asRecord(await readJsonBody(request));
       enforceDesktopGuard(request, response, "desktop.screenshot", body);
       return takeDesktopScreenshot();
+    });
+    return true;
+  }
+
+  // 看屏图像通道：把已落盘的截图读成 base64 交给视觉模型（只读，限截图目录内 PNG）。
+  if (pathname === "/void-desktop/screenshot-image") {
+    await withDesktopHandler(response, async () => {
+      const body = asRecord(await readJsonBody(request));
+      enforceDesktopGuard(request, response, "desktop.screenshot", body);
+      const path = typeof body.path === "string" ? body.path : "";
+      return readScreenshotImage(path);
     });
     return true;
   }

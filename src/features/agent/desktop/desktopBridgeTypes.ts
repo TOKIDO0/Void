@@ -93,6 +93,14 @@ export type DesktopScreenshotData = {
   capturedAt: number;
 };
 
+/** 看屏图像通道：已落盘截图读成 base64 的结果。 */
+export type DesktopScreenshotImageData = {
+  path: string;
+  mediaType: string;
+  dataBase64: string;
+  bytes: number;
+};
+
 export type DesktopSetWindowBoundsData = {
   hwnd: string;
   pid: number;

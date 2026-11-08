@@ -9,7 +9,15 @@ import type {
 import { parseDsmlToolCalls } from "./dsmlToolCallParser";
 import type { ModelConfig } from "../../features/settings/modelConfig";
 import { ProviderRequestError, createHttpStatusError } from "./providerErrors";
-import { buildFetchTarget, buildProviderEndpointUrl, fetchWithProxyFallback } from "./providerUrl";
+import {
+  ModelStreamStallError,
+  buildFetchTarget,
+  buildProviderEndpointUrl,
+  fetchWithProxyFallback,
+  getModelStreamIdleTimeoutMs,
+  readResponseJsonWithTimeout,
+  readResponseTextWithTimeout
+} from "./providerUrl";
 
 type OpenAiCompatibleToolCall = {
   id?: string;
@@ -102,7 +110,7 @@ export const openAiCompatibleProvider: ModelProvider = {
           signal: request.signal
         });
         if (retryResponse.ok) {
-          return this.normalizeResponse(await retryResponse.json());
+          return this.normalizeResponse(await readResponseJsonWithTimeout(retryResponse));
         }
         const retryError = await readErrorMessage(retryResponse);
         throw createHttpStatusError(
@@ -118,7 +126,7 @@ export const openAiCompatibleProvider: ModelProvider = {
       );
     }
 
-    return this.normalizeResponse(await response.json());
+    return this.normalizeResponse(await readResponseJsonWithTimeout(response));
   },
 
   async streamMessage(request: ProviderRequest, config: ModelConfig): Promise<ProviderResponse> {
@@ -489,11 +497,40 @@ async function readOpenAiCompatibleStream(
     { id: string; name: string; arguments: string }
   >();
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
+  // 根因修复（永远等待）：响应头到达后 body 挂起时 reader.read() 永不 settle，
+  // 90 秒 fetch 超时此时早已 cleanup。每次 read 都带空闲超时，挂起即 cancel 并抛诚实错误。
+  const idleMs = getModelStreamIdleTimeoutMs();
+  const readWithIdleTimeout = async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const stall = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new ModelStreamStallError(idleMs)), idleMs);
+      });
+      return await Promise.race([reader.read(), stall]);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
+  };
+
+  try {
+    while (true) {
+      let readResult: ReadableStreamReadResult<Uint8Array>;
+      try {
+        readResult = await readWithIdleTimeout();
+      } catch (error) {
+        if (error instanceof ModelStreamStallError) {
+          try {
+            await reader.cancel();
+          } catch {
+            // cancel 失败不影响超时语义
+          }
+        }
+        throw error;
+      }
+      const { done, value } = readResult;
+      if (done) {
+        break;
+      }
 
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split(/\r?\n/);
@@ -549,6 +586,13 @@ async function readOpenAiCompatibleStream(
         // 忽略单行坏包
       }
     }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // reader 已关闭/取消时 releaseLock 可能抛错，不影响主流程
+    }
   }
 
   const toolCalls = Array.from(toolCallBuffers.entries())
@@ -580,13 +624,14 @@ async function readOpenAiCompatibleStream(
 }
 
 async function readErrorMessage(response: Response) {
+  // 错误体同样走超时读取：错误响应 body 挂起时也不允许永等（20 秒足够小体量错误体）。
   try {
-    const payload = await response.json() as {
+    const payload = await readResponseJsonWithTimeout<{
       code?: string | number;
       error?: { code?: string | number; message?: string } | string;
       message?: string;
       msg?: string;
-    };
+    }>(response, 20_000);
     if (typeof payload.error === "string") {
       return payload.error;
     }
@@ -600,7 +645,7 @@ async function readErrorMessage(response: Response) {
     return errorMessage || (errorCode ? String(errorCode) : "");
   } catch {
     try {
-      return await response.text();
+      return await readResponseTextWithTimeout(response, 20_000);
     } catch {
       return "";
     }

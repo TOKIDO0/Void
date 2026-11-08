@@ -206,7 +206,7 @@ const DESKTOP_TOOL_USE_SUFFIX = [
  */
 const CONVERSATION_TOOL_USE_SUFFIX = [
   "本轮是普通对话，但带只读基线：web.search（联网搜标题/链接/摘要）、web.fetch（读单页原文）、agent.askUser（拿不准时追问一句）。",
-  "纯闲聊（打招呼、闲谈、已有上下文能答）直接回答，不要调工具；涉及新鲜事、榜单、排名、热度、资料、新闻类问题，必须先 web.search 查到真实结果再回答，结论逐条附完整 http(s) 来源链接。",
+  "纯闲聊（打招呼、闲谈、已有上下文能答）直接回答，不要调工具；涉及新鲜事、榜单、排名、热度、资料、新闻类问题，必须先 web.search 查到真实结果再回答（一周/最新新闻带 topic=news、timeRange=week、limit=8），结论逐条附完整 http(s) 来源链接；web.search 失败时改调 browser.search（默认 bing 自动化重搜），禁止编造结果，Key 无效/限流/超时要按工具原话如实说明。新闻/榜单类必须中英各查一遍（中文原意一遍＋英文改写一遍，如 world top news this week），回答至少列出 3 条、每条一句话概述＋完整 URL；禁止只深读一条就收尾，更禁止说“挑几条/给你几条”却只列一条。",
   "没调工具时禁止说「工具服务没连接 / 桥接不可达 / 没权限 / 服务没启动」；纯聊没有工具失败，就不存在连接问题。",
   "只有 web.search/web.fetch 工具返回桥接不可达错误时，才可说本机联网服务未连接，并请用户启动 VOID 桌面端或本机服务后重试；禁止在没调工具时预判连接失败。",
   "检索意图但搜不到可靠来源时，必须如实说「没查到可靠来源 / 未能确认」，禁止编造排名、数字、项目名或 URL，禁止用训练记忆冒充刚查到的最新信息。",
@@ -281,7 +281,11 @@ export async function sendVoidMessage(
   const provider = getModelProvider(modelConfig.provider);
   const textAttachments = attachments.filter((attachment) => attachment.kind !== "image");
   const imageAttachments = attachments.filter((attachment) => attachment.kind === "image");
-  const mediaCapability = resolveModelMediaCapability(modelConfig.presetId, modelConfig.modelName);
+  const mediaCapability = resolveModelMediaCapability(
+    modelConfig.presetId,
+    modelConfig.modelName,
+    modelConfig.supportsVision
+  );
   // 文本附件仍内联进用户输入（路由 / 记忆召回 / system prompt 都基于字符串上下文）。
   // 图片附件不进入该字符串：支持视觉的模型走 ContentPart 多模态块；不支持则附文字说明降级。
   const normalizedUserInput = buildUserInputWithAttachments(
@@ -555,7 +559,7 @@ function buildSystemPrompt(
     "【本轮边界】",
     `只处理最新用户消息：「${clipForBoundaryHint(latestUserInput)}」。`,
     capability === "conversation"
-      ? "本轮是普通对话 + 只读基线：可用 web.search（联网搜）、web.fetch（读网页原文）、agent.askUser（追问）。闲聊直接回答，不调工具；涉及新鲜事、榜单、排名、资料类问题必须先调只读工具查到真实来源再回答。没有调用工具时，禁止声称「工具服务没连接 / 桥接不可达 / 没权限」；只有工具返回桥接不可达错误时，才可说本机服务未连接。也不补做历史中的搜索、打开、下载或桌面操作。"
+      ? "本轮是普通对话 + 只读基线：可用 web.search（联网搜）、web.fetch（读网页原文）、agent.askUser（追问）。闲聊直接回答，不调工具；涉及新鲜事、榜单、排名、资料类问题必须先调只读工具查到真实来源再回答（新闻类中英各查一遍、至少列出 3 条且每条附完整 URL）。没有调用工具时，禁止声称「工具服务没连接 / 桥接不可达 / 没权限」；只有工具返回桥接不可达错误时，才可说本机服务未连接。也不补做历史中的搜索、打开、下载或桌面操作。"
       : "历史仅用于理解指代，不得顺带补做上一轮未完成任务。"
   ].join(""));
 

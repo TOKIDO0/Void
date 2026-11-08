@@ -1,7 +1,17 @@
 import { webSearchViaBridge } from "../../web/webBridgeClient";
+import { throwAsWebToolError } from "../../web/webToolShared";
 import type { ToolDefinition } from "../toolTypes";
 
-export type WebSearchToolInput = { query: string; limit?: number };
+export type WebSearchToolInput = {
+  query: string;
+  limit?: number;
+  /** general=通用；news=新闻（优先时效）；finance=财经。不传即 general，向后兼容。 */
+  topic?: "general" | "news" | "finance";
+  /** day/week/month/year：只在 topic=news/finance 或 Tavily 通道下生效。 */
+  timeRange?: "day" | "week" | "month" | "year";
+  /** basic=省额度默认；advanced=高精度 2 credits。 */
+  searchDepth?: "basic" | "advanced";
+};
 export type WebSearchToolOutput = {
   engine: string;
   query: string;
@@ -12,8 +22,8 @@ export type WebSearchToolOutput = {
 
 export const webSearchTool: ToolDefinition<WebSearchToolInput, WebSearchToolOutput> = {
   name: "web.search",
-  description: "快轨全网搜索（不经过浏览器，直接 fetch DuckDuckGo HTML，秒级返回标题/链接/摘要）。适合先搜再开、榜单类研究；需要登录态或要点赞时再用 browser.search/open。",
-  version: "1.0.0",
+  description: "快轨全网搜索（有 Key 走 Tavily 云索引，无 Key 走 DuckDuckGo 快搜，秒级返回标题/链接/摘要）。新闻/榜单/热度类必须带 topic=news、timeRange=week、limit=8，且中文查一遍、英文改写再查一遍；失败时改调 browser.search（默认 bing 自动化重搜）。",
+  version: "1.1.0",
   riskLevel: "L0",
   inputSchema: {
     type: "object",
@@ -21,7 +31,10 @@ export const webSearchTool: ToolDefinition<WebSearchToolInput, WebSearchToolOutp
     required: ["query"],
     properties: {
       query: { type: "string", minLength: 1, maxLength: 500, description: "搜索关键词" },
-      limit: { type: "number", minimum: 1, maximum: 20, description: "返回条数" }
+      limit: { type: "number", minimum: 1, maximum: 20, description: "返回条数" },
+      topic: { type: "string", enum: ["general", "news", "finance"], description: "新闻/财经场景透传给 Tavily" },
+      timeRange: { type: "string", enum: ["day", "week", "month", "year"], description: "时效窗口，如一周新闻用 week" },
+      searchDepth: { type: "string", enum: ["basic", "advanced"], description: "basic 省额度默认，advanced 高精度" }
     }
   },
   outputSchema: {
@@ -29,7 +42,7 @@ export const webSearchTool: ToolDefinition<WebSearchToolInput, WebSearchToolOutp
     additionalProperties: false,
     required: ["engine", "query", "resultPageUrl", "results", "searchedAt"],
     properties: {
-      engine: { type: "string", enum: ["duckduckgo"] },
+      engine: { type: "string", enum: ["duckduckgo", "tavily", "brave", "exa", "cloud"] },
       query: { type: "string" },
       resultPageUrl: { type: "string" },
       results: {
@@ -58,6 +71,14 @@ export const webSearchTool: ToolDefinition<WebSearchToolInput, WebSearchToolOutp
   enabled: true,
   maxRetries: 1,
   async execute(input, context) {
-    return webSearchViaBridge(input.query, input.limit ?? 8, context.signal);
+    try {
+      return await webSearchViaBridge(input.query, input.limit ?? 8, context.signal, {
+        topic: input.topic,
+        timeRange: input.timeRange,
+        searchDepth: input.searchDepth
+      });
+    } catch (error) {
+      throwAsWebToolError(error);
+    }
   }
 };

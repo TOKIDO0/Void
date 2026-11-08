@@ -21,6 +21,13 @@ const PRODUCTION_PROXY_PATH = "/api/model";
  * 可用环境变量覆盖，便于联调与验证（毫秒）。
  */
 const MODEL_REQUEST_TIMEOUT_MS = readPositiveIntegerEnv("VOID_MODEL_REQUEST_TIMEOUT_MS", 90_000);
+/**
+ * 流式空闲超时：响应头到达后，body 长时间没有新数据即判定连接已挂起。
+ * 只看空闲不看总时长，正常慢生成（持续吐 token）不受影响。
+ */
+const MODEL_STREAM_IDLE_TIMEOUT_MS = readPositiveIntegerEnv("VOID_MODEL_STREAM_IDLE_TIMEOUT_MS", 60_000);
+/** 全量 body 读取（如非流式 response.json）超时。 */
+const MODEL_BODY_READ_TIMEOUT_MS = readPositiveIntegerEnv("VOID_MODEL_BODY_READ_TIMEOUT_MS", 90_000);
 
 export class ModelRequestTimeoutError extends Error {
   constructor(timeoutMs: number) {
@@ -28,6 +35,65 @@ export class ModelRequestTimeoutError extends Error {
       `模型响应超时（${Math.round(timeoutMs / 1000)}秒内没有返回）。可能是模型服务繁忙或网络较慢，请稍后重试；若反复超时，可在设置里更换模型或检查网络。`
     );
     this.name = "ModelRequestTimeoutError";
+  }
+}
+
+export class ModelStreamStallError extends Error {
+  constructor(idleMs: number) {
+    super(
+      `模型连接已挂起（${Math.round(idleMs / 1000)}秒没有新内容）。服务端接受了请求但不再返回数据，这通常是中转站/网关把连接挂住了，不是你问错了。请直接重试；若反复出现，可更换模型或检查网络。`
+    );
+    this.name = "ModelStreamStallError";
+  }
+}
+
+export function getModelStreamIdleTimeoutMs(): number {
+  return MODEL_STREAM_IDLE_TIMEOUT_MS;
+}
+
+/**
+ * 带超时的全量 body 读取：body 挂起时主动 cancel，避免 response.json()/text() 永不 settle。
+ * 超时错误复用 ModelRequestTimeoutError，由现有 mapError → failTextResponse 管道诚实展示。
+ */
+/** 尽力取消挂起的 body 读取：locked/disturbed 流上 cancel 可能同步抛错或返回拒绝 promise，一律吞掉。 */
+function cancelBodyQuietly(response: Response): void {
+  try {
+    const result = response.body?.cancel() as unknown;
+    if (result && typeof (result as Promise<unknown>).catch === "function") {
+      (result as Promise<unknown>).catch(() => undefined);
+    }
+  } catch {
+    // cancel 失败不影响超时语义
+  }
+}
+
+export async function readResponseTextWithTimeout(response: Response, timeoutMs = MODEL_BODY_READ_TIMEOUT_MS): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        cancelBodyQuietly(response);
+        reject(new ModelRequestTimeoutError(timeoutMs));
+      }, timeoutMs);
+    });
+    return await Promise.race([response.text(), timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export async function readResponseJsonWithTimeout<T>(response: Response, timeoutMs = MODEL_BODY_READ_TIMEOUT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        cancelBodyQuietly(response);
+        reject(new ModelRequestTimeoutError(timeoutMs));
+      }, timeoutMs);
+    });
+    return await Promise.race([response.json() as Promise<T>, timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

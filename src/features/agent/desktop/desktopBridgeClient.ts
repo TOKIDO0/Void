@@ -19,6 +19,7 @@ import type {
   DesktopCloseWindowData,
   DesktopSystemInfoData,
   DesktopScreenshotData,
+  DesktopScreenshotImageData,
   DesktopSetWindowBoundsData,
   DesktopOpenFileData,
   DesktopInspectControlsData,
@@ -206,6 +207,14 @@ export async function getSystemInfo(signal?: AbortSignal): Promise<DesktopSystem
 
 export async function takeScreenshot(signal?: AbortSignal): Promise<DesktopScreenshotData> {
   return postDesktopApi<DesktopScreenshotData>("/void-desktop/screenshot", {}, signal);
+}
+
+/** 看屏图像通道：把已落盘截图读成 base64（只读，限截图目录内 PNG）。 */
+export async function readScreenshotImage(
+  path: string,
+  signal?: AbortSignal
+): Promise<DesktopScreenshotImageData> {
+  return postDesktopApi<DesktopScreenshotImageData>("/void-desktop/screenshot-image", { path }, signal);
 }
 
 export async function setWindowBounds(

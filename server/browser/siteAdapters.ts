@@ -372,4 +372,4 @@ export function getPreferredExtractScopeForUrl(url: string): string | undefined 
   }
 }
 
-export type SiteEngine = "duckduckgo" | "bilibili" | "zhihu" | "douyin" | "xiaohongshu" | "weibo";
+export type SiteEngine = "bing" | "duckduckgo" | "bilibili" | "zhihu" | "douyin" | "xiaohongshu" | "weibo";

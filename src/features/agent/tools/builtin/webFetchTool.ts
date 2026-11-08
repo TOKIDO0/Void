@@ -1,4 +1,5 @@
 import { webFetchViaBridge } from "../../web/webBridgeClient";
+import { throwAsWebToolError } from "../../web/webToolShared";
 import type { ToolDefinition } from "../toolTypes";
 
 export type WebFetchToolInput = { url: string };
@@ -46,6 +47,10 @@ export const webFetchTool: ToolDefinition<WebFetchToolInput, WebFetchToolOutput>
   enabled: true,
   maxRetries: 1,
   async execute(input, context) {
-    return webFetchViaBridge(input.url, context.signal);
+    try {
+      return await webFetchViaBridge(input.url, context.signal);
+    } catch (error) {
+      throwAsWebToolError(error);
+    }
   }
 };

@@ -183,7 +183,7 @@ export async function browserSearch(
   input: {
     taskId: string;
     query: string;
-    engine?: "duckduckgo" | "bilibili" | "zhihu" | "douyin" | "xiaohongshu" | "weibo";
+    engine?: "bing" | "duckduckgo" | "bilibili" | "zhihu" | "douyin" | "xiaohongshu" | "weibo";
     limit?: number;
   },
   signal?: AbortSignal

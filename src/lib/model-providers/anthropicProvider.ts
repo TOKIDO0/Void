@@ -7,7 +7,12 @@ import type {
 } from "./providerContract";
 import type { ModelConfig } from "../../features/settings/modelConfig";
 import { ProviderRequestError, createHttpStatusError } from "./providerErrors";
-import { buildFetchTarget, buildProviderEndpointUrl, fetchWithProxyFallback } from "./providerUrl";
+import {
+  buildFetchTarget,
+  buildProviderEndpointUrl,
+  fetchWithProxyFallback,
+  readResponseJsonWithTimeout
+} from "./providerUrl";
 
 type AnthropicContentBlock = {
   type?: string;
@@ -71,7 +76,7 @@ export const anthropicProvider: ModelProvider = {
       throw createHttpStatusError(response.status, errorMessage, endpointUrl);
     }
 
-    return this.normalizeResponse(await response.json());
+    return this.normalizeResponse(await readResponseJsonWithTimeout(response));
   },
 
   streamMessage: null,
@@ -186,11 +191,11 @@ function mapThinkingModeToBudgetTokens(config: ModelConfig) {
 
 async function readErrorMessage(response: Response) {
   try {
-    const payload = await response.json() as {
+    const payload = await readResponseJsonWithTimeout<{
       type?: string;
       error?: { type?: string; message?: string } | string;
       message?: string;
-    };
+    }>(response, 20_000);
     if (typeof payload.error === "string") {
       return payload.error;
     }

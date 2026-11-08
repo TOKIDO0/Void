@@ -2928,10 +2928,19 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
   const dsVision = resolveModelMediaCapability("deepseek", "deepseek-v4-flash-vision-exp");
   const dsChat = resolveModelMediaCapability("deepseek", "deepseek-chat");
   const dbSeed = resolveModelMediaCapability("doubao", "doubao-seed-1-6-250615");
-  if (!dsVision.supportsImage || dsChat.supportsImage || !dbSeed.supportsImage) {
-    failures.push("视觉判定异常：deepseek 仅 vision 系支持图片，其余降级");
+  // 显式声明优先于名字推断：中转站/自建部署的模型名不可靠（实测 deepseek-v4.1-flash 能读图但不含 vision）。
+  const declaredOn = resolveModelMediaCapability("deepseek", "deepseek-v4.1-flash", true);
+  const declaredOff = resolveModelMediaCapability("deepseek", "deepseek-v4-flash-vision-exp", false);
+  if (
+    !dsVision.supportsImage
+    || dsChat.supportsImage
+    || !dbSeed.supportsImage
+    || !declaredOn.supportsImage
+    || declaredOff.supportsImage
+  ) {
+    failures.push("视觉判定异常：deepseek 仅 vision 系支持图片，其余降级；显式声明必须压过名字推断");
   } else {
-    notes.push("视觉判定正确：deepseek-vision 支持图片，chat 系降级");
+    notes.push("视觉判定正确：deepseek-vision 支持图片、chat 系降级，显式声明双向压过名字推断");
   }
 
   // 2h) file.editText 契约 + 路由（真改走 file-mutation 真机 E2E，不进本冒烟）

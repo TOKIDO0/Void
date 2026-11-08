@@ -19,10 +19,18 @@ export type WebSearchData = {
   searchedAt: number;
 };
 
+export type WebSearchTopic = "general" | "news" | "finance";
+export type WebSearchTimeRange = "day" | "week" | "month" | "year";
+
 export type WebSearchCloudOptions = {
   /** 用户自备 Key：仅本次请求内存使用，从不落盘，前端经回环传入。 */
   apiKey?: string;
   provider?: "tavily" | "brave" | "exa";
+  /** Tavily 专用：新闻/财经场景透传，不传即 general（向后兼容）。 */
+  topic?: WebSearchTopic;
+  timeRange?: WebSearchTimeRange;
+  /** Tavily 专用：默认 basic（1 credit），advanced 为 2 credits。 */
+  searchDepth?: "basic" | "advanced";
 };
 
 const DUCK_HTML = "https://html.duckduckgo.com/html/";
@@ -43,18 +51,33 @@ export async function webSearch(query: string, limit = 8, signal?: AbortSignal, 
   if (!q) throw Object.assign(new Error("缺少 query"), { webCode: "INVALID_REQUEST" });
   // 有用户自备 Key 时走云索引（服务端直调，无浏览器 CORS 问题，Key 只活在本次请求内存里）。
   if (cloud?.apiKey?.trim()) {
-    return webSearchViaCloud(q, limit, cloud.provider ?? "tavily", cloud.apiKey.trim(), signal);
+    return webSearchViaCloud(q, limit, {
+      provider: cloud.provider ?? "tavily",
+      apiKey: cloud.apiKey.trim(),
+      topic: cloud.topic,
+      timeRange: cloud.timeRange,
+      searchDepth: cloud.searchDepth
+    }, signal);
   }
   return webSearchViaDuck(q, limit, signal);
+}
+
+function cloudTopic(v: unknown): WebSearchTopic {
+  return v === "news" || v === "finance" ? v : "general";
+}
+
+function cloudTimeRange(v: unknown): WebSearchTimeRange | undefined {
+  return v === "day" || v === "week" || v === "month" || v === "year" ? v : undefined;
 }
 
 async function webSearchViaCloud(
   query: string,
   limit: number,
-  provider: "tavily" | "brave" | "exa",
-  apiKey: string,
+  cloud: { provider: "tavily" | "brave" | "exa"; apiKey: string; topic?: WebSearchTopic; timeRange?: WebSearchTimeRange; searchDepth?: "basic" | "advanced" },
   signal?: AbortSignal
 ): Promise<WebSearchData> {
+  const provider = cloud.provider;
+  const apiKey = cloud.apiKey;
   const capped = Math.min(Math.max(limit, 1), 10);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -71,6 +94,9 @@ async function webSearchViaCloud(
       });
       if (r.status === 401 || r.status === 403) {
         throw Object.assign(new Error("搜索 Key 无效，请去设置 → 联网搜索里检查后重试。"), { webCode: "KEY_INVALID" });
+      }
+      if (r.status === 429) {
+        throw Object.assign(new Error("搜索限流，请稍后重试。"), { webCode: "RATE_LIMITED" });
       }
       if (!r.ok) throw Object.assign(new Error(`搜索服务异常（${r.status}）`), { webCode: "INTERNAL_ERROR" });
       const j = await r.json() as { web?: { results?: Array<{ title?: string; url?: string; description?: string }> } };
@@ -93,6 +119,9 @@ async function webSearchViaCloud(
       if (r.status === 401 || r.status === 403) {
         throw Object.assign(new Error("搜索 Key 无效，请去设置 → 联网搜索里检查后重试。"), { webCode: "KEY_INVALID" });
       }
+      if (r.status === 429) {
+        throw Object.assign(new Error("搜索限流，请稍后重试。"), { webCode: "RATE_LIMITED" });
+      }
       if (!r.ok) throw Object.assign(new Error(`搜索服务异常（${r.status}）`), { webCode: "INTERNAL_ERROR" });
       const j = await r.json() as { results?: Array<{ title?: string; url?: string; text?: string }> };
       const results = (j.results ?? []).filter((x) => x.url).map((x, i) => ({
@@ -104,14 +133,30 @@ async function webSearchViaCloud(
       }));
       return { engine: "exa", query, resultPageUrl: results[0]?.url ?? "", results, searchedAt: Date.now() };
     }
+    const topic = cloudTopic(cloud.topic);
+    const timeRange = cloudTimeRange(cloud.timeRange);
+    const searchDepth = cloud.searchDepth === "advanced" ? "advanced" : "basic";
     const r = await fetch("https://api.tavily.com/search", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: apiKey, query, max_results: capped, search_depth: "advanced", include_answer: false }),
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        query,
+        max_results: capped,
+        search_depth: searchDepth,
+        topic,
+        ...(timeRange ? { time_range: timeRange } : {}),
+        include_answer: false
+      }),
       signal: controller.signal
     });
     if (r.status === 401 || r.status === 403) {
       throw Object.assign(new Error("搜索 Key 无效，请去设置 → 联网搜索里检查后重试。"), { webCode: "KEY_INVALID" });
+    }
+    if (r.status === 422) {
+      throw Object.assign(new Error("搜索请求被拒绝（参数校验失败），请升级后重试。"), { webCode: "INVALID_REQUEST" });
+    }
+    if (r.status === 429) {
+      throw Object.assign(new Error("搜索限流，请稍后重试。"), { webCode: "RATE_LIMITED" });
     }
     if (!r.ok) throw Object.assign(new Error(`搜索服务异常（${r.status}）`), { webCode: "INTERNAL_ERROR" });
     const j = await r.json() as { results?: Array<{ title?: string; url?: string; content?: string }> };

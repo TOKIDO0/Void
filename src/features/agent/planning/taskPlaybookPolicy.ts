@@ -771,7 +771,7 @@ export const AGENT_TASK_PLAYBOOKS: AgentTaskPlaybookDefinition[] = [
     requiresBridge: true,
     requiresConfirmation: false,
     safetyBoundaries: [
-      "文字类优先本机 OCR（离线免费），不经过视觉模型；版式/图表才走视觉模型 preset（如 deepseek-vision + 有效 Key）。",
+      "文字类优先本机 OCR（离线免费）；画面原图只交给「已声明支持看图」的当前模型（设置 → 模型 → 高级 → 这个模型能看图），未声明时只回 OCR 文本。",
       "截图落盘在 desktop-screenshots 运行时目录，不上传第三方，只送当前模型。"
     ]
   }

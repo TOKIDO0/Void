@@ -93,6 +93,10 @@ function detectPlatform(text: string): SearchPlatform {
   if (/(?:github|git\s*hub|开源项目|trending)/i.test(text)) {
     return "web";
   }
+  // 新闻/热搜/榜单类：归全网检索，不默认 B 站
+  if (/(?:新闻|热搜|头条|热点|资讯|榜单|排名)/.test(text)) {
+    return "web";
+  }
   return "unknown";
 }
 
@@ -121,6 +125,11 @@ function detectAction(text: string, platform: SearchPlatform): BrowserIntentActi
   // GitHub 本周热门类口语：「找一下 GitHub 这一周很火的项目」「总结一下热门仓库」
   if (/(?:github|git\s*hub|trending|开源项目)/i.test(text)
     && /(?:找|热门|很火|最火|流行|趋势|排行|榜单|总结|汇总|推荐|介绍|说说|讲讲)/.test(text)) {
+    return "search";
+  }
+  // 新闻/热搜类口语：「一周世界性的比较火的新闻」「最近有什么大新闻」
+  if (/(?:新闻|热搜|头条|热点|资讯)/.test(text)
+    && /(?:查|找|搜|最新|最近|本周|一周|今天|头条|热搜|热点|总结|汇总|说说|讲讲|介绍|比较火|最火|热门)/.test(text)) {
     return "search";
   }
   if (/(?:打开|看一下|看看).{0,16}(?:视频|博主|网页|网站|链接)/.test(text)) {
@@ -153,6 +162,18 @@ function buildQueryCandidates(
   // 模糊“最牛/最火网红”类：展开为跨平台榜单检索词，避免模型空搜
   if (/(?:最牛|最强|最厉害|最红|最火|最热门).{0,10}(?:网红|博主|主播|up主)/.test(text)) {
     candidates.push("全球 YouTube 订阅最多网红 2024", "MrBeast YouTube channel", "抖音最火网红排行");
+  }
+
+  // 新闻类：中文一遍 + 英文改写一遍（Tavily 英文 news 召回远好于中文口语直喂）。
+  if (/(?:新闻|热搜|头条|热点|资讯)/.test(text)) {
+    const weekly = /(?:本周|这一周|这周|一周|最近|weekly|7天|七天)/i.test(text);
+    const world = /(?:世界|全球|国际|world|global)/i.test(text);
+    if (world) {
+      candidates.push(weekly ? "world top news this week" : "world top news");
+    } else {
+      candidates.push(weekly ? "top news this week" : "top breaking news");
+    }
+    candidates.push(weekly ? "全球一周热点新闻" : "今日热点新闻");
   }
 
   // GitHub 本周热门类：产出英文 trending 检索词 + 站点线索，不只懂 B 站
@@ -296,6 +317,13 @@ function buildPromptHint(input: {
   if (input.siteUrlHint === PLATFORM_SITE_URL.github) {
     lines.push(
       "GitHub 热门：先 web.search（英文词如 github trending weekly 优先）拿候选仓库，再 web.fetch 榜单页或仓库页核对 star 数、语言与简介；结论逐条附仓库完整 URL，禁止编造项目名和 star 数。"
+    );
+  }
+
+  if (input.action === "search" && input.queryCandidates.some((item) => /新闻|热搜|头条|热点|top news/i.test(item))) {
+    lines.push(
+      "新闻类：中英各查一遍（web.search 带 topic=news、timeRange=week、limit=8；browser.search 用 engine=bing）。",
+      "回答至少列出 3 条，每条一句话概述＋完整 URL；禁止只深读一条就收尾，禁止说“挑几条”却只列一条。"
     );
   }
 

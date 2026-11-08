@@ -8,6 +8,11 @@ import {
   type ToolResourceRequirement
 } from "../tools";
 import { getDesktopBridgeErrorInfo } from "./desktopBridgeClient";
+import {
+  BRIDGE_AUTH_FAILURE_KIND,
+  BRIDGE_AUTH_FAILURE_MESSAGE,
+  isBridgeAuthFailureCode
+} from "../bridge/bridgeAuthErrors";
 
 /** 剪贴板通道：同任务串行，避免读写交错 */
 export const DESKTOP_CLIPBOARD_RESOURCES: ToolResourceRequirement[] = [
@@ -57,6 +62,15 @@ export function mapDesktopErrorToToolError(error: unknown): ToolError {
     desktopCode: info.code,
     ...(failureKind ? { failureKind } : {})
   });
+
+  if (isBridgeAuthFailureCode(info.code)) {
+    return createToolError(
+      "EXECUTION_FAILED",
+      BRIDGE_AUTH_FAILURE_MESSAGE,
+      withCode(BRIDGE_AUTH_FAILURE_KIND),
+      false
+    );
+  }
 
   switch (info.code) {
     case "INVALID_REQUEST":

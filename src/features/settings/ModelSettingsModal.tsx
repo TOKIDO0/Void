@@ -17,6 +17,7 @@ import {
   type ModelProviderType,
   type ModelStrength
 } from "./modelConfig";
+import { resolveModelMediaCapability } from "./providerCapabilities";
 import { DarkSelect } from "./DarkSelect";
 import { fetchModelCatalog } from "./modelCatalogFetcher";
 import {
@@ -130,6 +131,12 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     setVoiceRuntimeConfig(storedVoiceRuntimeConfig);
     setSemanticSearchDraft(storedSemanticSearchEnabled);
     setWebSearchDraft(loadWebSearchConfig());
+    // vault 引用不回显：异步解出明文后才填 Key 框，避免把 vault: 引用当 Key 展示。
+    void import("./webSearchConfig").then(({ loadWebSearchConfigAsync }) =>
+      loadWebSearchConfigAsync().then((resolved) => {
+        if (isOpen) setWebSearchDraft(resolved);
+      }).catch(() => undefined)
+    );
     setIsWebSearchKeyVisible(false);
     setSelectedPresetId(storedPresetId);
     setIsAdvancedModelOpen(
@@ -253,6 +260,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
       baseUrl: restoredConfig.baseUrl,
       modelName: restoredConfig.modelName,
       modelStrength: restoredConfig.modelStrength,
+      supportsVision: restoredConfig.supportsVision,
       streamEnabled: restoredConfig.provider === "openai-compatible" && currentConfig.streamEnabled
     }));
   };
@@ -383,6 +391,16 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     }));
   };
 
+  // 图片理解是「部署属性」：中转站/自建模型名不可靠，用户显式声明优先于名字推断。
+  // 开关初始态回落到推断值，一旦拨动即写入显式声明。
+  const handleSupportsVisionChange = (event: ChangeEvent<HTMLInputElement>) => {
+    markDirty();
+    setDraftConfig((currentConfig) => ({
+      ...currentConfig,
+      supportsVision: event.target.checked
+    }));
+  };
+
   const handleSemanticSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
     markDirty();
     setSemanticSearchDraft(event.target.checked);
@@ -416,6 +434,9 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
   const selectedStrength = draftConfig.modelStrength;
   const modelSelectValue = selectedModel ? draftConfig.modelName : "";
   const canStream = draftConfig.provider === "openai-compatible";
+  // 未显式声明时回落到厂商口径推断，保证开关初始态与真实行为一致。
+  const effectiveSupportsVision = draftConfig.supportsVision
+    ?? resolveModelMediaCapability(draftConfig.presetId, draftConfig.modelName).supportsImage;
 
   if (!isOpen) {
     return null;
@@ -940,6 +961,23 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
                       checked={draftConfig.streamEnabled && canStream}
                       disabled={!canStream}
                       onChange={handleStreamEnabledChange}
+                    />
+                    <span className="model-settings-modal__switch-track">
+                      <span className="model-settings-modal__switch-thumb" />
+                    </span>
+                  </label>
+                </div>
+
+                <div className="model-settings-modal__switch-row">
+                  <div>
+                    <span className="model-settings-modal__switch-title">{copy.supportsVision}</span>
+                    <small>{copy.supportsVisionHint}</small>
+                  </div>
+                  <label className="model-settings-modal__switch">
+                    <input
+                      type="checkbox"
+                      checked={effectiveSupportsVision}
+                      onChange={handleSupportsVisionChange}
                     />
                     <span className="model-settings-modal__switch-track">
                       <span className="model-settings-modal__switch-thumb" />

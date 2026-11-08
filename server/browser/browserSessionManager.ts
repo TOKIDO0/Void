@@ -23,6 +23,10 @@ import {
   extractBilibiliSearchResults
 } from "./bilibiliSearch";
 import {
+  buildBingSearchUrl,
+  extractBingResults
+} from "./bingSearch";
+import {
   buildDuckDuckGoHtmlSearchUrl,
   extractDuckDuckGoResults
 } from "./duckduckgoSearch";
@@ -376,7 +380,7 @@ export class BrowserSessionManager {
   async search(input: {
     taskId: string;
     query: string;
-    engine?: "duckduckgo" | "bilibili" | "zhihu" | "douyin" | "xiaohongshu" | "weibo";
+    engine?: "bing" | "duckduckgo" | "bilibili" | "zhihu" | "douyin" | "xiaohongshu" | "weibo";
     limit?: number;
   }): Promise<BrowserSearchData> {
     const query = input.query.trim();
@@ -390,8 +394,9 @@ export class BrowserSessionManager {
       || input.engine === "douyin"
       || input.engine === "xiaohongshu"
       || input.engine === "weibo"
+      || input.engine === "duckduckgo"
         ? input.engine
-        : "duckduckgo";
+        : "bing";
     const engine = normalizedEngine;
     const limit = clampLimit(input.limit, 8);
     let resultPageUrl: string;
@@ -400,7 +405,8 @@ export class BrowserSessionManager {
     else if (engine === "douyin") resultPageUrl = buildDouyinSearchUrl(query);
     else if (engine === "xiaohongshu") resultPageUrl = buildXiaohongshuSearchUrl(query);
     else if (engine === "weibo") resultPageUrl = buildWeiboSearchUrl(query);
-    else resultPageUrl = buildDuckDuckGoHtmlSearchUrl(query);
+    else if (engine === "duckduckgo") resultPageUrl = buildDuckDuckGoHtmlSearchUrl(query);
+    else resultPageUrl = buildBingSearchUrl(query);
 
     const opened = await this.open({
       taskId: input.taskId,
@@ -417,7 +423,8 @@ export class BrowserSessionManager {
       else if (engine === "douyin") results = await extractDouyinSearchResults(managedPage.page, limit);
       else if (engine === "xiaohongshu") results = await extractXiaohongshuSearchResults(managedPage.page, limit);
       else if (engine === "weibo") results = await extractWeiboSearchResults(managedPage.page, limit);
-      else results = await extractDuckDuckGoResults(managedPage.page, limit);
+      else if (engine === "duckduckgo") results = await extractDuckDuckGoResults(managedPage.page, limit);
+      else results = await extractBingResults(managedPage.page, limit);
     } catch (error) {
       throw createBrowserError(
         "PARSE_FAILED",
@@ -426,8 +433,21 @@ export class BrowserSessionManager {
       );
     }
 
-    // 站内搜常因登录墙/反爬零结果，零结果时回退到 DuckDuckGo site: 兜底，保证可用性
-    if (results.length === 0 && engine !== "duckduckgo") {
+    // Bing 空结果时回退 Duck，保证可用性；站内搜零结果时回退 Bing site: 兜底。
+    if (results.length === 0 && engine === "bing") {
+      try {
+        const fallbackOpened = await this.open({ taskId: session.taskId, url: buildDuckDuckGoHtmlSearchUrl(query) });
+        const fallbackSession = this.requireSession(fallbackOpened.taskId);
+        const fallbackPage = this.requirePage(fallbackSession, fallbackOpened.pageId);
+        const fallbackResults = await extractDuckDuckGoResults(fallbackPage, limit);
+        if (fallbackResults.length > 0) {
+          results = fallbackResults;
+        }
+      } catch {
+        // 回退失败静默保留空结果，不抛
+      }
+    }
+    if (results.length === 0 && engine !== "bing" && engine !== "duckduckgo") {
       const siteMap: Record<string, string> = {
         bilibili: "bilibili.com",
         zhihu: "zhihu.com",
@@ -438,12 +458,12 @@ export class BrowserSessionManager {
       const site = siteMap[engine];
       if (site) {
         const fallbackQuery = `site:${site} ${query}`;
-        const fallbackUrl = buildDuckDuckGoHtmlSearchUrl(fallbackQuery);
+        const fallbackUrl = buildBingSearchUrl(fallbackQuery);
         try {
           const fallbackOpened = await this.open({ taskId: session.taskId, url: fallbackUrl });
           const fallbackSession = this.requireSession(fallbackOpened.taskId);
           const fallbackPage = this.requirePage(fallbackSession, fallbackOpened.pageId);
-          const fallbackResults = await extractDuckDuckGoResults(fallbackPage, limit);
+          const fallbackResults = await extractBingResults(fallbackPage, limit);
           if (fallbackResults.length > 0) {
             results = fallbackResults;
           }

@@ -219,7 +219,7 @@ export async function handleBrowserHttpRequest(
       }
       const engineRaw = readString(body, "engine");
       const engine =
-        engineRaw === "bilibili" || engineRaw === "duckduckgo" || engineRaw === "zhihu" || engineRaw === "douyin"
+        engineRaw === "bing" || engineRaw === "bilibili" || engineRaw === "duckduckgo" || engineRaw === "zhihu" || engineRaw === "douyin" || engineRaw === "xiaohongshu" || engineRaw === "weibo"
           ? engineRaw
           : undefined;
       return browserSessionManager.search({

@@ -9,6 +9,11 @@ import {
   type ToolResourceRequirement
 } from "../tools";
 import { getBrowserBridgeErrorInfo } from "./browserBridgeClient";
+import {
+  BRIDGE_AUTH_FAILURE_KIND,
+  BRIDGE_AUTH_FAILURE_MESSAGE,
+  isBridgeAuthFailureCode
+} from "../bridge/bridgeAuthErrors";
 
 /**
  * 每个任务独占一个浏览器上下文资源键。
@@ -52,6 +57,15 @@ export function resolveTaskIdFromInput(
 
 export function mapBrowserErrorToToolError(error: unknown): ToolError {
   const info = getBrowserBridgeErrorInfo(error);
+
+  if (isBridgeAuthFailureCode(info.code)) {
+    return createToolError(
+      "EXECUTION_FAILED",
+      BRIDGE_AUTH_FAILURE_MESSAGE,
+      { ...(info.details ?? {}), failureKind: BRIDGE_AUTH_FAILURE_KIND },
+      false
+    );
+  }
 
   switch (info.code) {
     case "INVALID_REQUEST":

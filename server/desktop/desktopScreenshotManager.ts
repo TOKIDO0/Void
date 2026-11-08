@@ -1,12 +1,14 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { platform } from "node:os";
 
 const execFileAsync = promisify(execFile);
 
 const SCREENSHOT_ROOT = "D:\\AI\\void-runtime\\desktop-screenshots";
+/** 单张截图回传上限：防止把超大图塞进模型请求体。 */
+const MAX_SCREENSHOT_BYTES = 12 * 1024 * 1024;
 
 function ensureWindows(): void {
   if (platform() !== "win32") {
@@ -61,4 +63,50 @@ export async function takeDesktopScreenshot(): Promise<{ path: string; width: nu
     if (err.killed) throw Object.assign(new Error("截图超时"), { desktopCode: "TIMEOUT" });
     throw Object.assign(new Error(err.stderr?.trim() || err.message || "截图失败"), { desktopCode: "INTERNAL_ERROR" });
   }
+}
+
+/**
+ * 读取截图目录内的 PNG 并转 base64，供「看屏」把画面交给视觉模型。
+ *
+ * 安全边界：只允许读取 `SCREENSHOT_ROOT` 内的 `.png`，拒绝目录穿越与任意文件读取；
+ * 该端点是只读的，不产生新文件。
+ */
+export function readScreenshotImage(inputPath: string): {
+  path: string;
+  mediaType: string;
+  dataBase64: string;
+  bytes: number;
+} {
+  const trimmed = typeof inputPath === "string" ? inputPath.trim() : "";
+  if (!trimmed) {
+    throw Object.assign(new Error("缺少 path"), { desktopCode: "INVALID_REQUEST" });
+  }
+
+  const rootResolved = resolve(SCREENSHOT_ROOT);
+  const targetResolved = resolve(trimmed);
+  const insideRoot = targetResolved === rootResolved || targetResolved.startsWith(rootResolved + sep);
+  if (!insideRoot) {
+    throw Object.assign(new Error("只允许读取截图目录内的文件"), { desktopCode: "PATH_NOT_ALLOWED" });
+  }
+  if (!targetResolved.toLowerCase().endsWith(".png")) {
+    throw Object.assign(new Error("只允许读取 PNG 截图"), { desktopCode: "UNSUPPORTED_MEDIA" });
+  }
+
+  let size = 0;
+  try {
+    size = statSync(targetResolved).size;
+  } catch {
+    throw Object.assign(new Error("截图文件不存在"), { desktopCode: "PATH_NOT_FOUND" });
+  }
+  if (size > MAX_SCREENSHOT_BYTES) {
+    throw Object.assign(new Error("截图超过回传上限"), { desktopCode: "TOO_LARGE" });
+  }
+
+  const buffer = readFileSync(targetResolved);
+  return {
+    path: targetResolved,
+    mediaType: "image/png",
+    dataBase64: buffer.toString("base64"),
+    bytes: buffer.length
+  };
 }

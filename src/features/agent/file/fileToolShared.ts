@@ -9,6 +9,11 @@ import {
   type ToolResourceRequirement
 } from "../tools";
 import { getFileBridgeErrorInfo } from "./fileBridgeClient";
+import {
+  BRIDGE_AUTH_FAILURE_KIND,
+  BRIDGE_AUTH_FAILURE_MESSAGE,
+  isBridgeAuthFailureCode
+} from "../bridge/bridgeAuthErrors";
 
 /** 静态资源：下载链路独占文件通道（阶段 D 串行主路径） */
 export const FILE_STATIC_RESOURCES: ToolResourceRequirement[] = [
@@ -35,6 +40,15 @@ export function mapFileErrorToToolError(error: unknown): ToolError {
     failureKind: kind,
     fileCode: info.code
   });
+
+  if (isBridgeAuthFailureCode(info.code)) {
+    return createToolError(
+      "EXECUTION_FAILED",
+      BRIDGE_AUTH_FAILURE_MESSAGE,
+      withKind(BRIDGE_AUTH_FAILURE_KIND, info.details),
+      false
+    );
+  }
 
   switch (info.code) {
     case "INVALID_REQUEST":
