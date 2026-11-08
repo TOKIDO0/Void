@@ -35,6 +35,23 @@ export type WebSearchCloudOptions = {
 
 const DUCK_HTML = "https://html.duckduckgo.com/html/";
 
+/**
+ * DuckDuckGo 反爬/验证码页面的结构化特征。
+ * 命中即说明本次没有拿到真实结果，必须报错而不是当成「零结果」。
+ */
+const DUCK_BLOCK_MARKERS = [
+  "anomaly-modal",
+  "anomaly.js",
+  "challenge-form",
+  "unusual traffic",
+  "detected unusual"
+];
+
+function detectDuckBlock(html: string): boolean {
+  const lower = html.toLowerCase();
+  return DUCK_BLOCK_MARKERS.some((marker) => lower.includes(marker));
+}
+
 function resolveTarget(href: string): string {
   let h = href.trim();
   if (h.startsWith("//")) h = `https:${h}`;
@@ -171,7 +188,11 @@ async function webSearchViaCloud(
   } catch (e) {
     const err = e as Error & { webCode?: string; name?: string };
     if (err.webCode) throw e;
-    if (err.name === "AbortError") throw Object.assign(new Error("搜索超时"), { webCode: "TIMEOUT" });
+    if (err.name === "AbortError") {
+      // 用户/上游取消必须原样上抛，只有内部超时才归为 TIMEOUT。
+      if (signal?.aborted) throw e;
+      throw Object.assign(new Error("搜索超时"), { webCode: "TIMEOUT" });
+    }
     throw Object.assign(new Error(err.message || "搜索失败"), { webCode: "INTERNAL_ERROR" });
   } finally {
     clearTimeout(timeout);
@@ -196,15 +217,34 @@ async function webSearchViaDuck(query: string, limit: number, signal?: AbortSign
       headers: { "User-Agent": "Mozilla/5.0 VOID/1.0", Accept: "text/html" },
       signal: controller.signal
     });
+    // 明确区分「限流/反爬」和「服务异常」，避免模型把永久拦截当瞬时故障重试。
+    if (r.status === 429) {
+      throw Object.assign(new Error("DuckDuckGo 搜索限流（HTTP 429），请稍后再试。"), { webCode: "RATE_LIMITED" });
+    }
+    if (r.status === 403) {
+      throw Object.assign(new Error("DuckDuckGo 拒绝了本次请求（HTTP 403，可能触发了反爬）。"), { webCode: "BLOCKED" });
+    }
     if (!r.ok) throw new Error(`DuckDuckGo 响应 ${r.status}`);
     html = await r.text();
   } catch (e) {
-    const err = e as Error & { name?: string };
-    if (err.name === "AbortError") throw Object.assign(new Error("搜索超时"), { webCode: "TIMEOUT" });
+    const err = e as Error & { name?: string; webCode?: string };
+    if (err.webCode) throw e;
+    if (err.name === "AbortError") {
+      if (signal?.aborted) throw e;
+      throw Object.assign(new Error("搜索超时"), { webCode: "TIMEOUT" });
+    }
     throw Object.assign(new Error(err.message || "搜索失败"), { webCode: "INTERNAL_ERROR" });
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", onAbort);
+  }
+
+  // 200 也可能是反爬/验证码页：拿到空壳页面就当成功会伪造「无结果」。
+  if (!html.trim()) {
+    throw Object.assign(new Error("DuckDuckGo 返回了空页面"), { webCode: "INVALID_RESPONSE" });
+  }
+  if (detectDuckBlock(html)) {
+    throw Object.assign(new Error("DuckDuckGo 返回了反爬/验证码页面，本次搜索未完成。"), { webCode: "BLOCKED" });
   }
 
   const results: WebSearchResultItem[] = [];

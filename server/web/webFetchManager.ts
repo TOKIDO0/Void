@@ -23,6 +23,9 @@ export type WebFetchData = {
 const MAX_BYTES = SSRF_DEFAULT_MAX_BYTES;
 const TIMEOUT_MS = SSRF_DEFAULT_TIMEOUT_MS;
 const MAX_REDIRECTS = 5;
+/** 与 web.fetch 输出契约 text.maxLength 严格一致：最终文本（含截断标记）不得超过 20000 字符。 */
+const MAX_TEXT_CHARS = 20000;
+const TRUNCATION_MARKER = "\n...[已截断]";
 
 /** 简易速率守卫：10 秒窗口至多 20 次抓取，防止模型循环打爆出口。 */
 const RATE_WINDOW_MS = 10_000;
@@ -42,14 +45,16 @@ function assertFetchRate(): void {
   }
 }
 
-function htmlToText(html: string): string {
+function htmlToText(html: string): { text: string; truncated: boolean } {
   let t = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ");
   t = t.replace(/<[^>]+>/g, " ");
   t = t.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
   t = t.replace(/\s+/g, " ").trim();
-  // 截断到 20000 字符，保留上下文
-  if (t.length > 20000) t = t.slice(0, 20000) + "\n...[已截断]";
-  return t;
+  // 截断到 20000 字符；截断标记也计入上限，避免最终 text 超过 outputSchema 契约。
+  if (t.length > MAX_TEXT_CHARS) {
+    return { text: t.slice(0, MAX_TEXT_CHARS - TRUNCATION_MARKER.length) + TRUNCATION_MARKER, truncated: true };
+  }
+  return { text: t, truncated: false };
 }
 
 export async function webFetch(url: string, signal?: AbortSignal): Promise<WebFetchData> {
@@ -114,6 +119,19 @@ export async function webFetch(url: string, signal?: AbortSignal): Promise<WebFe
       throw Object.assign(new Error("重定向次数过多"), { webCode: "INTERNAL_ERROR" });
     }
     if (!res.ok) {
+      // 上游 401/403/404 是永久性失败，必须单独归因，不能被当成可重试的内部错误。
+      if (res.status === 401 || res.status === 403) {
+        throw Object.assign(
+          new Error(`目标站点拒绝访问（HTTP ${res.status}），可能需要登录或已阻止抓取。`),
+          { webCode: "ACCESS_DENIED" }
+        );
+      }
+      if (res.status === 404 || res.status === 410) {
+        throw Object.assign(new Error(`目标页面不存在（HTTP ${res.status}）。`), { webCode: "NOT_FOUND" });
+      }
+      if (res.status === 429) {
+        throw Object.assign(new Error("目标站点限流（HTTP 429），请稍后再试。"), { webCode: "RATE_LIMITED" });
+      }
       throw Object.assign(new Error(`目标返回 ${res.status}`), { webCode: "INTERNAL_ERROR" });
     }
 
@@ -124,8 +142,12 @@ export async function webFetch(url: string, signal?: AbortSignal): Promise<WebFe
     }
     const textRaw = new TextDecoder().decode(buf);
     const isHtml = contentType.includes("html") || textRaw.trim().startsWith("<");
-    const text = isHtml ? htmlToText(textRaw) : textRaw.slice(0, 20000);
-    const truncated = textRaw.length > 20000 || buf.length >= MAX_BYTES;
+    // HTML 走文本抽取并尊重 20000 字符契约；非 HTML 直接按字符上限截断。
+    const extracted = isHtml
+      ? htmlToText(textRaw)
+      : { text: textRaw.slice(0, MAX_TEXT_CHARS), truncated: textRaw.length > MAX_TEXT_CHARS };
+    const text = extracted.text;
+    const truncated = extracted.truncated || buf.length >= MAX_BYTES;
 
     return {
       url: startUrl,

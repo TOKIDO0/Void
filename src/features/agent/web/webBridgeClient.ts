@@ -1,6 +1,6 @@
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 import { resolveVoidBridgeOrigin } from "../../../lib/runtime/voidBridgeRuntime";
-import { loadWebSearchConfig } from "../../settings/webSearchConfig";
+import { loadWebSearchConfigAsync } from "../../settings/webSearchConfig";
 import { isVaultRef } from "../../../lib/runtime/secretVault";
 
 function resolveOrigin(): string {
@@ -48,23 +48,6 @@ export type WebSearchCloudParams = {
   timeRange?: "day" | "week" | "month" | "year";
   searchDepth?: "basic" | "advanced";
 };
-
-/** 有用户自备 Key 时走云索引直连（不经本机 bridge），失败自动回落 bridge。
- * 401/403 直接抛 Key 无效（诚实，不吞错）；网络异常才回落。 */
-async function webSearchViaCloud(query: string, limit: number, signal?: AbortSignal, params?: WebSearchCloudParams): Promise<CloudSearchHit[] | null> {
-  const { provider, apiKey } = loadWebSearchConfig();
-  const key = apiKey.trim();
-  if (!key) return null;
-  if (isVaultRef(key)) {
-    // vault 引用必须先异步解出明文，绝不把引用当 Key 发出去。
-    const { loadWebSearchConfigAsync } = await import("../../settings/webSearchConfig");
-    const resolved = await loadWebSearchConfigAsync();
-    const resolvedKey = resolved.apiKey.trim();
-    if (!resolvedKey) return null;
-    return webSearchViaCloudWithKey(query, limit, resolved.provider, resolvedKey, signal, params);
-  }
-  return webSearchViaCloudWithKey(query, limit, provider, key, signal, params);
-}
 
 /** 设置页“测试搜索”用：直接拿草稿里的服务商+Key 验连通性，不读已保存配置。 */
 export async function testWebSearchConnection(
@@ -191,21 +174,13 @@ async function webSearchViaCloudWithKey(
 }
 
 export async function webSearchViaBridge(query: string, limit = 8, signal?: AbortSignal, params?: WebSearchCloudParams) {
-  const cloud = await webSearchViaCloud(query, limit, signal, params);
-  if (cloud) {
-    return {
-      engine: "cloud",
-      query,
-      resultPageUrl: cloud[0]?.url ?? "",
-      results: cloud.map((hit, index) => ({ rank: index + 1, ...hit })),
-      searchedAt: Date.now()
-    };
-  }
-  // Key 随本次请求经回环透给 bridge，服务端只做内存转发（Tavily 等云索引），从不落盘；
-  // 无 Key 时服务端走免费 DuckDuckGo 链路。
-  const { loadWebSearchConfigAsync } = await import("../../settings/webSearchConfig");
+  // 单一 owner：无论有无 Key 都只经本机 bridge 搜一次。
+  // 禁止「前端直连云失败 → 再用同一个 Key 回落 bridge」的双请求，
+  // 否则一次失败会重复计费，且真实来源会被笼统标成 cloud。
   const { provider, apiKey } = await loadWebSearchConfigAsync();
   const trimmedKey = apiKey.trim();
+  // vault 引用还没解出明文时不能当 Key 发出去，只能按无 Key 走。
+  const usableKey = trimmedKey && !isVaultRef(trimmedKey) ? trimmedKey : "";
   const url = `${resolveOrigin()}/void-web/search`;
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(await bridgeAuthHeadersForUrl(url)) };
   const topic = params?.topic === "news" || params?.topic === "finance" ? params.topic : undefined;
@@ -216,7 +191,7 @@ export async function webSearchViaBridge(query: string, limit = 8, signal?: Abor
     r = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify(trimmedKey ? { query, limit, apiKey: trimmedKey, provider, topic, timeRange, searchDepth } : { query, limit }),
+      body: JSON.stringify(usableKey ? { query, limit, apiKey: usableKey, provider, topic, timeRange, searchDepth } : { query, limit }),
       signal
     });
   } catch (error) {

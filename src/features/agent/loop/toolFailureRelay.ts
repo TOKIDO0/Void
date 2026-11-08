@@ -50,6 +50,21 @@ const FAILURE_HINTS: Record<string, FailureHint> = {
     reason: "rate_limited",
     nextStep: "等待一段时间再试，或改用用户已授权的其它来源；不要连续重试。"
   },
+  blocked: {
+    reason: "blocked",
+    nextStep: "该来源触发了反爬/验证码拦截；不要重复同一搜索。可改用 browser.search（真实浏览器）一次，或如实说明没查到。",
+    doNotRepeat: true
+  },
+  upstream_access_denied: {
+    reason: "upstream_access_denied",
+    nextStep: "目标站点要求登录或拒绝抓取；不要重复抓同一 URL。换公开来源，或请用户在浏览器中打开查看。",
+    doNotRepeat: true
+  },
+  not_found: {
+    reason: "not_found",
+    nextStep: "目标页面不存在；换一个来源，不要重复抓取同一 URL。",
+    doNotRepeat: true
+  },
   timeout: {
     reason: "timeout",
     nextStep: "缩小范围（更短查询、更小文件、更窄路径）后最多再试一次；仍超时就如实说明。"

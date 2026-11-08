@@ -49,6 +49,14 @@ export function mapWebErrorToToolError(error: unknown): ToolError {
       return createToolError("EXECUTION_FAILED", info.message, withKind("key_invalid", info.details), false);
     case "RATE_LIMITED":
       return createToolError("EXECUTION_FAILED", info.message, withKind("rate_limited", info.details), true);
+    case "BLOCKED":
+      // 反爬/验证码是来源侧拦截，原样重试只会加重拦截，交给模型换来源。
+      return createToolError("EXECUTION_FAILED", info.message, withKind("blocked", info.details), false);
+    case "ACCESS_DENIED":
+      // 上游 401/403：需要登录或被拒绝抓取，重试无意义。
+      return createToolError("EXECUTION_FAILED", info.message, withKind("upstream_access_denied", info.details), false);
+    case "NOT_FOUND":
+      return createToolError("EXECUTION_FAILED", info.message, withKind("not_found", info.details), false);
     case "TIMEOUT":
       return createToolError("TIMEOUT", info.message, withKind("timeout", info.details), true);
     case "INVALID_REQUEST":

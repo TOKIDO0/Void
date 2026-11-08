@@ -164,7 +164,7 @@ function buildQueryCandidates(
     candidates.push("全球 YouTube 订阅最多网红 2024", "MrBeast YouTube channel", "抖音最火网红排行");
   }
 
-  // 新闻类：中文一遍 + 英文改写一遍（Tavily 英文 news 召回远好于中文口语直喂）。
+  // 新闻类：中文一次为默认；英文改写只在结果不足时补查（避免强制双倍调用与费用）。
   if (/(?:新闻|热搜|头条|热点|资讯)/.test(text)) {
     const weekly = /(?:本周|这一周|这周|一周|最近|weekly|7天|七天)/i.test(text);
     const world = /(?:世界|全球|国际|world|global)/i.test(text);
@@ -322,8 +322,8 @@ function buildPromptHint(input: {
 
   if (input.action === "search" && input.queryCandidates.some((item) => /新闻|热搜|头条|热点|top news/i.test(item))) {
     lines.push(
-      "新闻类：中英各查一遍（web.search 带 topic=news、timeRange=week、limit=8；browser.search 用 engine=bing）。",
-      "回答至少列出 3 条，每条一句话概述＋完整 URL；禁止只深读一条就收尾，禁止说“挑几条”却只列一条。"
+      "新闻类：先用中文查一次（web.search 带 topic=news、timeRange=week、limit=8）；结果不足或需要英文权威来源时，再用英文改写补查一次，同一轮最多两次，禁止重复同一 query。",
+      "回答只列能核实来源的结果（1–5 条即可，不凑数），每条一句话概述＋完整 URL；禁止只深读一条就收尾，禁止说“挑几条”却只列一条。"
     );
   }
 

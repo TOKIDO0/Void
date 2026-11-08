@@ -22,7 +22,7 @@ export type WebSearchToolOutput = {
 
 export const webSearchTool: ToolDefinition<WebSearchToolInput, WebSearchToolOutput> = {
   name: "web.search",
-  description: "快轨全网搜索（有 Key 走 Tavily 云索引，无 Key 走 DuckDuckGo 快搜，秒级返回标题/链接/摘要）。新闻/榜单/热度类必须带 topic=news、timeRange=week、limit=8，且中文查一遍、英文改写再查一遍；失败时改调 browser.search（默认 bing 自动化重搜）。",
+  description: "快轨全网搜索（有 Key 走 Tavily/Brave/Exa 云索引，无 Key 走 DuckDuckGo 快搜，秒级返回标题/链接/摘要）。新闻/榜单/热度类建议带 topic=news、timeRange=week、limit=8；先用中文查一次，结果不足再英文补一次，避免重复同一 query。只有遇到反爬/验证码或需要真实渲染时，才改调 browser.search 一次。",
   version: "1.1.0",
   riskLevel: "L0",
   inputSchema: {
