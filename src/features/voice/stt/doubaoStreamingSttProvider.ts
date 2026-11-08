@@ -5,40 +5,39 @@ import {
   MANAGED_VOICE_PROXY_WS_ORIGIN
 } from "../voiceProviderConfig";
 import type { VoiceInputRuntimeStatus } from "../voiceState";
-import { VoicePcmEncoder } from "./voicePcmEncoder";
 import type { VoiceSttProvider, VoiceSttStartOptions } from "./voiceSttContract";
+import { VoiceMicCapture } from "./voiceMicCapture";
+import { RecoveryBudget } from "./recoveryBudget";
 import { isVoiceSttBridgeServerEvent, type VoiceSttBridgeClientEvent } from "./voiceSttBridgeProtocol";
 
 const STT_READY_TIMEOUT_MS = 8000;
-const RECOVERABLE_ERROR_WINDOW_MS = 30_000;
-const MAX_RECOVERIES_PER_WINDOW = 2;
-const PCM_HEALTH_CHECK_INTERVAL_MS = 2000;
-const PCM_STALL_TIMEOUT_MS = 5000;
-const TRACK_MUTE_RECOVERY_DELAY_MS = 2000;
 
 /**
- * 豆包流式 STT 客户端与麦克风生命周期的唯一 owner。
+ * 托管流式 STT 客户端。
  *
- * 同一条 MediaStream 同时供 AudioWorklet 编码、本地 VAD 和 speech-end 使用；
- * 运行中通过轨道、设备、AudioContext 与 PCM 心跳恢复，禁止 UI 显示开启但实际无音频。
+ * 麦克风采集/恢复已抽到 VoiceMicCapture；本类只负责托管 Worker WS 的
+ * 建连、partial/final 转发、可恢复错误重连与停止。
  */
 export class DoubaoStreamingSttProvider implements VoiceSttProvider {
   private readonly endpointUrl = DOUBAO_ASR_ENDPOINT;
   private readonly bridgeUrl = resolveBridgeUrl();
+  private readonly recoveryBudget = new RecoveryBudget();
+  private readonly capture: VoiceMicCapture;
   private websocket: WebSocket | null = null;
-  private encoder: VoicePcmEncoder | null = null;
-  private activeTrack: MediaStreamTrack | null = null;
   private options: VoiceSttStartOptions | null = null;
   private sessionReady = false;
   private reconnectPromise: Promise<void> | null = null;
-  private mediaRecoveryPromise: Promise<void> | null = null;
   private stopped = true;
-  private recoverableErrorCount = 0;
-  private recoverableErrorWindowStartedAt = 0;
   private intentionalClose = false;
-  private healthCheckTimer = 0;
-  private trackMuteTimer = 0;
   private cancelPendingHandshake: (() => void) | null = null;
+
+  constructor() {
+    this.capture = new VoiceMicCapture({
+      budget: this.recoveryBudget,
+      microphoneErrorUrl: this.endpointUrl,
+      audioWorkletErrorUrl: this.bridgeUrl
+    });
+  }
 
   async start(options: VoiceSttStartOptions) {
     this.options = options;
@@ -50,14 +49,14 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
 
     let microphoneStream: MediaStream;
     try {
-      microphoneStream = await this.requestMicrophoneStream();
+      microphoneStream = await this.capture.acquire();
     } catch (error) {
       this.emitRuntimeStatus("error");
       throw error;
     }
 
     if (this.stopped) {
-      stopMediaStream(microphoneStream);
+      await this.capture.stop();
       return;
     }
 
@@ -65,18 +64,15 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
       this.createWebSocket();
       await this.waitUntilSessionReady(options);
       if (this.stopped) {
-        stopMediaStream(microphoneStream);
+        await this.capture.stop();
         return;
       }
-      await this.startMediaInput(microphoneStream, options);
-      this.attachRuntimeListeners();
-      this.startHealthCheck();
+      await this.startMicStreaming(microphoneStream, options);
       this.emitRuntimeStatus("ready");
       options.onInputStateChange?.("standby");
       options.onActivityLevelChange?.("silent");
     } catch (error) {
-      stopMediaStream(microphoneStream);
-      await this.stopMediaInput();
+      await this.capture.stop();
       this.teardownSocket();
       if (this.stopped) {
         return;
@@ -92,52 +88,22 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
     }
     this.stopped = true;
     this.intentionalClose = true;
-    this.detachRuntimeListeners();
-    this.stopHealthCheck();
-    window.clearTimeout(this.trackMuteTimer);
     if (this.websocket?.readyState === WebSocket.OPEN) {
       this.websocket.send(JSON.stringify({ type: "stop" satisfies VoiceSttBridgeClientEvent["type"] }));
     }
     this.teardownSocket();
-    await this.stopMediaInput();
+    await this.capture.stop();
     this.sessionReady = false;
     this.reconnectPromise = null;
-    this.mediaRecoveryPromise = null;
     this.options?.onActivityLevelChange?.("silent");
     this.options?.onInputStateChange?.("mic_off");
     this.emitRuntimeStatus("off");
     this.options = null;
   }
 
-  private async requestMicrophoneStream() {
-    try {
-      return await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
-    } catch (error) {
-      throw createNetworkError("麦克风权限获取失败。", this.endpointUrl, error);
-    }
-  }
-
-  private async startMediaInput(stream: MediaStream, options: VoiceSttStartOptions) {
-    const track = stream.getAudioTracks()[0];
-    if (!track) {
-      stopMediaStream(stream);
-      throw createNetworkError("没有可用的麦克风音轨。", this.endpointUrl);
-    }
-
-    this.activeTrack = track;
-    track.addEventListener("ended", this.handleTrackEnded);
-    track.addEventListener("mute", this.handleTrackMuted);
-    track.addEventListener("unmute", this.handleTrackUnmuted);
-
-    const encoder = new VoicePcmEncoder(stream, {
-      onChunk: (chunk) => this.sendAudioChunk(chunk.audioBase64),
+  private async startMicStreaming(stream: MediaStream, options: VoiceSttStartOptions) {
+    await this.capture.begin(stream, {
+      onChunk: (audioBase64) => this.sendAudioChunk(audioBase64),
       onSpeechEnd: () => {
         options.onActivityLevelChange?.("silent");
         options.onInputStateChange?.("transcribing");
@@ -149,35 +115,16 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
           options.onInputStateChange?.("listening");
         }
       },
-      onRuntimeStateChange: (state) => {
-        if (state === "suspended" && document.visibilityState === "visible") {
-          void this.resumeOrRecoverMedia("audio-context-suspended");
-        }
-      }
+      onRecovering: () => {
+        this.emitRuntimeStatus("recovering");
+        options.onInputStateChange?.("standby");
+      },
+      onRecovered: (reason) => {
+        this.emitRuntimeStatus("ready");
+        console.info("[VOID STT] 麦克风输入已自动恢复。", { reason });
+      },
+      onError: (error) => options.onError(error)
     });
-    this.encoder = encoder;
-    try {
-      await encoder.start();
-    } catch (error) {
-      await encoder.stop();
-      if (this.encoder === encoder) {
-        this.encoder = null;
-      }
-      this.detachTrackListeners(track);
-      this.activeTrack = null;
-      throw createNetworkError("麦克风 AudioWorklet 启动失败，无法开始识别。", this.bridgeUrl, error);
-    }
-  }
-
-  private async stopMediaInput() {
-    const track = this.activeTrack;
-    this.activeTrack = null;
-    if (track) {
-      this.detachTrackListeners(track);
-    }
-    const encoder = this.encoder;
-    this.encoder = null;
-    await encoder?.stop();
   }
 
   private waitUntilSessionReady(options: VoiceSttStartOptions) {
@@ -256,7 +203,7 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
           if (!settled) {
             settleReject(error);
           } else if (payload.recoverable) {
-            if (!this.canRecoverAgain()) {
+            if (!this.recoveryBudget.tryConsume()) {
               options.onError(new Error(`${payload.message}，短时间内已连续自动恢复失败。`));
             } else {
               void this.reconnect(options);
@@ -344,102 +291,6 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
     return this.reconnectPromise;
   }
 
-  private recoverMediaInput(reason: string) {
-    if (this.mediaRecoveryPromise || this.stopped || !this.options) return this.mediaRecoveryPromise;
-    if (!this.canRecoverAgain()) {
-      this.options.onError(new Error(`麦克风输入连续恢复失败（${reason}）。`));
-      return null;
-    }
-    const options = this.options;
-    this.mediaRecoveryPromise = (async () => {
-      this.emitRuntimeStatus("recovering");
-      options.onInputStateChange?.("standby");
-      try {
-        await this.stopMediaInput();
-        if (this.stopped) return;
-        const stream = await this.requestMicrophoneStream();
-        if (this.stopped) {
-          stopMediaStream(stream);
-          return;
-        }
-        await this.startMediaInput(stream, options);
-        this.emitRuntimeStatus("ready");
-        console.info("[VOID STT] 麦克风输入已自动恢复。", { reason });
-      } catch (error) {
-        if (!this.stopped) options.onError(toError(error, "麦克风输入恢复失败。"));
-      } finally {
-        this.mediaRecoveryPromise = null;
-      }
-    })();
-    return this.mediaRecoveryPromise;
-  }
-
-  private async resumeOrRecoverMedia(reason: string) {
-    try {
-      await this.encoder?.ensureRunning();
-    } catch {
-      await this.recoverMediaInput(reason);
-    }
-  }
-
-  private canRecoverAgain() {
-    const now = Date.now();
-    if (!this.recoverableErrorWindowStartedAt || now - this.recoverableErrorWindowStartedAt > RECOVERABLE_ERROR_WINDOW_MS) {
-      this.recoverableErrorWindowStartedAt = now;
-      this.recoverableErrorCount = 0;
-    }
-    this.recoverableErrorCount += 1;
-    return this.recoverableErrorCount <= MAX_RECOVERIES_PER_WINDOW;
-  }
-
-  private readonly handleTrackEnded = () => { void this.recoverMediaInput("track-ended"); };
-  private readonly handleTrackMuted = () => {
-    window.clearTimeout(this.trackMuteTimer);
-    this.trackMuteTimer = window.setTimeout(() => {
-      if (this.activeTrack?.muted) void this.recoverMediaInput("track-muted");
-    }, TRACK_MUTE_RECOVERY_DELAY_MS);
-  };
-  private readonly handleTrackUnmuted = () => { window.clearTimeout(this.trackMuteTimer); };
-  private readonly handleDeviceChange = () => { void this.recoverMediaInput("device-change"); };
-  private readonly handleVisibilityChange = () => {
-    if (document.visibilityState === "visible") void this.resumeOrRecoverMedia("app-resumed");
-  };
-
-  private attachRuntimeListeners() {
-    navigator.mediaDevices.addEventListener?.("devicechange", this.handleDeviceChange);
-    document.addEventListener("visibilitychange", this.handleVisibilityChange);
-  }
-
-  private detachRuntimeListeners() {
-    navigator.mediaDevices.removeEventListener?.("devicechange", this.handleDeviceChange);
-    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
-  }
-
-  private startHealthCheck() {
-    this.stopHealthCheck();
-    this.healthCheckTimer = window.setInterval(() => {
-      if (
-        !this.stopped
-        && this.encoder
-        && this.encoder.contextState === "running"
-        && Date.now() - this.encoder.lastPcmChunkAt > PCM_STALL_TIMEOUT_MS
-      ) {
-        void this.recoverMediaInput("pcm-heartbeat-timeout");
-      }
-    }, PCM_HEALTH_CHECK_INTERVAL_MS);
-  }
-
-  private stopHealthCheck() {
-    window.clearInterval(this.healthCheckTimer);
-    this.healthCheckTimer = 0;
-  }
-
-  private detachTrackListeners(track: MediaStreamTrack) {
-    track.removeEventListener("ended", this.handleTrackEnded);
-    track.removeEventListener("mute", this.handleTrackMuted);
-    track.removeEventListener("unmute", this.handleTrackUnmuted);
-  }
-
   private emitRuntimeStatus(status: VoiceInputRuntimeStatus) {
     this.options?.onRuntimeStatusChange?.(status);
   }
@@ -457,10 +308,6 @@ export class DoubaoStreamingSttProvider implements VoiceSttProvider {
 
 function resolveBridgeUrl() {
   return `${MANAGED_VOICE_PROXY_WS_ORIGIN}${MANAGED_VOICE_PROXY_STT_PATH}`;
-}
-
-function stopMediaStream(stream: MediaStream) {
-  stream.getTracks().forEach((track) => track.stop());
 }
 
 function toError(error: unknown, fallback: string) {

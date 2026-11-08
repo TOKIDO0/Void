@@ -39,6 +39,8 @@ import { startScheduler, stopScheduler } from "./scheduler/schedulerRunner";
 import { handleSkillsHttpRequest } from "./skills/skillsHttpHandlers";
 import { handleSoftwareHttpRequest } from "./software/softwareHttpHandlers";
 import { handleWebHttpRequest } from "./web/webHttpHandlers";
+import { handleVoiceSttHttpRequest } from "./voice/voiceSttHttpHandlers";
+import { attachVoiceSttWebSocket } from "./voice/voiceSttWsHandler";
 import { getProxyRuntimeStatus, handleModelProxy } from "./voidProxyMiddleware";
 
 // 默认端口：固定回环端口，前端在 Tauri 环境下直连此端口。
@@ -455,6 +457,12 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
     return;
   }
 
+  // 阶段 4：本地 STT 取票/状态
+  if (pathname.startsWith("/void-voice")) {
+    void handleVoiceSttHttpRequest(request, response, pathname);
+    return;
+  }
+
   // Q4：桌面剪贴板
   if (pathname.startsWith("/void-desktop")) {
     void handleDesktopHttpRequest(request, response, pathname);
@@ -547,6 +555,7 @@ export function startBridgeServer(options: VoidBridgeServerOptions = {}): Promis
   activeBridgeHost = host;
   activeBridgePort = port;
   const httpServer = createServer(handleHttpRequest);
+  attachVoiceSttWebSocket(httpServer, { allowedOrigins: ALLOWED_ORIGINS });
   httpServer.headersTimeout = 15_000;
   httpServer.requestTimeout = 120_000;
   httpServer.keepAliveTimeout = 5_000;
