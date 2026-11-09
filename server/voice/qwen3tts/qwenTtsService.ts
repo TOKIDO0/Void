@@ -8,7 +8,7 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -34,6 +34,19 @@ type QwenTtsConfig = {
   script: string;
   modelDir: string;
   device: string;
+  engineRoot: string;
+  manifestPath: string;
+  manifestLoaded: boolean;
+};
+
+type QwenEngineManifest = {
+  schemaVersion?: number;
+  engine?: string;
+  model?: string;
+  python?: string;
+  modelDir?: string;
+  license?: string;
+  source?: string;
 };
 
 type QwenTtsProcess = {
@@ -58,9 +71,24 @@ function runtimeRoot(): string {
 
 function resolveConfig(): QwenTtsConfig | null {
   const root = runtimeRoot();
+  const engineRoot = process.env.VOID_QWEN_TTS_ENGINE_ROOT?.trim()
+    || join(root, "voice-engines", "qwen3-tts");
+  const manifestPath = join(engineRoot, "engine.json");
+  let manifest: QwenEngineManifest | null = null;
+  if (existsSync(manifestPath)) {
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as QwenEngineManifest;
+    } catch {
+      manifest = null;
+    }
+  }
+
+  // 优先级：显式 env > 引擎包 manifest > 开发用 tts-eval。
   const python = process.env.VOID_QWEN_TTS_PYTHON?.trim()
+    || manifest?.python?.trim()
     || join(root, "tts-eval", "qwen3-tts", ".venv", "Scripts", "python.exe");
   const modelDir = process.env.VOID_QWEN_TTS_MODEL_DIR?.trim()
+    || manifest?.modelDir?.trim()
     || join(root, "tts-eval", "models", "Qwen3-TTS", "Qwen3-TTS-12Hz-1.7B-CustomVoice");
   // 生产优先用 sidecar-app/qwen3tts/；开发用仓库内脚本。
   const bundledScript = join(process.cwd(), "qwen3tts", "qwen3_tts_server.py");
@@ -72,7 +100,15 @@ function resolveConfig(): QwenTtsConfig | null {
   if (!existsSync(python) || !existsSync(script) || !existsSync(modelDir)) {
     return null;
   }
-  return { python, script, modelDir, device };
+  return {
+    python,
+    script,
+    modelDir,
+    device,
+    engineRoot,
+    manifestPath,
+    manifestLoaded: Boolean(manifest)
+  };
 }
 
 function getFreePort(): Promise<number> {
@@ -302,6 +338,9 @@ export function getQwenTtsStatus() {
     running: Boolean(service),
     pendingRequests,
     modelDir: config?.modelDir ?? "",
+    engineRoot: config?.engineRoot ?? "",
+    manifestPath: config?.manifestPath ?? "",
+    manifestLoaded: config?.manifestLoaded ?? false,
     device: config?.device ?? ""
   };
 }

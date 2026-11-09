@@ -1,3 +1,13 @@
+export type VoiceTtsLanguage = "zh" | "ja";
+export type VoiceTtsStyle = "greeting" | "happy" | "neutral" | "serious";
+
+/** 单句 TTS 输入：可逐句覆盖语言/风格（日语短反应 + 中文正文）。 */
+export type VoiceSentenceInput = {
+  text: string;
+  language?: VoiceTtsLanguage;
+  style?: VoiceTtsStyle;
+};
+
 // 情绪 → TTS 表达参数（豆包 seed-tts audio_params 子集）。供应商不支持时静默忽略。
 export type VoiceSynthesisExpression = {
   speechRate?: number;
@@ -15,6 +25,9 @@ export type VoiceSynthesisRequest = {
   contextText?: string;
   // 本轮情绪派生的表达参数，整轮一致，不逐句变（防自造忽高忽低）。
   expression?: VoiceSynthesisExpression;
+  /** 单句语言/风格；未指定时由本地供应商默认 zh/neutral。 */
+  language?: VoiceTtsLanguage;
+  style?: VoiceTtsStyle;
   signal?: AbortSignal;
 };
 

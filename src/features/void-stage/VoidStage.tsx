@@ -38,6 +38,7 @@ import { DEFAULT_VOICE_STATE, type VoiceActivityLevel, type VoiceStateSnapshot }
 import { createVoiceSttProvider } from "../voice/stt/voiceSttProviderFactory";
 import { VoiceTtsOrchestrator } from "../voice/tts/voiceTtsOrchestrator";
 import { warmupLocalTtsEngine } from "../voice/tts/localTtsBridgeClient";
+import { selectJapaneseReaction, type JapaneseReaction } from "../voice/tts/japaneseReaction";
 import { VoicePlaybackController } from "../voice/tts/voicePlaybackController";
 import type { VoiceSynthesisResult } from "../voice/tts/voiceTtsContract";
 import { stripLinksForSpeech } from "../voice/tts/speechTextSanitizer";
@@ -66,7 +67,7 @@ import {
 } from "../emotion/expression/expressionPlanner";
 import type { TtsExpressionAction } from "../emotion/expression/expressionTypes";
 import { classifyTaskContext } from "../emotion/taskContextClassifier";
-import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
+import type { VoiceSentenceInput, VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
 import { resolveSkillPromptHint } from "../agent/skills/skillsBridgeClient";
 import { filterInvalidVoice } from "../voice/invalidVoiceFilter";
@@ -193,6 +194,9 @@ export function VoidStage() {
   const lastVoiceCommitAtRef = useRef(0);
   // 本轮情绪派生的 TTS 表达参数：整轮一致，供流式/整段合成透传给豆包 audio_params。
   const turnTtsExpressionRef = useRef<VoiceSynthesisExpression>({});
+  // 本轮日语短反应：只进 TTS，不写入聊天文本/历史；每轮最多一句。
+  const turnJapaneseReactionRef = useRef<JapaneseReaction | null>(null);
+  const turnJapaneseReactionQueuedRef = useRef(false);
   // P4.a 本轮最多一句 TTS-only 边界表达；不写入回复历史，也不参与工具事实结算。
   const turnTtsExpressionActionRef = useRef<TtsExpressionAction | null>(null);
   // 情绪视觉偏移：驱动中央流体 profile 的乘性偏移，需触发重渲染故用 state。
@@ -411,6 +415,10 @@ export function VoidStage() {
     agentEmotionStateRef.current = nextAgentEmotion;
     saveAgentEmotionState(nextAgentEmotion);
 
+    // 日语只用于打招呼/开心短反应；生气/难过/压力时不使用日语。只进 TTS，不改聊天文本。
+    turnJapaneseReactionRef.current = selectJapaneseReaction(nextAgentEmotion.label, message);
+    turnJapaneseReactionQueuedRef.current = false;
+
     // 关系情感并行结算：与一期共用 safetyCritical，避免安全词表双写。
     // 重新生成沿用同一条用户消息，不得再次累计同一个社会事件，否则一次辱骂会被重复记仇。
     // P6 同样依赖 applySocialEvent：只有正常发送才记下社会事件，成功后才写长期关系档案。
@@ -445,6 +453,18 @@ export function VoidStage() {
     turnTtsExpressionActionRef.current = behaviorDecision.expressionPlan[0] ?? null;
     setEmotionVisualHint(emotionPolicy.visualHint);
     return { ...emotionPolicy, behaviorDecision };
+  }, []);
+
+  const takeJapaneseReaction = useCallback(() => {
+    if (turnJapaneseReactionQueuedRef.current) {
+      return null;
+    }
+    const reaction = turnJapaneseReactionRef.current;
+    if (!reaction) {
+      return null;
+    }
+    turnJapaneseReactionQueuedRef.current = true;
+    return reaction;
   }, []);
 
   // 记忆写入统一底层通道：接收已定分区/主体/敏感的候选记忆，走 policy 裁决后落库。
@@ -799,8 +819,22 @@ export function VoidStage() {
 
     // 送入合成前剥离括号情绪标注；P4.a 插句仅进入 TTS，不写入显示或历史。
     const speechText = sanitizeTextForSpeech(responseText);
-    const expressionAction = turnTtsExpressionActionRef.current;
-    const speechSegments = [expressionAction?.text ?? "", speechText].filter(Boolean);
+    // 日语短反应只进音频；有日语时跳过 P4.a 插句，避免两个短反应叠在一起。
+    const japaneseReaction = takeJapaneseReaction();
+    const expressionAction = japaneseReaction ? null : turnTtsExpressionActionRef.current;
+    if (japaneseReaction) {
+      turnTtsExpressionActionRef.current = null;
+    }
+    const speechSegments: Array<string | VoiceSentenceInput> = [];
+    if (japaneseReaction) {
+      speechSegments.push({ text: japaneseReaction.text, language: "ja", style: japaneseReaction.style });
+    }
+    if (expressionAction) {
+      speechSegments.push({ text: expressionAction.text });
+    }
+    if (speechText) {
+      speechSegments.push({ text: speechText, language: "zh", style: "neutral" });
+    }
     if (!speechSegments.length) {
       setVisualState("idle");
       return;
@@ -846,7 +880,7 @@ export function VoidStage() {
       signal
     );
     finalizeVoiceOutputSession("idle");
-  }, [finalizeVoiceOutputSession, scheduleResponseLayerHide, showResponseLayer, startVoiceOutputSession, voicePreferences.voiceOutputEnabled]);
+  }, [finalizeVoiceOutputSession, scheduleResponseLayerHide, showResponseLayer, startVoiceOutputSession, takeJapaneseReaction, voicePreferences.voiceOutputEnabled]);
 
   const completeTextResponseWithErrorHandling = useCallback(async (responseText: string, pulseKey: string) => {
     try {
@@ -916,7 +950,12 @@ export function VoidStage() {
 
     const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
     const signal = startVoiceOutputSession();
-    const expressionAction = turnTtsExpressionActionRef.current;
+    // 日语短反应只进音频；有日语时跳过 P4.a 插句，避免两个短反应叠在一起。
+    const japaneseReaction = takeJapaneseReaction();
+    const expressionAction = japaneseReaction ? null : turnTtsExpressionActionRef.current;
+    if (japaneseReaction) {
+      turnTtsExpressionActionRef.current = null;
+    }
     let didQueueExpression = false;
     // 整轮语音输出只维护一个流式合成会话：全局并发受控，按 index 顺序入队，避免打爆供应商触发 429
     const synthesisSession = orchestrator.createStreamingSession(
@@ -948,6 +987,9 @@ export function VoidStage() {
       },
       signal
     );
+    if (japaneseReaction) {
+      synthesisSession.push([{ text: japaneseReaction.text, language: "ja", style: japaneseReaction.style }]);
+    }
     let synthesizedCursor = 0;
     // 本轮已产出的合成块数量，供渐进式阈值定位（首块最短、后续渐长）
     let emittedChunkCount = 0;
@@ -990,7 +1032,7 @@ export function VoidStage() {
         voiceFollowUpUntilRef.current = Date.now() + VOICE_FOLLOW_UP_WINDOW_MS;
       }
     };
-  }, [finalizeVoiceOutputSession, startVoiceOutputSession, voicePreferences.voiceOutputEnabled]);
+  }, [finalizeVoiceOutputSession, startVoiceOutputSession, takeJapaneseReaction, voicePreferences.voiceOutputEnabled]);
 
   const failTextResponse = useCallback((
     error: unknown,

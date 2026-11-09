@@ -1,8 +1,8 @@
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 import { resolveVoidBridgeOrigin } from "../../../lib/runtime/voidBridgeRuntime";
+import type { VoiceTtsLanguage, VoiceTtsStyle } from "./voiceTtsContract";
 
 export type LocalTtsEngine = "qwen3" | "kokoro";
-export type LocalTtsStyle = "greeting" | "happy" | "neutral" | "serious";
 
 export type LocalTtsAudioStream = {
   pcmStream: ReadableStream<Uint8Array>;
@@ -13,8 +13,8 @@ export type LocalTtsAudioStream = {
 export type LocalTtsOptions = {
   engine?: LocalTtsEngine;
   speaker?: string;
-  language?: "zh" | "ja";
-  style?: LocalTtsStyle;
+  language?: VoiceTtsLanguage;
+  style?: VoiceTtsStyle;
 };
 
 /** 本机 sidecar 本地 TTS：返回 PCM16LE 24k 流，不经过任何云端。 */

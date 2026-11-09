@@ -4,11 +4,14 @@ import { openBidirectionalStreamSession } from "./doubaoBidirectional/doubaoBidi
 import { toDoubaoAudioRate } from "./doubaoTtsProvider";
 import { LocalTtsProvider } from "./localTtsProvider";
 import type {
+  VoiceSentenceInput,
   VoiceSynthesisExpression,
   VoiceSynthesisRequest,
   VoiceSynthesisResult,
   VoiceTtsProvider
 } from "./voiceTtsContract";
+
+type VoiceSentencePush = string | VoiceSentenceInput;
 
 // 双向流式回吐 pcm_s16le；与 doubaoBidirectionalSession / StartSession audio_params.format 一致。
 // PCM + AudioWorklet 边收边播，避免 mp3+HTMLAudio/MSE 在 Tauri 上假有声与整段等待。
@@ -32,7 +35,7 @@ type VoiceSentenceSynthesisResult = {
  */
 export type VoiceStreamingSynthesisSession = {
   /** 追加待合成句子；句子按全局递增 index 顺序合成并回调 */
-  push(sentences: string[]): void;
+  push(sentences: VoiceSentencePush[]): void;
   /** 等待当前已入队的全部句子合成完成（best-effort，不因单句失败而 reject） */
   complete(): Promise<void>;
 };
@@ -117,7 +120,12 @@ export class VoiceTtsOrchestrator {
       return this.createBidirectionalStreamingSession(request, onSentenceReady, signal);
     }
 
-    const pendingTasks: { index: number; text: string }[] = [];
+    const pendingTasks: Array<{
+      index: number;
+      text: string;
+      language?: VoiceSentenceInput["language"];
+      style?: VoiceSentenceInput["style"];
+    }> = [];
     // 按 index 记录每句净化文本，供 worker 取「上一句」作为 contextText（滑动窗口=1 句）。
     const taskTextByIndex = new Map<number, string>();
     const completedResults = new Map<number, VoiceSynthesisResult>();
@@ -165,7 +173,13 @@ export class VoiceTtsOrchestrator {
           // 上一句净化文本作为本句 context_texts，承接跨句语气；首句无上文则不带。
           const previousText = taskTextByIndex.get(currentTask.index - 1);
           const result = await this.synthesize(
-            { ...request, text: currentTask.text, contextText: previousText },
+            {
+              ...request,
+              text: currentTask.text,
+              contextText: previousText,
+              language: currentTask.language,
+              style: currentTask.style
+            },
             signal
           );
           if (!result) {
@@ -194,13 +208,19 @@ export class VoiceTtsOrchestrator {
     };
 
     return {
-      push(sentences: string[]) {
+      push(sentences: VoiceSentencePush[]) {
         for (const rawSentence of sentences) {
-          const text = rawSentence.trim();
+          const sentence = typeof rawSentence === "string" ? { text: rawSentence } : rawSentence;
+          const text = sentence.text.trim();
           if (!text) {
             continue;
           }
-          pendingTasks.push({ index: nextTaskIndex, text });
+          pendingTasks.push({
+            index: nextTaskIndex,
+            text,
+            language: sentence.language,
+            style: sentence.style
+          });
           taskTextByIndex.set(nextTaskIndex, text);
           nextTaskIndex += 1;
         }
@@ -323,7 +343,7 @@ export class VoiceTtsOrchestrator {
    * 句子级批量合成（非流式整段兜底路径使用）。内部同样走单一会话，全局并发受控。
    */
   async synthesizeSentences(
-    sentences: string[],
+    sentences: VoiceSentencePush[],
     request: Omit<VoiceSynthesisRequest, "signal" | "text">,
     onSentenceReady: (sentenceResult: VoiceSentenceSynthesisResult) => Promise<void> | void,
     signal?: AbortSignal

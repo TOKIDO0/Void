@@ -16,7 +16,12 @@ export class LocalTtsProvider implements VoiceTtsProvider {
           request.text,
           this.voiceId,
           request.signal,
-          { engine: "qwen3", speaker: this.speaker, language: "zh", style: "neutral" }
+          {
+            engine: "qwen3",
+            speaker: this.speaker,
+            language: request.language ?? "zh",
+            style: request.style ?? "neutral"
+          }
         );
         return {
           pcmStream,
