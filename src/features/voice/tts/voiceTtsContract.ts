@@ -28,7 +28,7 @@ export type VoiceSynthesisResult =
       pcmStream: ReadableStream<Uint8Array>;
       sampleRate: number;
       sessionId: string;
-      provider: "doubao" | "local";
+      provider: "doubao" | "local" | "qwen3";
     };
 
 export interface VoiceTtsProvider {

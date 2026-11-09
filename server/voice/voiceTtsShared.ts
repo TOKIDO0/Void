@@ -25,7 +25,8 @@ export type VoiceTtsEngineErrorCode =
   | "LOCAL_TTS_TEXT_INVALID"
   | "LOCAL_TTS_GENERATE_FAILED"
   | "LOCAL_TTS_BUSY"
-  | "LOCAL_TTS_ABORTED";
+  | "LOCAL_TTS_ABORTED"
+  | "LOCAL_TTS_ENGINE_UNAVAILABLE";
 
 export class VoiceTtsEngineError extends Error {
   constructor(readonly code: VoiceTtsEngineErrorCode, message: string) {

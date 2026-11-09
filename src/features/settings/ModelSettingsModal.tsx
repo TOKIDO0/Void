@@ -31,6 +31,7 @@ import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRu
 import type { VoicePreferences } from "../voice/voicePreferences";
 import type { VoiceSttProviderMode } from "../voice/stt/voiceSttContract";
 import { fetchVoiceSttStatus } from "../voice/stt/voiceSttBridgeClient";
+import { QWEN3_SPEAKERS, findQwen3Speaker, normalizeQwen3Speaker } from "../voice/tts/qwen3Voices";
 import { SecurityStatusContent } from "../agent/security/SecurityStatusContent";
 import { TasksContent } from "../agent/scheduler/TasksContent";
 import { BridgeStatusBanner } from "../agent/bridge/BridgeStatusBanner";
@@ -274,15 +275,17 @@ export function ModelSettingsModal({
     };
   };
 
-  const updateVoiceRuntimeField = (fieldName: "doubaoSpeakerId") => {
-    return (event: ChangeEvent<HTMLInputElement>) => {
-      const nextValue = event.target.value;
-      markDirty();
-      setVoiceRuntimeConfig((currentConfig) => ({
-        ...currentConfig,
-        [fieldName]: nextValue
-      }));
-    };
+  const updateLocalTtsEngine = (engine: "qwen3" | "kokoro") => {
+    markDirty();
+    setVoiceRuntimeConfig((currentConfig) => ({ ...currentConfig, localTtsEngine: engine }));
+  };
+
+  const updateQwenSpeaker = (speaker: string) => {
+    markDirty();
+    setVoiceRuntimeConfig((currentConfig) => ({
+      ...currentConfig,
+      qwenSpeaker: normalizeQwen3Speaker(speaker)
+    }));
   };
 
   // 切换厂商时恢复该厂商上次保存的仓位（baseUrl / API Key / 模型），
@@ -462,7 +465,9 @@ export function ModelSettingsModal({
       streamEnabled: draftConfig.provider === "openai-compatible" && draftConfig.streamEnabled
     });
     saveVoiceRuntimeConfig({
-      doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId
+      doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId,
+      localTtsEngine: voiceRuntimeConfig.localTtsEngine,
+      qwenSpeaker: voiceRuntimeConfig.qwenSpeaker
     });
     saveWebSearchConfig(webSearchDraft);
     setSemanticSearchEnabled(semanticSearchDraft);
@@ -585,6 +590,7 @@ export function ModelSettingsModal({
   // 独立 form 以便复用底部保存；保存时由 VoidStage 统一更新 voicePreferences 并重启 STT 会话。
   if (activeTab === "voice") {
     const isManaged = voiceSttProviderDraft === "managed";
+    const selectedQwenSpeaker = findQwen3Speaker(voiceRuntimeConfig.qwenSpeaker);
     const statusText = (() => {
       switch (voiceSttStatus.state) {
         case "ready":
@@ -668,21 +674,48 @@ export function ModelSettingsModal({
             <section className="model-settings-modal__section">
               <h3 className="model-settings-modal__section-title">{copy.sectionVoiceOutput}</h3>
               <div className="model-settings-modal__card">
-                <p className="model-settings-modal__hint">{copy.voiceTtsLocalEngine}</p>
-                <small>{copy.voiceTtsLocalHint}</small>
                 <div className="model-settings-modal__grid">
-                  <label className="model-settings-modal__field model-settings-modal__field--full">
-                    <span>{copy.doubaoSpeakerId}</span>
-                    <input
-                      type="text"
-                      value={voiceRuntimeConfig.doubaoSpeakerId}
-                      autoComplete="off"
-                      placeholder={copy.doubaoSpeakerIdHint}
-                      onChange={updateVoiceRuntimeField("doubaoSpeakerId")}
+                  <label className="model-settings-modal__field">
+                    <span>{copy.localTtsEngine}</span>
+                    <DarkSelect
+                      aria-label={copy.localTtsEngine}
+                      value={voiceRuntimeConfig.localTtsEngine}
+                      onChange={(value) => updateLocalTtsEngine(value === "kokoro" ? "kokoro" : "qwen3")}
+                      options={[
+                        { value: "qwen3", label: copy.localTtsEngineQwen },
+                        { value: "kokoro", label: copy.localTtsEngineKokoro }
+                      ]}
                     />
-                    <small>{copy.doubaoSpeakerIdHint}</small>
                   </label>
+                  {voiceRuntimeConfig.localTtsEngine === "qwen3" ? (
+                    <label className="model-settings-modal__field">
+                      <span>{copy.qwenSpeaker}</span>
+                      <DarkSelect
+                        aria-label={copy.qwenSpeaker}
+                        value={voiceRuntimeConfig.qwenSpeaker}
+                        onChange={updateQwenSpeaker}
+                        options={QWEN3_SPEAKERS.map((speaker) => ({
+                          value: speaker.id,
+                          label: `${speaker.label} · ${language === "zh-CN" ? speaker.zh : speaker.en}`
+                        }))}
+                      />
+                    </label>
+                  ) : null}
                 </div>
+                {voiceRuntimeConfig.localTtsEngine === "qwen3" ? (
+                  <>
+                    <p className="model-settings-modal__hint">
+                      {selectedQwenSpeaker.label} · {language === "zh-CN" ? selectedQwenSpeaker.zh : selectedQwenSpeaker.en}
+                    </p>
+                    <small>{copy.qwenSpeakerHint}</small>
+                  </>
+                ) : (
+                  <>
+                    <p className="model-settings-modal__hint">{copy.voiceTtsLocalEngine}</p>
+                    <small>{copy.voiceTtsLocalHint}</small>
+                  </>
+                )}
+                <small>{copy.qwenEngineHint}</small>
               </div>
             </section>
           </div>

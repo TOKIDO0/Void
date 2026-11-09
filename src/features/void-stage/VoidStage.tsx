@@ -37,6 +37,7 @@ import { VoiceSessionController } from "../voice/voiceSessionController";
 import { DEFAULT_VOICE_STATE, type VoiceActivityLevel, type VoiceStateSnapshot } from "../voice/voiceState";
 import { createVoiceSttProvider } from "../voice/stt/voiceSttProviderFactory";
 import { VoiceTtsOrchestrator } from "../voice/tts/voiceTtsOrchestrator";
+import { warmupLocalTtsEngine } from "../voice/tts/localTtsBridgeClient";
 import { VoicePlaybackController } from "../voice/tts/voicePlaybackController";
 import type { VoiceSynthesisResult } from "../voice/tts/voiceTtsContract";
 import { stripLinksForSpeech } from "../voice/tts/speechTextSanitizer";
@@ -1506,6 +1507,14 @@ export function VoidStage() {
       setVoiceState((current) => ({ ...current, runtimeStatus }));
     }
   };
+
+  // 启动时后台预热 Qwen3（若当前选择 Qwen3）；失败静默，不阻塞 UI。
+  useEffect(() => {
+    if (loadVoiceRuntimeConfig().localTtsEngine !== "qwen3") {
+      return;
+    }
+    void warmupLocalTtsEngine();
+  }, []);
 
   // 偏好只表达用户期望；真实 STT 生命周期由本 effect 唯一拥有。
   // 冷启动默认开启时会立即创建会话，旧 session 的迟到回调由单调 id 丢弃。

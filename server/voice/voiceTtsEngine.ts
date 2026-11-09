@@ -15,6 +15,13 @@ import {
   inspectVoiceTtsModel,
   resolveVoiceTtsModelDir
 } from "./voiceTtsModelManager";
+import {
+  disposeQwenTtsService,
+  getQwenTtsStatus,
+  synthesizeQwenTts,
+  type QwenTtsLanguage,
+  type QwenTtsStyle
+} from "./qwen3tts/qwenTtsService";
 
 export { VoiceTtsEngineError } from "./voiceTtsShared";
 export type { VoiceTtsEngineErrorCode } from "./voiceTtsShared";
@@ -22,10 +29,19 @@ export type { VoiceTtsEngineErrorCode } from "./voiceTtsShared";
 /** 队列上限：正常一轮最多 2 句并发 + 少量余量；满则快速返回 BUSY，避免无界堆积。 */
 const MAX_PENDING_TTS = 8;
 
+export type LocalTtsEngine = "kokoro" | "qwen3";
+
+export type LocalTtsOptions = {
+  engine?: LocalTtsEngine;
+  speaker?: string;
+  language?: QwenTtsLanguage;
+  style?: QwenTtsStyle;
+};
+
 export type LocalTtsAudio = {
   pcm: Buffer;
   sampleRate: number;
-  provider: "kokoro";
+  provider: "kokoro" | "qwen3";
 };
 
 type PendingTtsTask = {
@@ -230,7 +246,8 @@ function ensureWorker(): Worker {
 export function synthesizeLocalTts(
   text: string,
   voiceId = DEFAULT_VOICE_ID,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: LocalTtsOptions = {}
 ): Promise<LocalTtsAudio> {
   const normalized = text.trim();
   if (!normalized) {
@@ -241,6 +258,14 @@ export function synthesizeLocalTts(
   }
   if (signal?.aborted) {
     return Promise.reject(new VoiceTtsEngineError("LOCAL_TTS_ABORTED", "语音合成已取消。"));
+  }
+
+  if (options.engine === "qwen3") {
+    return synthesizeQwenTts(normalized, {
+      speaker: options.speaker?.trim() || "ono_anna",
+      language: options.language === "ja" ? "ja" : "zh",
+      style: options.style ?? "neutral"
+    }, signal);
   }
   if (pendingTasks.length + (inFlight ? 1 : 0) >= MAX_PENDING_TTS) {
     return Promise.reject(new VoiceTtsEngineError("LOCAL_TTS_BUSY", "本地语音合成队列已满，请稍后重试。"));
@@ -271,6 +296,7 @@ export function synthesizeLocalTts(
 
 /** 服务关闭时终止 worker，避免空闲线程把 sidecar 进程留在后台。 */
 export async function disposeVoiceTtsEngine(): Promise<void> {
+  disposeQwenTtsService();
   for (const task of pendingTasks.splice(0)) {
     finishTask(task, null, new VoiceTtsEngineError("LOCAL_TTS_ABORTED", "语音合成服务已关闭。"));
   }
@@ -296,6 +322,7 @@ export function getVoiceTtsEngineStatus() {
     idleUnloadMs: IDLE_UNLOAD_MS,
     model: inspectVoiceTtsModel(),
     modelDir: resolveVoiceTtsModelDir(),
-    defaultVoiceId: DEFAULT_VOICE_ID
+    defaultVoiceId: DEFAULT_VOICE_ID,
+    qwen3: getQwenTtsStatus()
   };
 }

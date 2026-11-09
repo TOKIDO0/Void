@@ -1,16 +1,28 @@
 import { bridgeAuthHeadersForUrl } from "../../../lib/runtime/voidBridgeAuth";
 import { resolveVoidBridgeOrigin } from "../../../lib/runtime/voidBridgeRuntime";
 
+export type LocalTtsEngine = "qwen3" | "kokoro";
+export type LocalTtsStyle = "greeting" | "happy" | "neutral" | "serious";
+
 export type LocalTtsAudioStream = {
   pcmStream: ReadableStream<Uint8Array>;
   sampleRate: number;
+  provider: "kokoro" | "qwen3";
+};
+
+export type LocalTtsOptions = {
+  engine?: LocalTtsEngine;
+  speaker?: string;
+  language?: "zh" | "ja";
+  style?: LocalTtsStyle;
 };
 
 /** 本机 sidecar 本地 TTS：返回 PCM16LE 24k 流，不经过任何云端。 */
 export async function synthesizeLocalTts(
   text: string,
   voiceId: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: LocalTtsOptions = {}
 ): Promise<LocalTtsAudioStream> {
   const origin = resolveVoidBridgeOrigin();
   const url = `${origin}/void-voice/tts`;
@@ -22,7 +34,14 @@ export async function synthesizeLocalTts(
         "Content-Type": "application/json",
         ...(await bridgeAuthHeadersForUrl(url))
       },
-      body: JSON.stringify({ text, voice: voiceId }),
+      body: JSON.stringify({
+        text,
+        voice: voiceId,
+        engine: options.engine ?? "kokoro",
+        speaker: options.speaker,
+        language: options.language ?? "zh",
+        style: options.style ?? "neutral"
+      }),
       signal
     });
   } catch (error) {
@@ -49,10 +68,26 @@ export async function synthesizeLocalTts(
   }
 
   const sampleRate = Number(response.headers.get("x-void-tts-sample-rate") ?? "24000");
+  const provider = response.headers.get("x-void-tts-provider") === "qwen3" ? "qwen3" : "kokoro";
   return {
     pcmStream: response.body,
-    sampleRate: Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : 24000
+    sampleRate: Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : 24000,
+    provider
   };
+}
+
+/** 启动时后台预热 Qwen3；失败静默，不阻塞 UI。 */
+export async function warmupLocalTtsEngine(): Promise<void> {
+  const origin = resolveVoidBridgeOrigin();
+  const url = `${origin}/void-voice/tts/warmup`;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { ...(await bridgeAuthHeadersForUrl(url)) }
+    });
+  } catch {
+    // 引擎包未安装/服务未起时不影响启动。
+  }
 }
 
 function withVoiceTtsCode(error: Error, code: string): Error {

@@ -1,12 +1,18 @@
 import type { VoiceRequestMode } from "./voiceProviderConfig";
+import { normalizeQwen3Speaker } from "./tts/qwen3Voices";
 
 export type VoiceTtsProviderMode = "local" | "cloud";
+export type LocalTtsEngine = "qwen3" | "kokoro";
 
 export type VoiceRuntimeConfig = {
   requestMode: VoiceRequestMode;
   doubaoSpeakerId: string;
   /** 本地优先；云端 TTS 需要付费且当前资源未授权，默认不走云端。 */
   voiceTtsProvider: VoiceTtsProviderMode;
+  /** 本地语音引擎：Qwen3 质量优先，Kokoro 低配/快速兜底。 */
+  localTtsEngine: LocalTtsEngine;
+  /** Qwen3 CustomVoice 内置音色 id，默认 ono_anna。 */
+  qwenSpeaker: string;
   /** Kokoro 音色 id（47=zf_xiaoxiao）。 */
   localTtsVoiceId: number;
 };
@@ -27,6 +33,8 @@ function resolveVoiceRequestMode(): VoiceRequestMode {
 
 const DOUBAO_SPEAKER_ID_STORAGE_KEY = "void.voice.doubaoSpeakerId";
 const VOICE_TTS_PROVIDER_STORAGE_KEY = "void.voice.ttsProvider";
+const LOCAL_TTS_ENGINE_STORAGE_KEY = "void.voice.localTtsEngine";
+const QWEN_SPEAKER_STORAGE_KEY = "void.voice.qwenSpeaker";
 const LOCAL_TTS_VOICE_STORAGE_KEY = "void.voice.localTtsVoiceId";
 const DEFAULT_LOCAL_TTS_VOICE_ID = 47;
 
@@ -49,6 +57,8 @@ export function loadVoiceRuntimeConfig(): VoiceRuntimeConfig {
   clearLegacyClientVoiceSecrets();
   const storedSpeakerId = window.localStorage.getItem(DOUBAO_SPEAKER_ID_STORAGE_KEY)?.trim() ?? "";
   const storedProvider = window.localStorage.getItem(VOICE_TTS_PROVIDER_STORAGE_KEY)?.trim();
+  const storedEngine = window.localStorage.getItem(LOCAL_TTS_ENGINE_STORAGE_KEY)?.trim();
+  const storedQwenSpeaker = window.localStorage.getItem(QWEN_SPEAKER_STORAGE_KEY)?.trim() ?? "";
   const storedVoiceId = Number.parseInt(
     window.localStorage.getItem(LOCAL_TTS_VOICE_STORAGE_KEY)?.trim() ?? "",
     10
@@ -57,8 +67,10 @@ export function loadVoiceRuntimeConfig(): VoiceRuntimeConfig {
     requestMode: resolveVoiceRequestMode(),
     // 设置里可覆盖；空值回落到默认音色，保证托管 TTS 可直接发声。
     doubaoSpeakerId: storedSpeakerId || DEFAULT_DOUBAO_SPEAKER_ID,
-    // 默认本地 Kokoro：不付费、不依赖云端资源授权。
+    // 默认本地：Qwen3 质量优先，引擎不可用时由 LocalTtsProvider 回退 Kokoro。
     voiceTtsProvider: storedProvider === "cloud" ? "cloud" : "local",
+    localTtsEngine: storedEngine === "kokoro" ? "kokoro" : "qwen3",
+    qwenSpeaker: normalizeQwen3Speaker(storedQwenSpeaker),
     localTtsVoiceId: Number.isInteger(storedVoiceId) && storedVoiceId >= 0 && storedVoiceId <= 53
       ? storedVoiceId
       : DEFAULT_LOCAL_TTS_VOICE_ID
@@ -74,10 +86,16 @@ function clearLegacyClientVoiceSecrets() {
 }
 
 export function saveVoiceRuntimeConfig(
-  config: Partial<Pick<VoiceRuntimeConfig, "doubaoSpeakerId">>
+  config: Partial<Pick<VoiceRuntimeConfig, "doubaoSpeakerId" | "localTtsEngine" | "qwenSpeaker">>
 ) {
   if (config.doubaoSpeakerId !== undefined) {
     persistLocalValue(DOUBAO_SPEAKER_ID_STORAGE_KEY, config.doubaoSpeakerId);
+  }
+  if (config.localTtsEngine !== undefined) {
+    persistLocalValue(LOCAL_TTS_ENGINE_STORAGE_KEY, config.localTtsEngine === "kokoro" ? "kokoro" : "qwen3");
+  }
+  if (config.qwenSpeaker !== undefined) {
+    persistLocalValue(QWEN_SPEAKER_STORAGE_KEY, normalizeQwen3Speaker(config.qwenSpeaker));
   }
 }
 

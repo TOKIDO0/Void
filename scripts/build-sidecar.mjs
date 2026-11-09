@@ -103,6 +103,13 @@ async function main() {
   mkdirSync(appModulesDir, { recursive: true });
   copyFileSync(bundlePath, join(sidecarAppDir, "void-bridge.cjs"));
   copyFileSync(workerBundlePath, join(sidecarAppDir, "tts-worker.cjs"));
+  // Qwen3-TTS 的 Python 服务脚本随 sidecar-app 分发；Python 运行时/模型由可选引擎包提供。
+  const qwenTtsDir = join(sidecarAppDir, "qwen3tts");
+  mkdirSync(qwenTtsDir, { recursive: true });
+  copyFileSync(
+    join(projectRoot, "server", "voice", "qwen3tts", "qwen3_tts_server.py"),
+    join(qwenTtsDir, "qwen3_tts_server.py")
+  );
   for (const pkg of ["playwright-core", "sherpa-onnx-node", "sherpa-onnx-win-x64"]) {
     const source = join(projectRoot, "node_modules", pkg);
     if (!existsSync(source)) {

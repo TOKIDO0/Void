@@ -57,6 +57,12 @@ type SettingsCopy = {
   voiceSttStatusUnavailable: string;
   voiceTtsLocalEngine: string;
   voiceTtsLocalHint: string;
+  localTtsEngine: string;
+  localTtsEngineQwen: string;
+  localTtsEngineKokoro: string;
+  qwenSpeaker: string;
+  qwenSpeakerHint: string;
+  qwenEngineHint: string;
   sectionWebSearch: string;
   webSearchProvider: string;
   webSearchKey: string;
@@ -165,6 +171,12 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     voiceSttStatusUnavailable: "无法读取本地语音状态",
     voiceTtsLocalEngine: "本地 Kokoro（音色 47）",
     voiceTtsLocalHint: "默认在本机合成，不联网、不计费。",
+    localTtsEngine: "本地语音引擎",
+    localTtsEngineQwen: "Qwen3-TTS（推荐）",
+    localTtsEngineKokoro: "Kokoro（低配/快速）",
+    qwenSpeaker: "音色",
+    qwenSpeakerHint: "默认 Ono Anna；可随时切换。",
+    qwenEngineHint: "Qwen3 需要安装语音引擎包；未安装时会自动用 Kokoro。",
     sectionWebSearch: "联网搜索",
     webSearchProvider: "搜索服务商",
     webSearchKey: "搜索密钥",
@@ -269,6 +281,12 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     voiceSttStatusUnavailable: "Local voice status unavailable",
     voiceTtsLocalEngine: "Local Kokoro (voice 47)",
     voiceTtsLocalHint: "Synthesized on this device. No network or fees.",
+    localTtsEngine: "Local voice engine",
+    localTtsEngineQwen: "Qwen3-TTS (recommended)",
+    localTtsEngineKokoro: "Kokoro (low-spec/fast)",
+    qwenSpeaker: "Voice",
+    qwenSpeakerHint: "Default Ono Anna; switch anytime.",
+    qwenEngineHint: "Qwen3 needs the voice engine pack. Falls back to Kokoro if missing.",
     sectionWebSearch: "Web search",
     webSearchProvider: "Search provider",
     webSearchKey: "Search API key",

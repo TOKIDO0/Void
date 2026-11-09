@@ -57,8 +57,13 @@ export class VoiceTtsOrchestrator {
     if (runtimeConfig.voiceTtsProvider !== "cloud") {
       this.providerRegistrations.push({
         kind: "local",
-        timeoutMs: 30_000,
-        createProvider: () => new LocalTtsProvider(runtimeConfig.localTtsVoiceId)
+        // Qwen3 首次启动要加载 1.7B 模型 + 预热；给足时间，避免第一句被 30s 误判超时。
+        timeoutMs: runtimeConfig.localTtsEngine === "qwen3" ? 90_000 : 30_000,
+        createProvider: () => new LocalTtsProvider(
+          runtimeConfig.localTtsVoiceId,
+          runtimeConfig.localTtsEngine,
+          runtimeConfig.qwenSpeaker
+        )
       });
     }
   }
@@ -465,6 +470,10 @@ function resolveProviderLabel(providerKind: VoiceSynthesisResult["provider"]) {
 
   if (providerKind === "local") {
     return "本地语音";
+  }
+
+  if (providerKind === "qwen3") {
+    return "Qwen3 TTS";
   }
 
   return "MiniMax TTS";

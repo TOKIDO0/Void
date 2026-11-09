@@ -4,6 +4,7 @@ import { getVoiceSttEngineStatus } from "./voiceSttEngine";
 import { VOICE_STT_MODEL_NAME, resolveVoiceSttModelDir } from "./voiceSttModelManager";
 import { issueVoiceSttTicket } from "./voiceSttTicketStore";
 import { getVoiceTtsEngineStatus, synthesizeLocalTts, VoiceTtsEngineError } from "./voiceTtsEngine";
+import { warmupQwenTts } from "./qwen3tts/qwenTtsService";
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.statusCode = status;
@@ -62,6 +63,17 @@ export async function handleVoiceSttHttpRequest(
     return true;
   }
 
+  if (pathname === "/void-voice/tts/warmup") {
+    if (request.method !== "POST") {
+      sendJson(response, 405, { ok: false, error: { code: "INVALID_REQUEST", message: "仅支持 POST" } });
+      return true;
+    }
+    // 只负责拉起/预热进程，立即返回；真正的模型加载在 Python 后台完成。
+    warmupQwenTts();
+    sendJson(response, 202, { ok: true, data: { warming: true } });
+    return true;
+  }
+
   if (pathname === "/void-voice/tts") {
     if (request.method !== "POST") {
       sendJson(response, 405, { ok: false, error: { code: "INVALID_REQUEST", message: "仅支持 POST" } });
@@ -80,7 +92,18 @@ export async function handleVoiceSttHttpRequest(
         const body = asRecord(await readJsonBody(request));
         const text = typeof body.text === "string" ? body.text.trim() : "";
         const voice = typeof body.voice === "number" ? body.voice : undefined;
-        const audio = await synthesizeLocalTts(text, voice, abortController.signal);
+        const engine = body.engine === "qwen3" ? "qwen3" : "kokoro";
+        const speaker = typeof body.speaker === "string" ? body.speaker.trim() : undefined;
+        const language = body.language === "ja" ? "ja" : "zh";
+        const style = body.style === "greeting" || body.style === "happy" || body.style === "serious"
+          ? body.style
+          : "neutral";
+        const audio = await synthesizeLocalTts(text, voice, abortController.signal, {
+          engine,
+          speaker,
+          language,
+          style
+        });
         if (abortController.signal.aborted || response.destroyed) {
           return true;
         }
@@ -109,7 +132,7 @@ export async function handleVoiceSttHttpRequest(
               ? 429
               : error.code === "LOCAL_TTS_ABORTED"
                 ? 499
-                : error.code === "LOCAL_TTS_MODEL_MISSING" || error.code === "LOCAL_TTS_MODEL_INVALID" || error.code === "LOCAL_TTS_ENGINE_INIT_FAILED"
+                : error.code === "LOCAL_TTS_MODEL_MISSING" || error.code === "LOCAL_TTS_MODEL_INVALID" || error.code === "LOCAL_TTS_ENGINE_INIT_FAILED" || error.code === "LOCAL_TTS_ENGINE_UNAVAILABLE"
                   ? 503
                   : 500;
           sendJson(response, status, { ok: false, error: { code: error.code, message: error.message } });
