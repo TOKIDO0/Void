@@ -1673,15 +1673,16 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("P3 唤醒检测：唤醒词与判断唤醒均正确");
     }
-    const invalidShort = filterInvalidVoice("嗯", { hasRecentConversation: false, activityLevel: "active" });
-    const invalidFiller = filterInvalidVoice("啊啊", { hasRecentConversation: false, activityLevel: "active" });
-    const invalidBg = filterInvalidVoice("电视声音", { hasRecentConversation: false, activityLevel: "silent" });
-    const validWake = filterInvalidVoice("hello void 帮我查一下", { hasRecentConversation: false, activityLevel: "active" });
-    const validContinue = filterInvalidVoice("刚才那个继续说", { hasRecentConversation: true, activityLevel: "active" });
-    if (invalidShort.valid || invalidFiller.valid || invalidBg.valid || !validWake.valid || !validContinue.valid) {
-      failures.push(`P3 无效过滤异常：short=${invalidShort.valid} filler=${invalidFiller.valid} bg=${invalidBg.valid} wake=${validWake.valid} continue=${validContinue.valid}`);
+    const invalidShort = filterInvalidVoice("嗯", { followUpWindow: false, activityLevel: "active" });
+    const invalidFiller = filterInvalidVoice("啊啊", { followUpWindow: false, activityLevel: "active" });
+    const invalidBg = filterInvalidVoice("电视声音", { followUpWindow: false, activityLevel: "silent" });
+    const invalidLongBg = filterInvalidVoice("他给我搞漂亮疯了", { followUpWindow: false, activityLevel: "active" });
+    const validWake = filterInvalidVoice("hello void 帮我查一下", { followUpWindow: false, activityLevel: "active" });
+    const validContinue = filterInvalidVoice("刚才那个继续说", { followUpWindow: true, activityLevel: "active" });
+    if (invalidShort.valid || invalidFiller.valid || invalidBg.valid || invalidLongBg.valid || !validWake.valid || !validContinue.valid) {
+      failures.push(`P3 无效过滤异常：short=${invalidShort.valid} filler=${invalidFiller.valid} bg=${invalidBg.valid} longBg=${invalidLongBg.valid} wake=${validWake.valid} continue=${validContinue.valid}`);
     } else {
-      notes.push("P3 无效过滤：短/语气词/背景音被拦，唤醒与追问放行，不写记忆");
+      notes.push("P3 无效过滤：短/语气词/背景音/无唤醒长句被拦，唤醒与追问窗放行，不写记忆");
     }
 
     // T2 进度文案完整性：全量工具均有可读文案，不回退到 humanize 兜底

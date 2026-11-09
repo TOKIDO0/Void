@@ -41,6 +41,26 @@ const WANTED_FILES = ["encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt", "R
 export const STT_MODEL_DIR = join(PROJECT_ROOT, "src-tauri", "resources", "voice", "stt", STT_MODEL_NAME);
 const MARKER = join(STT_MODEL_DIR, ".verified.json");
 
+export const TTS_MODEL_NAME = "kokoro-multi-lang-v1_0";
+const TTS_MODEL_URL =
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2";
+const TTS_TAR_SHA256 = "60703707BC05CCD48D60E1EB723F38B07D6E474795A0B6A588D7220400E0F7A4";
+const TTS_WANTED_FILES = [
+  "model.onnx",
+  "voices.bin",
+  "tokens.txt",
+  "lexicon-zh.txt",
+  "lexicon-gb-en.txt",
+  "lexicon-us-en.txt",
+  "number-zh.fst",
+  "date-zh.fst",
+  "phone-zh.fst",
+  "LICENSE",
+  "README.md"
+];
+export const TTS_MODEL_DIR = join(PROJECT_ROOT, "src-tauri", "resources", "voice", "tts", TTS_MODEL_NAME);
+const TTS_MARKER = join(TTS_MODEL_DIR, ".verified.json");
+
 function resolveCacheDir() {
   const fromEnv = process.env.VOID_MODEL_CACHE_DIR?.trim();
   if (fromEnv) return fromEnv;
@@ -50,6 +70,7 @@ function resolveCacheDir() {
 
 const CACHE_DIR = resolveCacheDir();
 const TAR_PATH = join(CACHE_DIR, `${STT_MODEL_NAME}.tar.bz2`);
+const TTS_TAR_PATH = join(CACHE_DIR, `${TTS_MODEL_NAME}.tar.bz2`);
 
 export async function ensureSttModel({ force = false } = {}) {
   if (process.env.VOID_SKIP_STT_MODEL === "1") {
@@ -77,7 +98,7 @@ export async function ensureSttModel({ force = false } = {}) {
   const extractDir = join(CACHE_DIR, `.extract-${Date.now()}`);
   try {
     console.log("[stt-model] 解压 int8 文件...");
-    await extractWantedFiles(TAR_PATH, extractDir);
+    await extractWantedFiles(TAR_PATH, extractDir, WANTED_FILES);
     const sourceDir = join(extractDir, STT_MODEL_NAME);
     if (!existsSync(sourceDir)) {
       throw new Error(`[stt-model] 解压目录缺少 ${STT_MODEL_NAME}`);
@@ -133,6 +154,87 @@ function isModelReady() {
   }
 }
 
+export async function ensureTtsModel({ force = false } = {}) {
+  if (process.env.VOID_SKIP_TTS_MODEL === "1") {
+    console.log("[tts-model] VOID_SKIP_TTS_MODEL=1，跳过模型准备");
+    return null;
+  }
+  if (!force && isTtsModelReady()) {
+    console.log(`[tts-model] 已就绪：${TTS_MODEL_DIR}`);
+    return TTS_MODEL_DIR;
+  }
+
+  mkdirSync(CACHE_DIR, { recursive: true });
+  if (!existsSync(TTS_TAR_PATH) || (await sha256File(TTS_TAR_PATH)) !== TTS_TAR_SHA256) {
+    console.log(`[tts-model] 下载官方模型 tar → ${TTS_TAR_PATH}`);
+    await downloadWithRetry(TTS_MODEL_URL, TTS_TAR_PATH);
+    const actual = await sha256File(TTS_TAR_PATH);
+    if (actual !== TTS_TAR_SHA256) {
+      rmSync(TTS_TAR_PATH, { force: true });
+      throw new Error(`[tts-model] SHA256 不匹配：expected ${TTS_TAR_SHA256}, got ${actual}`);
+    }
+  } else {
+    console.log("[tts-model] 复用缓存 tar 并通过 SHA256 校验");
+  }
+
+  const extractDir = join(CACHE_DIR, `.extract-tts-${Date.now()}`);
+  try {
+    console.log("[tts-model] 解压 Kokoro 文件...");
+    await extractWantedFiles(TTS_TAR_PATH, extractDir, TTS_WANTED_FILES);
+    const sourceDir = join(extractDir, TTS_MODEL_NAME);
+    if (!existsSync(sourceDir)) {
+      throw new Error(`[tts-model] 解压目录缺少 ${TTS_MODEL_NAME}`);
+    }
+    rmSync(TTS_MODEL_DIR, { recursive: true, force: true });
+    mkdirSync(TTS_MODEL_DIR, { recursive: true });
+    const fileSizes = {};
+    for (const name of TTS_WANTED_FILES) {
+      const source = join(sourceDir, name);
+      if (!existsSync(source)) continue;
+      const target = join(TTS_MODEL_DIR, name);
+      copyFileSync(source, target);
+      fileSizes[name] = statSync(target).size;
+    }
+    for (const required of ["model.onnx", "voices.bin", "tokens.txt", "lexicon-zh.txt"]) {
+      if (!fileSizes[required]) {
+        throw new Error(`[tts-model] 缺少必需文件：${required}`);
+      }
+    }
+    writeFileSync(
+      join(TTS_MODEL_DIR, "NOTICE.txt"),
+      [
+        `Model: ${TTS_MODEL_NAME}`,
+        `Source: ${TTS_MODEL_URL}`,
+        `Tar SHA256: ${TTS_TAR_SHA256}`,
+        "License: Apache-2.0 (Kokoro model; see LICENSE).",
+        "Original weights: hexgrad/Kokoro-82M, exported by sherpa-onnx.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    writeFileSync(TTS_MARKER, JSON.stringify({ tarSha256: TTS_TAR_SHA256, files: fileSizes, createdAt: Date.now() }, null, 2), "utf8");
+    console.log(`[tts-model] 就绪：${TTS_MODEL_DIR}`);
+    return TTS_MODEL_DIR;
+  } finally {
+    rmSync(extractDir, { recursive: true, force: true });
+  }
+}
+
+function isTtsModelReady() {
+  if (!existsSync(TTS_MARKER)) return false;
+  try {
+    const marker = JSON.parse(readFileSync(TTS_MARKER, "utf8"));
+    if (marker.tarSha256 !== TTS_TAR_SHA256 || !marker.files) return false;
+    for (const name of ["model.onnx", "voices.bin", "tokens.txt", "lexicon-zh.txt"]) {
+      const path = join(TTS_MODEL_DIR, name);
+      if (!existsSync(path) || statSync(path).size !== marker.files[name]) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function downloadWithRetry(url, dest) {
   const partial = `${dest}.partial`;
   let lastError = null;
@@ -156,12 +258,12 @@ async function downloadWithRetry(url, dest) {
   throw new Error(`[stt-model] 下载失败：${lastError instanceof Error ? lastError.message : lastError}`);
 }
 
-async function extractWantedFiles(tarPath, dest) {
+async function extractWantedFiles(tarPath, dest, wantedFiles) {
   mkdirSync(dest, { recursive: true });
   const extract = tarStream.extract();
   extract.on("entry", (header, stream, next) => {
     const name = header.name.replace(/\\/g, "/");
-    if (header.type === "directory" || !isWanted(name)) {
+    if (header.type === "directory" || !isWanted(name, wantedFiles)) {
       stream.resume();
       stream.on("end", next);
       stream.on("error", next);
@@ -188,10 +290,10 @@ async function extractWantedFiles(tarPath, dest) {
   });
 }
 
-function isWanted(name) {
+function isWanted(name, wantedFiles) {
   if (name.endsWith("/")) return false;
   const base = name.slice(name.lastIndexOf("/") + 1);
-  return WANTED_FILES.includes(base);
+  return wantedFiles.includes(base);
 }
 
 async function sha256File(path) {
@@ -205,12 +307,20 @@ function sleep(ms) {
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  ensureSttModel({ force: process.argv.includes("--force") })
-    .then((dir) => {
-      if (dir) console.log(`[stt-model] done: ${dir}`);
+  const force = process.argv.includes("--force");
+  const wantTts = process.argv.includes("--tts");
+  const wantAll = process.argv.includes("--all");
+  const tasks = [];
+  if (!wantTts || wantAll) tasks.push(ensureSttModel({ force }));
+  if (wantTts || wantAll) tasks.push(ensureTtsModel({ force }));
+  Promise.all(tasks)
+    .then((dirs) => {
+      for (const dir of dirs) {
+        if (dir) console.log(`[voice-model] done: ${dir}`);
+      }
     })
     .catch((error) => {
-      console.error("[stt-model] failed:", error);
+      console.error("[voice-model] failed:", error);
       process.exit(1);
     });
 }

@@ -15,7 +15,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 #[cfg(not(debug_assertions))]
 use rand::{rngs::OsRng, RngCore};
 #[cfg(not(debug_assertions))]
-use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 #[cfg(not(debug_assertions))]
 use tauri_plugin_shell::ShellExt;
 
@@ -36,6 +36,10 @@ struct BridgeSidecarStatus {
 }
 
 struct BridgeSidecarState(Mutex<BridgeSidecarStatus>);
+
+/// 持有 sidecar 子进程句柄：应用真正退出时主动 kill，避免旧版/崩溃遗留孤儿进程继续占 17872。
+#[cfg(not(debug_assertions))]
+struct BridgeSidecarChild(Mutex<Option<CommandChild>>);
 
 #[tauri::command]
 #[cfg(not(debug_assertions))]
@@ -145,6 +149,115 @@ fn resolve_bridge_token() -> String {
     generate_bridge_token()
 }
 
+#[cfg(not(debug_assertions))]
+const BRIDGE_PORT: u16 = 17872;
+
+#[cfg(not(debug_assertions))]
+fn bridge_port_in_use() -> bool {
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+    let addr: SocketAddr = ([127, 0, 0, 1], BRIDGE_PORT).into();
+    TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok()
+}
+
+/// 只清理“确实是旧 void-bridge.cjs 的 node.exe”，避免误杀其它占用 17872 的程序。
+#[cfg(not(debug_assertions))]
+fn try_kill_stale_bridge() -> bool {
+    #[cfg(not(windows))]
+    {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        let netstat = match std::process::Command::new("netstat").args(["-ano", "-p", "tcp"]).output() {
+            Ok(output) => output,
+            Err(_) => return false,
+        };
+        let netstat_text = String::from_utf8_lossy(&netstat.stdout);
+        let pid = netstat_text
+            .lines()
+            .find(|line| line.contains("127.0.0.1:17872") && line.contains("LISTENING"))
+            .and_then(|line| line.split_whitespace().last())
+            .map(|value| value.trim().to_string());
+        let Some(pid) = pid else {
+            return false;
+        };
+        if pid.is_empty() || !pid.chars().all(|ch| ch.is_ascii_digit()) {
+            return false;
+        }
+
+        let pid_filter = format!("PID eq {pid}");
+        let tasklist = match std::process::Command::new("tasklist")
+            .args(["/FI", &pid_filter, "/FO", "CSV", "/NH"])
+            .output()
+        {
+            Ok(output) => output,
+            Err(_) => return false,
+        };
+        let tasklist_text = String::from_utf8_lossy(&tasklist.stdout).to_lowercase();
+        if !tasklist_text.contains("node.exe") {
+            return false;
+        }
+
+        let wmic = std::process::Command::new("wmic")
+            .args([
+                "process",
+                "where",
+                &format!("processid={pid}"),
+                "get",
+                "commandline",
+                "/format:list",
+            ])
+            .output();
+        let mut commandline = match wmic {
+            Ok(output) => String::from_utf8_lossy(&output.stdout).to_lowercase(),
+            Err(_) => String::new(),
+        };
+        if !commandline.contains("void-bridge.cjs") {
+            let ps = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!("(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").CommandLine"),
+                ])
+                .output();
+            commandline = match ps {
+                Ok(output) => String::from_utf8_lossy(&output.stdout).to_lowercase(),
+                Err(_) => String::new(),
+            };
+        }
+        if !commandline.contains("void-bridge.cjs") {
+            return false;
+        }
+
+        log::warn!("[void-bridge] 检测到旧 sidecar 占用 {BRIDGE_PORT}，尝试结束 PID {pid}");
+        let killed = std::process::Command::new("taskkill")
+            .args(["/F", "/PID", &pid])
+            .status();
+        matches!(killed, Ok(status) if status.success())
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn ensure_bridge_port_ready() -> Result<(), String> {
+    use std::thread::sleep;
+    use std::time::Duration;
+    if !bridge_port_in_use() {
+        return Ok(());
+    }
+    if try_kill_stale_bridge() {
+        for _ in 0..20 {
+            if !bridge_port_in_use() {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(100));
+        }
+    }
+    Err(format!(
+        "本机 {BRIDGE_PORT} 端口被占用，可能是旧版 VOID 的后台服务未退出。请完全退出旧版 VOID 后重启。"
+    ))
+}
+
 /// 启动桥接 sidecar（仅 release），并把它的 stdout/stderr 转接到 Tauri 日志。
 ///
 /// 分发形态（0.2.4 教训后定案）：Node 解释器本身作为 sidecar 二进制
@@ -157,6 +270,7 @@ fn spawn_bridge_sidecar(
     app: &tauri::App,
     bridge_token: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_bridge_port_ready()?;
     let resource_dir = app.path().resource_dir()?;
     let sidecar_app_dir = resource_dir.join("sidecar-app");
     let entry = sidecar_app_dir.join("void-bridge.cjs");
@@ -179,7 +293,10 @@ fn spawn_bridge_sidecar(
         .current_dir(&sidecar_app_dir)
         .args(["void-bridge.cjs"])
         .env("VOID_BRIDGE_TOKEN", bridge_token);
-    let (mut command_events, _child) = sidecar_command.spawn()?;
+    let (mut command_events, child) = sidecar_command.spawn()?;
+    if let Ok(mut guard) = app.state::<BridgeSidecarChild>().0.lock() {
+        *guard = Some(child);
+    }
 
     // 把 child 交给独立任务持有，保持进程存活；事件循环转发桥接日志，
     // 便于按验收标准核对「桥接日志无 Error 帧」。异常事件同时写入状态机，供前端探针读取。
@@ -188,8 +305,6 @@ fn spawn_bridge_sidecar(
     // 在任务内再取 state——与 tray_set_unread 取 AppHandle 的做法一致。
     let status_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
-        // _child 移入本闭包，随任务生命周期存活；应用退出时由插件回收。
-        let _child = _child;
         while let Some(event) = command_events.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
@@ -309,6 +424,9 @@ pub fn run() {
                     .build(),
             )?;
 
+            #[cfg(not(debug_assertions))]
+            app.manage(BridgeSidecarChild(Mutex::new(None)));
+
             // 仅正式构建拉起 SEA sidecar；开发期由 npm(dev:all) 的 tsx 进程提供。
             // 拉起失败不崩主应用：记入状态机，前端探针横幅如实展示（崩应用比降级更差）。
             #[cfg(not(debug_assertions))]
@@ -370,6 +488,17 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            #[cfg(not(debug_assertions))]
+            if matches!(&event, tauri::RunEvent::Exit) {
+                if let Ok(mut guard) = app_handle.state::<BridgeSidecarChild>().0.lock() {
+                    if let Some(child) = guard.take() {
+                        let _ = child.kill();
+                    }
+                }
+            }
+            let _ = (app_handle, event);
+        });
 }

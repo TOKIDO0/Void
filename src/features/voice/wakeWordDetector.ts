@@ -58,3 +58,20 @@ export function isJudgmentWakeDetected(transcript: string): boolean {
 export function isVoiceWakeDetected(transcript: string): boolean {
   return isWakeWordDetected(transcript) || isJudgmentWakeDetected(transcript);
 }
+
+/**
+ * 去掉句子里的唤醒词，避免把「VOID」本身发给模型。
+ * 只用于已经通过唤醒门控的文本；长句里出现同名词也一并去掉。
+ */
+export function stripWakeWord(transcript: string): string {
+  let text = transcript;
+  for (const word of DEFAULT_WAKE_WORDS) {
+    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!escaped) continue;
+    text = text.replace(new RegExp(escaped, "gi"), " ");
+  }
+  return text
+    .replace(/^[\s,，。.!！?？、;；:：]+|[\s,，。.!！?？、;；:：]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}

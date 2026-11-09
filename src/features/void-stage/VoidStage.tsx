@@ -69,6 +69,7 @@ import type { VoiceSynthesisExpression } from "../voice/tts/voiceTtsContract";
 import { MemoryManagerPanel } from "../memory/ui/MemoryManagerPanel";
 import { resolveSkillPromptHint } from "../agent/skills/skillsBridgeClient";
 import { filterInvalidVoice } from "../voice/invalidVoiceFilter";
+import { isWakeWordDetected, stripWakeWord } from "../voice/wakeWordDetector";
 import {
   clearPendingMemoryConfirmations,
   enqueuePendingMemoryConfirmation,
@@ -131,6 +132,8 @@ const BARGE_IN_MIN_CHARS_SPEAKING = 4;
 // 语音定稿刚发出后的短静默：这一窗口内的 residual partial / 尾音 VAD 不得打断新开的 AI 回合，
 // 否则会出现「模型已开始请求 → 立刻被 barge-in abort → TTS 永远无声」。
 const BARGE_IN_POST_COMMIT_GUARD_MS = 1600;
+// Agent 说完后的追问窗口：窗口内可以不喊“VOID”直接追问；窗口外必须唤醒。
+const VOICE_FOLLOW_UP_WINDOW_MS = 8000;
 const ERROR_RESPONSE_HIDE_MS = 14000;
 const THINKING_TEXT = "正在思考...";
 const REGENERATING_TEXT = "正在重新思考...";
@@ -213,6 +216,8 @@ export function VoidStage() {
   // 本地音量 VAD 的最新活跃度快照（ref 供 STT 回调同步读取，避免闭包旧值）：
   // 打断判定的「真实人声」二次校验依据，"active" 表示麦克风能量高于环境噪声阈值。
   const voiceActivityLevelRef = useRef<VoiceActivityLevel>("silent");
+  // 追问窗口截止时间：Agent 说完后的短时间内允许无唤醒词追问；窗口外只接受包含唤醒词的语音。
+  const voiceFollowUpUntilRef = useRef(0);
   // 真实 TTS 播放电平信号（0-1 + 更新时间戳）；Blob fallback 不产生更新，视觉侧按超时回退模拟脉冲
   const playbackLevelSignalRef = useRef<{ value: number; updatedAt: number }>({ value: 0, updatedAt: 0 });
   // 对话回合的单调递增 id：用户打断（barge-in）时自增以「作废」当前回合的后续副作用
@@ -782,6 +787,8 @@ export function VoidStage() {
     });
     scheduleResponseLayerHide();
     textExchangeActiveRef.current = false;
+    // Agent 已给出回复：打开追问窗口，用户可以直接接着说，不必重复唤醒词。
+    voiceFollowUpUntilRef.current = Date.now() + VOICE_FOLLOW_UP_WINDOW_MS;
 
     if (!voicePreferences.voiceOutputEnabled) {
       setVisualState("idle");
@@ -798,7 +805,7 @@ export function VoidStage() {
     }
 
     const runtimeConfig = loadVoiceRuntimeConfig();
-    if (!runtimeConfig.doubaoSpeakerId.trim()) {
+    if (runtimeConfig.voiceTtsProvider === "cloud" && !runtimeConfig.doubaoSpeakerId.trim()) {
       console.warn("[VOID TTS] 语音输出已开启，但缺少 doubaoSpeakerId，无法合成。");
       setVisualState("idle");
       return;
@@ -891,6 +898,7 @@ export function VoidStage() {
       signal
     );
     finalizeVoiceOutputSession("idle");
+    voiceFollowUpUntilRef.current = Date.now() + VOICE_FOLLOW_UP_WINDOW_MS;
   }, [finalizeVoiceOutputSession, startVoiceOutputSession, voicePreferences.voiceOutputEnabled]);
 
   const createStreamingVoiceBatcher = useCallback(() => {
@@ -899,7 +907,7 @@ export function VoidStage() {
     }
 
     const runtimeConfig = loadVoiceRuntimeConfig();
-    if (!runtimeConfig.doubaoSpeakerId.trim()) {
+    if (runtimeConfig.voiceTtsProvider === "cloud" && !runtimeConfig.doubaoSpeakerId.trim()) {
       console.warn("[VOID TTS] 语音输出已开启，但缺少 doubaoSpeakerId，流式语音不会发声。");
       return null;
     }
@@ -977,6 +985,7 @@ export function VoidStage() {
         }
         await synthesisSession.complete();
         finalizeVoiceOutputSession("idle");
+        voiceFollowUpUntilRef.current = Date.now() + VOICE_FOLLOW_UP_WINDOW_MS;
       }
     };
   }, [finalizeVoiceOutputSession, startVoiceOutputSession, voicePreferences.voiceOutputEnabled]);
@@ -1383,6 +1392,11 @@ export function VoidStage() {
 
   const handleVoiceInterimTranscript = useCallback((text: string) => {
     const trimmedText = text.trim();
+    // 未唤醒且不在追问窗：不显示背景语音预览，也不允许背景说话触发打断。
+    if (!isWakeWordDetected(trimmedText) && Date.now() >= voiceFollowUpUntilRef.current) {
+      if (trimmedText) setVoiceTranscriptPreview("");
+      return;
+    }
     const isSpeaking = !voicePlaybackControllerRef.current.isIdle();
     const isAgentBusy = textExchangeActiveRef.current || isSpeaking;
     const interimNormalized = trimmedText ? normalizeVoiceFinal(trimmedText) : "";
@@ -1432,11 +1446,10 @@ export function VoidStage() {
 
   const handleVoiceFinalTranscript = useCallback((text: string) => {
     setVoiceTranscriptPreview("");
-    const normalized = normalizeVoiceFinal(text);
-    if (normalized && normalized === sentVoiceUtteranceNormalizedRef.current) return;
-    // 06 §3/§5 无效语音过滤：短、纯语气词、无唤醒且无请求的背景音不上屏、不进对话、不写记忆
+    const followUpWindow = Date.now() < voiceFollowUpUntilRef.current;
+    // 06 §3/§5 无效语音过滤：没有唤醒词且不在追问窗的背景说话（即使句子完整）不上屏、不进对话、不写记忆。
     const invalidCheck = filterInvalidVoice(text, {
-      hasRecentConversation: conversationHistoryRef.current.length > 0,
+      followUpWindow,
       activityLevel: voiceActivityLevelRef.current
     });
     if (!invalidCheck.valid) {
@@ -1450,10 +1463,27 @@ export function VoidStage() {
       scheduleResponseLayerHide(1800);
       return;
     }
+
+    const commandText = stripWakeWord(text).trim();
+    if (!commandText) {
+      showResponseLayer({
+        text: "",
+        tone: "quiet",
+        source: "voice-transcript",
+        pulseKey: "voice-ignored"
+      });
+      scheduleResponseLayerHide(1800);
+      return;
+    }
+
+    const normalized = normalizeVoiceFinal(commandText);
+    if (normalized && normalized === sentVoiceUtteranceNormalizedRef.current) return;
     sentVoiceUtteranceNormalizedRef.current = normalized;
     lastVoiceCommitAtRef.current = Date.now();
+    // 接受本轮后也短暂打开追问窗，允许用户不重复唤醒词继续补充。
+    voiceFollowUpUntilRef.current = Date.now() + VOICE_FOLLOW_UP_WINDOW_MS;
     // P2 语音入口：语音定稿标 voice，模型按语音纪律回应（单问/短答/不朗读链接）。
-    void handleTextMessage(text, [], "voice");
+    void handleTextMessage(commandText, [], "voice");
   }, [handleTextMessage, scheduleResponseLayerHide, showResponseLayer]);
 
   voiceInputCallbacksRef.current = {

@@ -1,8 +1,9 @@
 // VOID 无效语音过滤 —— 06 号文档 §3/§5：音量+语义完整度+上下文+唤醒综合判定
 // 职责：判定一条 STT 定稿是否为无效背景音，若无效则不上屏、不进对话、不写记忆。
-// 不另起 VAD 引擎，复用已有 voiceActivityLevel + STT 文本 + 唤醒检测。
+// 2026-11 噪音修复：默认只在「唤醒词」或「Agent 刚说完的追问窗口」内接收语音；
+// 家人通话/电视等背景说话即使被 ASR 转成完整句子，也不进入对话。
 
-import { isVoiceWakeDetected } from "./wakeWordDetector";
+import { isWakeWordDetected } from "./wakeWordDetector";
 
 const FILLER_ONLY_REGEX = /^(嗯|啊|哦|呃|唉|呢|吧|呀|哈|呵)+$/;
 const MIN_VALID_CHARS = 2;
@@ -21,12 +22,13 @@ export type InvalidVoiceResult = {
 /**
  * 判定 STT 定稿是否有效。
  * @param transcript STT 最终文本
- * @param options 辅助信号：activityLevel 已在上游 VAD，给“远处背景声”参考；hasRecentConversation 表示是否有上下文可追问
+ * @param options.followUpWindow 是否处于 Agent 说完后的追问窗口
+ * @param options.activityLevel 上游 VAD 状态（保留给日志/后续 VAD 模型）
  */
 export function filterInvalidVoice(
   transcript: string,
   options: {
-    hasRecentConversation?: boolean;
+    followUpWindow?: boolean;
     activityLevel?: "silent" | "active";
   } = {}
 ): InvalidVoiceResult {
@@ -40,25 +42,19 @@ export function filterInvalidVoice(
     return { valid: false, reason: "filler_only" };
   }
 
-  // 有唤醒词/判断唤醒 → 直接有效
-  if (isVoiceWakeDetected(text)) {
+  // 明确说了唤醒词：接收。
+  if (isWakeWordDetected(text)) {
     return { valid: true };
   }
 
-  // 有最近对话上下文，追问类短句也视为有效（06 §2.2 延续前文话题）
-  if (options.hasRecentConversation && normalized.length >= 2) {
+  // Agent 刚说完，用户可以不喊唤醒词直接追问。
+  if (options.followUpWindow === true) {
     return { valid: true };
   }
 
-  // 无唤醒、无上下文、且文本过短且无明确请求动词 → 视为背景/碎片音
-  const hasRequestVerb = /帮|查|搜|记|提醒|写|翻译|总结|整理|打开|下载|保存|找/.test(text);
-  if (!hasRequestVerb && normalized.length <= 4) {
-    // 结合 VAD：silent 时更可能是远处背景
-    if (options.activityLevel === "silent") {
-      return { valid: false, reason: "background_noise" };
-    }
-    return { valid: false, reason: "no_wake_and_no_request" };
-  }
-
-  return { valid: true };
+  // 没有唤醒词、也不在追问窗口：无论句子多长，都视为背景声，不进入对话。
+  return {
+    valid: false,
+    reason: options.activityLevel === "silent" ? "background_noise" : "no_wake_and_no_request"
+  };
 }

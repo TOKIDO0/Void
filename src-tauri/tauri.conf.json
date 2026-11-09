@@ -40,7 +40,8 @@
     ],
     "resources": {
       "sidecar-app": "sidecar-app",
-      "resources/voice/stt": "voice/stt"
+      "resources/voice/stt": "voice/stt",
+      "resources/voice/tts": "voice/tts"
     },
     "android": {
       "debugApplicationIdSuffix": ".debug"
@@ -52,7 +53,7 @@
       "endpoints": [
         "https://github.com/TOKIDO0/Void/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNEMjM3M0U5QTlCRUFDNDIKUldSQ3JMNnA2WE1qUFZuOUY3Q0UvZm9FT20rSUQ4bjBjbzBpSytwN3MyMWEwdGxsdC92YzdpNVgK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgxMjlCNzRCMjcyNEFCQjMKUldTenF5UW5TN2NwZ2J3TTdJcmtOMTJlSVNoM0wrS2RqSjl0MFk1ODJ5TnZnRzlFK3NjWUFCcWEK"
     }
   }
 }

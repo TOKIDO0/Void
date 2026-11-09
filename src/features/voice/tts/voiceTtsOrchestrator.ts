@@ -2,6 +2,7 @@ import { ProviderRequestError } from "../../../lib/model-providers/providerError
 import type { VoiceRuntimeConfig } from "../voiceRuntimeConfig";
 import { openBidirectionalStreamSession } from "./doubaoBidirectional/doubaoBidirectionalSession";
 import { toDoubaoAudioRate } from "./doubaoTtsProvider";
+import { LocalTtsProvider } from "./localTtsProvider";
 import type {
   VoiceSynthesisExpression,
   VoiceSynthesisRequest,
@@ -52,6 +53,14 @@ export class VoiceTtsOrchestrator {
     // 主供应商未配置/合成失败时自动向下回退，行为对旧默认只增不减。
     // 豆包语音已改为托管 Worker 双向流式服务，不再从客户端构造带密钥的 HTTP 供应商。
     this.providerRegistrations = [];
+    // 默认走本地 Kokoro：不付费、不依赖云端资源授权；云端只在用户显式选择时启用。
+    if (runtimeConfig.voiceTtsProvider !== "cloud") {
+      this.providerRegistrations.push({
+        kind: "local",
+        timeoutMs: 30_000,
+        createProvider: () => new LocalTtsProvider(runtimeConfig.localTtsVoiceId)
+      });
+    }
   }
 
   /**
@@ -195,14 +204,14 @@ export class VoiceTtsOrchestrator {
       complete() {
         return new Promise<void>((resolve) => {
           if (pendingTasks.length === 0 && activeWorkerCount === 0) {
-            if (import.meta.env.DEV && sessionError) {
+            if (import.meta.env?.DEV && sessionError) {
               console.warn("[VOID TTS streaming session]", sessionError);
             }
             resolve();
             return;
           }
           drainWaiters.push(() => {
-            if (import.meta.env.DEV && sessionError) {
+            if (import.meta.env?.DEV && sessionError) {
               console.warn("[VOID TTS streaming session]", sessionError);
             }
             resolve();
@@ -217,6 +226,9 @@ export class VoiceTtsOrchestrator {
    * 缺音色时不应静默走空供应商列表，否则上层只会“有文字、无声音、无报错”。
    */
   private shouldUseBidirectional(): boolean {
+    if (this.runtimeConfig.voiceTtsProvider !== "cloud") {
+      return false;
+    }
     const speakerId = this.runtimeConfig.doubaoSpeakerId.trim();
     if (!speakerId) {
       console.warn("[VOID TTS] 缺少 doubaoSpeakerId，已跳过语音合成。请在设置中填写音色 ID。");
@@ -449,6 +461,10 @@ function resolveProviderLabel(providerKind: VoiceSynthesisResult["provider"]) {
 
   if (providerKind === "doubao") {
     return "Doubao TTS";
+  }
+
+  if (providerKind === "local") {
+    return "本地语音";
   }
 
   return "MiniMax TTS";

@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "sidecar:build": "node scripts/build-sidecar.mjs",
     "stt:model:fetch": "node scripts/fetch-stt-model.mjs",
+    "tts:model:fetch": "node scripts/fetch-stt-model.mjs --tts",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "npm run sidecar:build && tauri build",

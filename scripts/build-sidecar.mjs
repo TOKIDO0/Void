@@ -33,7 +33,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import WebSocket from "ws";
-import { ensureSttModel } from "./fetch-stt-model.mjs";
+import { ensureSttModel, ensureTtsModel } from "./fetch-stt-model.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(scriptDir, "..");
@@ -104,7 +104,8 @@ async function main() {
   // 真实拉起方式（cwd=sidecar-app + 相对入口）启动并探测端点。
   // 0.2.4（SEA 快照）与 0.2.6（绝对路径参数）两代事故本应都在这里被拦下。
   const sttModelDir = await ensureSttModel();
-  await runProductionSimGate(sttModelDir);
+  const ttsModelDir = await ensureTtsModel();
+  await runProductionSimGate(sttModelDir, ttsModelDir);
 }
 
 /**
@@ -148,7 +149,7 @@ async function probeHealth(port, timeoutMs = 8000) {
   }
 }
 
-async function runProductionSimGate(sttModelDir) {
+async function runProductionSimGate(sttModelDir, ttsModelDir) {
   const cjs = join(sidecarAppDir, "void-bridge.cjs");
   const playwrightPkg = join(sidecarAppDir, "node_modules", "playwright-core", "package.json");
   const sherpaPkg = join(sidecarAppDir, "node_modules", "sherpa-onnx-node", "package.json");
@@ -179,7 +180,8 @@ async function runProductionSimGate(sttModelDir) {
         // 仅生产模拟：允许空 bridge token 以便门禁直接取票；真实安装仍走 token。
         VOID_BRIDGE_TOKEN: "",
         VOID_ALLOW_EMPTY_BRIDGE_TOKEN: "1",
-        ...(sttModelDir ? { VOID_STT_MODEL_DIR: sttModelDir } : {})
+        ...(sttModelDir ? { VOID_STT_MODEL_DIR: sttModelDir } : {}),
+        ...(ttsModelDir ? { VOID_TTS_MODEL_DIR: ttsModelDir } : {})
       },
       stdio: ["ignore", "ignore", "pipe"]
     });
@@ -211,6 +213,12 @@ async function runProductionSimGate(sttModelDir) {
         console.log("[prod-sim] 本地 STT 引擎加载通过（DLL + 模型）");
       } else {
         console.log("[prod-sim] 跳过本地 STT 引擎门禁（无模型）");
+      }
+      if (ttsModelDir) {
+        await probeVoiceTts(port);
+        console.log("[prod-sim] 本地 TTS 引擎合成通过（Kokoro）");
+      } else {
+        console.log("[prod-sim] 跳过本地 TTS 引擎门禁（无模型）");
       }
     } finally {
       child.kill();
@@ -260,6 +268,29 @@ async function probeVoiceStt(port, timeoutMs = 30_000) {
     });
   } finally {
     try { ws.close(); } catch { /* ignore */ }
+  }
+}
+
+async function probeVoiceTts(port, timeoutMs = 60_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/void-voice/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "你好，我是 VOID。" }),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`[prod-sim] 本地 TTS 失败：HTTP ${response.status} ${body.slice(0, 200)}`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length < 1000) {
+      throw new Error(`[prod-sim] 本地 TTS 未返回有效 PCM（${buffer.length} bytes）`);
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }
 

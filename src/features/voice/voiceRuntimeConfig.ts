@@ -1,8 +1,14 @@
 import type { VoiceRequestMode } from "./voiceProviderConfig";
 
+export type VoiceTtsProviderMode = "local" | "cloud";
+
 export type VoiceRuntimeConfig = {
   requestMode: VoiceRequestMode;
   doubaoSpeakerId: string;
+  /** 本地优先；云端 TTS 需要付费且当前资源未授权，默认不走云端。 */
+  voiceTtsProvider: VoiceTtsProviderMode;
+  /** Kokoro 音色 id（47=zf_xiaoxiao）。 */
+  localTtsVoiceId: number;
 };
 
 /**
@@ -20,6 +26,9 @@ function resolveVoiceRequestMode(): VoiceRequestMode {
 }
 
 const DOUBAO_SPEAKER_ID_STORAGE_KEY = "void.voice.doubaoSpeakerId";
+const VOICE_TTS_PROVIDER_STORAGE_KEY = "void.voice.ttsProvider";
+const LOCAL_TTS_VOICE_STORAGE_KEY = "void.voice.localTtsVoiceId";
+const DEFAULT_LOCAL_TTS_VOICE_ID = 47;
 
 /**
  * 托管语音默认音色。
@@ -39,10 +48,20 @@ const LEGACY_CLIENT_VOICE_SECRET_KEYS = [
 export function loadVoiceRuntimeConfig(): VoiceRuntimeConfig {
   clearLegacyClientVoiceSecrets();
   const storedSpeakerId = window.localStorage.getItem(DOUBAO_SPEAKER_ID_STORAGE_KEY)?.trim() ?? "";
+  const storedProvider = window.localStorage.getItem(VOICE_TTS_PROVIDER_STORAGE_KEY)?.trim();
+  const storedVoiceId = Number.parseInt(
+    window.localStorage.getItem(LOCAL_TTS_VOICE_STORAGE_KEY)?.trim() ?? "",
+    10
+  );
   return {
     requestMode: resolveVoiceRequestMode(),
     // 设置里可覆盖；空值回落到默认音色，保证托管 TTS 可直接发声。
-    doubaoSpeakerId: storedSpeakerId || DEFAULT_DOUBAO_SPEAKER_ID
+    doubaoSpeakerId: storedSpeakerId || DEFAULT_DOUBAO_SPEAKER_ID,
+    // 默认本地 Kokoro：不付费、不依赖云端资源授权。
+    voiceTtsProvider: storedProvider === "cloud" ? "cloud" : "local",
+    localTtsVoiceId: Number.isInteger(storedVoiceId) && storedVoiceId >= 0 && storedVoiceId <= 53
+      ? storedVoiceId
+      : DEFAULT_LOCAL_TTS_VOICE_ID
   };
 }
 
