@@ -43,6 +43,12 @@
       "resources/voice/stt": "voice/stt",
       "resources/voice/tts": "voice/tts"
     },
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
