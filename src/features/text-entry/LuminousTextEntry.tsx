@@ -26,8 +26,6 @@ import {
   loadSettingsLanguage,
   type SettingsLanguage
 } from "../settings/settingsI18n";
-import type { VoiceSttProviderMode } from "../voice/stt/voiceSttContract";
-
 gsap.registerPlugin(useGSAP);
 
 type LuminousTextEntryProps = {
@@ -35,12 +33,10 @@ type LuminousTextEntryProps = {
   thinkingModeEnabled: boolean;
   voiceInputEnabled: boolean;
   voiceOutputEnabled: boolean;
-  voiceSttProvider: VoiceSttProviderMode;
   onSend: (message: string, attachments: VoidConversationAttachment[]) => void | Promise<void>;
   onThinkingModeChange: (thinkingModeEnabled: boolean) => void;
   onVoiceInputToggle: () => void;
   onVoiceOutputToggle: () => void;
-  onVoiceSttProviderToggle: () => void;
   onOpenModelConfig: () => void;
   onOpenConversationHistory: () => void;
   onNewConversation: () => void;
@@ -178,12 +174,10 @@ export function LuminousTextEntry({
   thinkingModeEnabled,
   voiceInputEnabled,
   voiceOutputEnabled,
-  voiceSttProvider,
   onSend,
   onThinkingModeChange,
   onVoiceInputToggle,
   onVoiceOutputToggle,
-  onVoiceSttProviderToggle,
   onOpenModelConfig,
   onOpenConversationHistory,
   onNewConversation,
@@ -493,7 +487,7 @@ export function LuminousTextEntry({
     pinOpen();
   };
 
-  const handleAgentActionClick = (action: "thinking" | "voice-input" | "voice-output" | "voice-stt-provider" | "upload" | "history" | "new-chat" | "memory" | "settings") => {
+  const handleAgentActionClick = (action: "thinking" | "voice-input" | "voice-output" | "upload" | "history" | "new-chat" | "memory" | "settings") => {
     pinOpen();
     if (action === "thinking") {
       onThinkingModeChange(!thinkingModeEnabled);
@@ -507,11 +501,6 @@ export function LuminousTextEntry({
 
     if (action === "voice-output") {
       onVoiceOutputToggle();
-      return;
-    }
-
-    if (action === "voice-stt-provider") {
-      onVoiceSttProviderToggle();
       return;
     }
 
@@ -907,14 +896,6 @@ export function LuminousTextEntry({
               onClick={() => handleAgentActionClick("voice-input")}
             >
               {voiceInputEnabled ? menuCopy.menuVoiceInputOn : menuCopy.menuVoiceInputOff}
-            </button>
-            <button
-              type="button"
-              className={voiceSttProvider === "local" ? "is-active" : undefined}
-              aria-pressed={voiceSttProvider === "local"}
-              onClick={() => handleAgentActionClick("voice-stt-provider")}
-            >
-              {voiceSttProvider === "local" ? menuCopy.menuVoiceSttLocal : menuCopy.menuVoiceSttManaged}
             </button>
             <button
               type="button"

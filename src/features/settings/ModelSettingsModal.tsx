@@ -28,6 +28,9 @@ import {
 } from "./settingsI18n";
 import { isSemanticSearchEnabled, setSemanticSearchEnabled } from "../memory/memorySemanticConfig";
 import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRuntimeConfig";
+import type { VoicePreferences } from "../voice/voicePreferences";
+import type { VoiceSttProviderMode } from "../voice/stt/voiceSttContract";
+import { fetchVoiceSttStatus } from "../voice/stt/voiceSttBridgeClient";
 import { SecurityStatusContent } from "../agent/security/SecurityStatusContent";
 import { TasksContent } from "../agent/scheduler/TasksContent";
 import { BridgeStatusBanner } from "../agent/bridge/BridgeStatusBanner";
@@ -48,19 +51,33 @@ import { openExternalUrl } from "../../lib/runtime/openExternalUrl";
 /** 单厂商模型列表拉取状态。 */
 type CatalogStatus = "idle" | "loading" | "error" | "ready";
 
-/** 设置模态顶部页签：模型设置（默认）/ 安全状态 / 高级等系统级不常用功能（2026-08-24 信息架构调整）。 */
-export type SettingsTab = "model" | "security" | "tasks" | "advanced";
+/** 语音页签本地模型状态视图。 */
+type VoiceSttStatusView = {
+  state: "loading" | "ready" | "missing" | "invalid" | "unavailable";
+  detail?: string;
+};
+
+/** 设置模态顶部页签：模型设置（默认）/ 语音 / 安全状态 / 高级等系统级不常用功能。 */
+export type SettingsTab = "model" | "voice" | "security" | "tasks" | "advanced";
 
 type ModelSettingsModalProps = {
   isOpen: boolean;
   onClose: () => void;
   /** 打开时定位的页签；缺省 "model"。仅作为打开瞬间的初值，之后由用户点击切换。 */
   initialTab?: SettingsTab;
+  voicePreferences: VoicePreferences;
+  onVoicePreferencesChange: (preferences: VoicePreferences) => void;
 };
 
 const MODEL_STRENGTH_ORDER: ModelStrength[] = ["low", "middle", "high", "max"];
 
-export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: ModelSettingsModalProps) {
+export function ModelSettingsModal({
+  isOpen,
+  onClose,
+  initialTab = "model",
+  voicePreferences,
+  onVoicePreferencesChange
+}: ModelSettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("model");
   const [highPermissionEnabled, setHighPermissionEnabled] = useState(() => isHighPermissionMode());
   const [showHighPermissionConfirm, setShowHighPermissionConfirm] = useState(false);
@@ -69,6 +86,10 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
   const [autostartLoaded, setAutostartLoaded] = useState(false);
   const [draftConfig, setDraftConfig] = useState<ModelConfig>(() => loadModelConfig());
   const [voiceRuntimeConfig, setVoiceRuntimeConfig] = useState(() => loadVoiceRuntimeConfig());
+  const [voiceSttProviderDraft, setVoiceSttProviderDraft] = useState<VoiceSttProviderMode>(
+    () => voicePreferences.voiceSttProvider
+  );
+  const [voiceSttStatus, setVoiceSttStatus] = useState<VoiceSttStatusView>({ state: "loading" });
   const [semanticSearchDraft, setSemanticSearchDraft] = useState(() => isSemanticSearchEnabled());
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
   const [selectedPresetId, setSelectedPresetId] = useState(() => findPresetId(loadModelConfig()));
@@ -146,9 +167,37 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     setCatalogToast(null);
     setIsDirty(false);
     setActiveTab(initialTab);
+    setVoiceSttProviderDraft(voicePreferences.voiceSttProvider);
+    setVoiceSttStatus({ state: "loading" });
     setHighPermissionEnabled(isHighPermissionMode());
     setShowHighPermissionConfirm(false);
-  }, [isOpen, initialTab]);
+  }, [isOpen, initialTab, voicePreferences.voiceSttProvider]);
+
+  // 语音页签：只在用户切到语音 tab 时读取一次本地模型状态，避免无谓的 bridge 请求。
+  useEffect(() => {
+    if (!isOpen || activeTab !== "voice") {
+      return;
+    }
+    const controller = new AbortController();
+    setVoiceSttStatus({ state: "loading" });
+    void fetchVoiceSttStatus(controller.signal)
+      .then((status) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setVoiceSttStatus({ state: status.model.state, detail: status.model.reason });
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setVoiceSttStatus({
+          state: "unavailable",
+          detail: error instanceof Error ? error.message : undefined
+        });
+      });
+    return () => controller.abort();
+  }, [isOpen, activeTab]);
 
   // AL 开机自启：打开设置即读一次 OS 真实状态；失败（纯 Web 预览）保持关闭态。
   useEffect(() => {
@@ -406,8 +455,7 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     setSemanticSearchDraft(event.target.checked);
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const persistSettings = () => {
     saveModelConfig({
       ...draftConfig,
       presetId: selectedPresetId,
@@ -418,6 +466,11 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     });
     saveWebSearchConfig(webSearchDraft);
     setSemanticSearchEnabled(semanticSearchDraft);
+    // 语音识别方式与其它设置一起提交；VoidStage 的 STT effect 会因 provider 变化重启当前会话。
+    onVoicePreferencesChange({
+      ...voicePreferences,
+      voiceSttProvider: voiceSttProviderDraft
+    });
     if (semanticSearchDraft) {
       void import("../memory/memorySemanticWarmup").then(({ scheduleIdleSemanticWarmup, warmupSemanticEmbedIfEnabled }) => {
         void warmupSemanticEmbedIfEnabled();
@@ -426,6 +479,11 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
     }
     setIsDirty(false);
     onClose();
+  };
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    persistSettings();
   };
 
   const selectedTemperatureIndex = findClosestLevelIndex(TEMPERATURE_LEVELS, draftConfig.temperature);
@@ -455,6 +513,14 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
       </button>
       <button
         type="button"
+        className={`model-settings-modal__tab${activeTab === "voice" ? " is-active" : ""}`}
+        aria-pressed={activeTab === "voice"}
+        onClick={() => setActiveTab("voice")}
+      >
+        {copy.voice}
+      </button>
+      <button
+        type="button"
         className={`model-settings-modal__tab${activeTab === "security" ? " is-active" : ""}`}
         aria-pressed={activeTab === "security"}
         onClick={() => setActiveTab("security")}
@@ -479,6 +545,152 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
       </button>
     </nav>
   );
+
+  const settingsFooterNode = (
+    <div className="model-settings-modal__footer">
+      <div className="model-settings-modal__footer-left">
+        <div className="model-settings-modal__sync">
+          <span className={`model-settings-modal__sync-dot${isDirty ? " is-dirty" : ""}`} />
+          <span>{isDirty ? copy.syncDirty : copy.syncOk}</span>
+        </div>
+        <div className="model-settings-modal__lang-switch" aria-label={copy.language}>
+          <button
+            type="button"
+            className={language === "zh-CN" ? "is-active" : ""}
+            onClick={() => handleLanguageChange("zh-CN")}
+          >
+            简
+          </button>
+          <span>/</span>
+          <button
+            type="button"
+            className={language === "en-US" ? "is-active" : ""}
+            onClick={() => handleLanguageChange("en-US")}
+          >
+            EN
+          </button>
+        </div>
+      </div>
+
+      <div className="model-settings-modal__actions">
+        <button type="button" onClick={onClose}>
+          {copy.cancel}
+        </button>
+        <button type="submit">{copy.save}</button>
+      </div>
+    </div>
+  );
+
+  // 语音页签：STT 本地/托管切换 + 本地模型状态 + TTS 引擎/音色入口。
+  // 独立 form 以便复用底部保存；保存时由 VoidStage 统一更新 voicePreferences 并重启 STT 会话。
+  if (activeTab === "voice") {
+    const isManaged = voiceSttProviderDraft === "managed";
+    const statusText = (() => {
+      switch (voiceSttStatus.state) {
+        case "ready":
+          return copy.voiceSttStatusReady;
+        case "missing":
+          return copy.voiceSttStatusMissing;
+        case "invalid":
+          return copy.voiceSttStatusInvalid;
+        case "unavailable":
+          return copy.voiceSttStatusUnavailable;
+        default:
+          return copy.voiceSttStatusLoading;
+      }
+    })();
+    return (
+      <div className="model-settings-modal" role="presentation" onMouseDown={onClose}>
+        <form
+          className="model-settings-modal__panel"
+          aria-label={copy.voice}
+          onMouseDown={(event) => event.stopPropagation()}
+          onSubmit={handleSubmit}
+        >
+          <div className="model-settings-modal__header">
+            <div className="model-settings-modal__title-group">
+              <div className="model-settings-modal__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-14 0" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v3" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 21h8" />
+                </svg>
+              </div>
+              <div>
+                <p className="model-settings-modal__eyebrow">{copy.settings}</p>
+                <h2>{copy.voice}</h2>
+              </div>
+            </div>
+            {settingsTabsNode}
+            <button
+              className="model-settings-modal__close"
+              type="button"
+              aria-label={copy.closeSettings}
+              onClick={onClose}
+            />
+          </div>
+          <div className="model-settings-modal__body model-settings-modal__body--single">
+            <BridgeStatusBanner />
+            <section className="model-settings-modal__section">
+              <h3 className="model-settings-modal__section-title">{copy.sectionVoiceInput}</h3>
+              <div className="model-settings-modal__card">
+                <div className="model-settings-modal__grid">
+                  <label className="model-settings-modal__field">
+                    <span>{copy.voiceSttMode}</span>
+                    <DarkSelect
+                      aria-label={copy.voiceSttMode}
+                      value={voiceSttProviderDraft}
+                      onChange={(value) => {
+                        markDirty();
+                        setVoiceSttProviderDraft(value === "managed" ? "managed" : "local");
+                      }}
+                      options={[
+                        { value: "local", label: copy.voiceSttLocal },
+                        { value: "managed", label: copy.voiceSttManaged }
+                      ]}
+                    />
+                  </label>
+                </div>
+                {isManaged ? (
+                  <p className="model-settings-modal__hint model-settings-modal__hint--warning">
+                    {copy.voiceSttManagedWarning}
+                  </p>
+                ) : (
+                  <small>{copy.voiceSttLocalHint}</small>
+                )}
+                <p className="model-settings-modal__hint">
+                  {statusText}
+                  {voiceSttStatus.detail ? `${language === "zh-CN" ? "：" : ": "}${voiceSttStatus.detail}` : ""}
+                </p>
+              </div>
+            </section>
+            <section className="model-settings-modal__section">
+              <h3 className="model-settings-modal__section-title">{copy.sectionVoiceOutput}</h3>
+              <div className="model-settings-modal__card">
+                <p className="model-settings-modal__hint">{copy.voiceTtsLocalEngine}</p>
+                <small>{copy.voiceTtsLocalHint}</small>
+                <div className="model-settings-modal__grid">
+                  <label className="model-settings-modal__field model-settings-modal__field--full">
+                    <span>{copy.doubaoSpeakerId}</span>
+                    <input
+                      type="text"
+                      value={voiceRuntimeConfig.doubaoSpeakerId}
+                      autoComplete="off"
+                      placeholder={copy.doubaoSpeakerIdHint}
+                      onChange={updateVoiceRuntimeField("doubaoSpeakerId")}
+                    />
+                    <small>{copy.doubaoSpeakerIdHint}</small>
+                  </label>
+                </div>
+              </div>
+            </section>
+          </div>
+          {settingsFooterNode}
+        </form>
+      </div>
+    );
+  }
 
   // 安全状态页签：独立早退渲染，不进入模型设置的 form（避免大表单条件嵌套）。
   if (activeTab === "security") {
@@ -1009,57 +1221,10 @@ export function ModelSettingsModal({ isOpen, onClose, initialTab = "model" }: Mo
               </div>
             </section>
 
-            <section className="model-settings-modal__section">
-              <h3 className="model-settings-modal__section-title">{copy.sectionVoice}</h3>
-              <div className="model-settings-modal__card">
-                <label className="model-settings-modal__field">
-                  <span>{copy.doubaoSpeakerId}</span>
-                  <input
-                    type="text"
-                    value={voiceRuntimeConfig.doubaoSpeakerId}
-                    autoComplete="off"
-                    placeholder={copy.doubaoSpeakerIdHint}
-                    onChange={updateVoiceRuntimeField("doubaoSpeakerId")}
-                  />
-                  <small>{copy.doubaoSpeakerIdHint}</small>
-                </label>
-              </div>
-            </section>
           </div>
         </div>
 
-        <div className="model-settings-modal__footer">
-          <div className="model-settings-modal__footer-left">
-            <div className="model-settings-modal__sync">
-              <span className={`model-settings-modal__sync-dot${isDirty ? " is-dirty" : ""}`} />
-              <span>{isDirty ? copy.syncDirty : copy.syncOk}</span>
-            </div>
-            <div className="model-settings-modal__lang-switch" aria-label={copy.language}>
-              <button
-                type="button"
-                className={language === "zh-CN" ? "is-active" : ""}
-                onClick={() => handleLanguageChange("zh-CN")}
-              >
-                简
-              </button>
-              <span>/</span>
-              <button
-                type="button"
-                className={language === "en-US" ? "is-active" : ""}
-                onClick={() => handleLanguageChange("en-US")}
-              >
-                EN
-              </button>
-            </div>
-          </div>
-
-          <div className="model-settings-modal__actions">
-            <button type="button" onClick={onClose}>
-              {copy.cancel}
-            </button>
-            <button type="submit">{copy.save}</button>
-          </div>
-        </div>
+        {settingsFooterNode}
       </form>
     </div>
   );

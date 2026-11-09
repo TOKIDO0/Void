@@ -1572,13 +1572,6 @@ export function VoidStage() {
     });
   }, [updateVoicePreferences, voicePreferences]);
 
-  const handleVoiceSttProviderToggle = useCallback(() => {
-    updateVoicePreferences({
-      ...voicePreferences,
-      voiceSttProvider: voicePreferences.voiceSttProvider === "local" ? "managed" : "local"
-    });
-  }, [updateVoicePreferences, voicePreferences]);
-
   // A 一键语音速记（Ctrl+Alt+R）：按一下开始/结束。
   // 主监听开着时只召唤窗口（本轮说话走正常链路，不另起会话抢麦）；
   // 主监听关着时起单次会话，定稿走同一语音入口（含无效过滤与去重），结束后自毁。
@@ -1833,12 +1826,10 @@ export function VoidStage() {
         thinkingModeEnabled={thinkingModeEnabled}
         voiceInputEnabled={voicePreferences.voiceInputEnabled}
         voiceOutputEnabled={voicePreferences.voiceOutputEnabled}
-        voiceSttProvider={voicePreferences.voiceSttProvider}
         onSend={handleTextMessage}
         onThinkingModeChange={handleThinkingModeChange}
         onVoiceInputToggle={handleVoiceInputToggle}
         onVoiceOutputToggle={handleVoiceOutputToggle}
-        onVoiceSttProviderToggle={handleVoiceSttProviderToggle}
         onOpenModelConfig={handleOpenModelConfig}
         onOpenConversationHistory={openExpandedResponse}
         onNewConversation={handleNewConversation}
@@ -1858,6 +1849,8 @@ export function VoidStage() {
         isOpen={isModelSettingsOpen}
         onClose={() => setIsModelSettingsOpen(false)}
         initialTab={settingsInitialTab}
+        voicePreferences={voicePreferences}
+        onVoicePreferencesChange={updateVoicePreferences}
       />
       <MemoryManagerPanel isOpen={isMemoryPanelOpen} onClose={() => setIsMemoryPanelOpen(false)} />
       {pendingConfirmation ? (

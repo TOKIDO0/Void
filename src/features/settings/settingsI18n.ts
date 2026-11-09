@@ -43,7 +43,20 @@ type SettingsCopy = {
   sectionProvider: string;
   sectionGeneration: string;
   sectionMemory: string;
-  sectionVoice: string;
+  sectionVoiceInput: string;
+  sectionVoiceOutput: string;
+  voiceSttMode: string;
+  voiceSttLocal: string;
+  voiceSttManaged: string;
+  voiceSttLocalHint: string;
+  voiceSttManagedWarning: string;
+  voiceSttStatusLoading: string;
+  voiceSttStatusReady: string;
+  voiceSttStatusMissing: string;
+  voiceSttStatusInvalid: string;
+  voiceSttStatusUnavailable: string;
+  voiceTtsLocalEngine: string;
+  voiceTtsLocalHint: string;
   sectionWebSearch: string;
   webSearchProvider: string;
   webSearchKey: string;
@@ -87,8 +100,6 @@ type SettingsCopy = {
   menuThinkingOff: string;
   menuVoiceInputOn: string;
   menuVoiceInputOff: string;
-  menuVoiceSttLocal: string;
-  menuVoiceSttManaged: string;
   menuVoiceOutputOn: string;
   menuVoiceOutputOff: string;
   menuUploadFile: string;
@@ -140,7 +151,20 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     sectionProvider: "服务商配置",
     sectionGeneration: "回答偏好",
     sectionMemory: "记忆",
-    sectionVoice: "语音",
+    sectionVoiceInput: "语音识别",
+    sectionVoiceOutput: "语音输出",
+    voiceSttMode: "识别方式",
+    voiceSttLocal: "本地",
+    voiceSttManaged: "托管",
+    voiceSttLocalHint: "音频只在本机识别，不上传。",
+    voiceSttManagedWarning: "音频会发往云端 Worker 进行识别，可能产生网络流量。",
+    voiceSttStatusLoading: "正在读取本地模型状态…",
+    voiceSttStatusReady: "本地模型已就绪",
+    voiceSttStatusMissing: "本地模型未就绪",
+    voiceSttStatusInvalid: "本地模型文件异常",
+    voiceSttStatusUnavailable: "无法读取本地语音状态",
+    voiceTtsLocalEngine: "本地 Kokoro（音色 47）",
+    voiceTtsLocalHint: "默认在本机合成，不联网、不计费。",
     sectionWebSearch: "联网搜索",
     webSearchProvider: "搜索服务商",
     webSearchKey: "搜索密钥",
@@ -184,8 +208,6 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuThinkingOff: "深度思考已关闭",
     menuVoiceInputOn: "语音输入已开启",
     menuVoiceInputOff: "语音输入已关闭",
-    menuVoiceSttLocal: "语音识别：本地",
-    menuVoiceSttManaged: "语音识别：托管",
     menuVoiceOutputOn: "语音播报已开启",
     menuVoiceOutputOff: "语音播报已关闭",
     menuUploadFile: "上传文件",
@@ -233,7 +255,20 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     sectionProvider: "Provider setup",
     sectionGeneration: "Reply preferences",
     sectionMemory: "Memory",
-    sectionVoice: "Voice",
+    sectionVoiceInput: "Speech recognition",
+    sectionVoiceOutput: "Speech output",
+    voiceSttMode: "Recognition",
+    voiceSttLocal: "Local",
+    voiceSttManaged: "Hosted",
+    voiceSttLocalHint: "Audio is recognized on this device and never uploaded.",
+    voiceSttManagedWarning: "Audio is sent to the hosted Worker for recognition and may use network data.",
+    voiceSttStatusLoading: "Reading local model status…",
+    voiceSttStatusReady: "Local model ready",
+    voiceSttStatusMissing: "Local model not ready",
+    voiceSttStatusInvalid: "Local model files are invalid",
+    voiceSttStatusUnavailable: "Local voice status unavailable",
+    voiceTtsLocalEngine: "Local Kokoro (voice 47)",
+    voiceTtsLocalHint: "Synthesized on this device. No network or fees.",
     sectionWebSearch: "Web search",
     webSearchProvider: "Search provider",
     webSearchKey: "Search API key",
@@ -277,8 +312,6 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     menuThinkingOff: "Thinking off",
     menuVoiceInputOn: "Voice input on",
     menuVoiceInputOff: "Voice input off",
-    menuVoiceSttLocal: "Speech recognition: local",
-    menuVoiceSttManaged: "Speech recognition: hosted",
     menuVoiceOutputOn: "Voice output on",
     menuVoiceOutputOff: "Voice output off",
     menuUploadFile: "Upload file",
