@@ -14,13 +14,17 @@
  * 步骤：
  *   1. esbuild 把 server/voidBridgeServer.ts 打成单个 CJS（playwright-core 等
  *      磁盘自读依赖保持 external，运行时从 sidecar-app/node_modules 解析）。
+ *      同时把同步 Kokoro 合成入口 server/voice/voiceTtsWorker.ts 打成
+ *      tts-worker.cjs，避免阻塞 sidecar 主线程的 /void-model-proxy。
  *   2. 复制当前 node 可执行文件为 Tauri sidecar 二进制（带目标三元组后缀）。
- *   3. 组装 src-tauri/sidecar-app：void-bridge.cjs + node_modules/playwright-core
- *      整包原样复制（白名单裁剪会在 playwright 升级后静默失效，禁止）。
+ *   3. 组装 src-tauri/sidecar-app：void-bridge.cjs + tts-worker.cjs +
+ *      node_modules/playwright-core 整包原样复制（白名单裁剪会在 playwright
+ *      升级后静默失效，禁止）。
  *
  * 产物（均 gitignore，CI/本地按需生成，不入库）：
  *   src-tauri/binaries/node-<target-triple>.exe
  *   src-tauri/sidecar-app/void-bridge.cjs
+ *   src-tauri/sidecar-app/tts-worker.cjs
  *   src-tauri/sidecar-app/node_modules/playwright-core/
  * 打包映射（tauri.conf.json）：externalBin binaries/node + resources sidecar-app。
  * Rust 拉起：cwd=<resourceDir>/sidecar-app + sidecar("node").args(["void-bridge.cjs"])。
@@ -45,6 +49,7 @@ const sidecarAppDir = join(projectRoot, "src-tauri", "sidecar-app");
 const TARGET_TRIPLE = "x86_64-pc-windows-msvc";
 
 const bundlePath = join(buildDir, "void-bridge.cjs");
+const workerBundlePath = join(buildDir, "tts-worker.cjs");
 const nodeExePath = join(binariesDir, `node-${TARGET_TRIPLE}.exe`);
 
 async function main() {
@@ -56,8 +61,7 @@ async function main() {
   // 1. esbuild 打包为单个 CJS。playwright-core 等磁盘自读依赖保持 external：
   // bundle 内只留 require("playwright-core")，由普通 Node 按 node_modules 向上查找解析。
   console.log("[build-sidecar] bundling with esbuild...");
-  await build({
-    entryPoints: [join(projectRoot, "server", "voidBridgeServer.ts")],
+  const esbuildOptions = {
     bundle: true,
     platform: "node",
     format: "cjs",
@@ -74,8 +78,18 @@ async function main() {
       "onnxruntime-node",
       "chromium-bidi/*",
       "*.node"
-    ],
+    ]
+  };
+  await build({
+    ...esbuildOptions,
+    entryPoints: [join(projectRoot, "server", "voidBridgeServer.ts")],
     outfile: bundlePath
+  });
+  // Kokoro 同步 generate 必须放在独立 worker，否则会阻塞 sidecar 主线程的 /void-model-proxy。
+  await build({
+    ...esbuildOptions,
+    entryPoints: [join(projectRoot, "server", "voice", "voiceTtsWorker.ts")],
+    outfile: workerBundlePath
   });
 
   // 2. 解释器本身作为 sidecar 二进制分发（与构建机 Node 大版本一致，esbuild target node22）。
@@ -88,6 +102,7 @@ async function main() {
   const appModulesDir = join(sidecarAppDir, "node_modules");
   mkdirSync(appModulesDir, { recursive: true });
   copyFileSync(bundlePath, join(sidecarAppDir, "void-bridge.cjs"));
+  copyFileSync(workerBundlePath, join(sidecarAppDir, "tts-worker.cjs"));
   for (const pkg of ["playwright-core", "sherpa-onnx-node", "sherpa-onnx-win-x64"]) {
     const source = join(projectRoot, "node_modules", pkg);
     if (!existsSync(source)) {
@@ -155,6 +170,10 @@ async function runProductionSimGate(sttModelDir, ttsModelDir) {
   const sherpaPkg = join(sidecarAppDir, "node_modules", "sherpa-onnx-node", "package.json");
   if (!existsSync(cjs)) {
     throw new Error(`[prod-sim] 缺少入口：${cjs}`);
+  }
+  const ttsWorker = join(sidecarAppDir, "tts-worker.cjs");
+  if (!existsSync(ttsWorker)) {
+    throw new Error(`[prod-sim] 缺少 TTS worker：${ttsWorker}`);
   }
   if (!existsSync(playwrightPkg)) {
     throw new Error(`[prod-sim] 缺少随包依赖：${playwrightPkg}`);

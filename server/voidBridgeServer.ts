@@ -41,6 +41,7 @@ import { handleSoftwareHttpRequest } from "./software/softwareHttpHandlers";
 import { handleWebHttpRequest } from "./web/webHttpHandlers";
 import { handleVoiceSttHttpRequest } from "./voice/voiceSttHttpHandlers";
 import { attachVoiceSttWebSocket } from "./voice/voiceSttWsHandler";
+import { disposeVoiceTtsEngine } from "./voice/voiceTtsEngine";
 import { getProxyRuntimeStatus, handleModelProxy } from "./voidProxyMiddleware";
 
 // 默认端口：固定回环端口，前端在 Tauri 环境下直连此端口。
@@ -578,6 +579,8 @@ export function startBridgeServer(options: VoidBridgeServerOptions = {}): Promis
         resolve();
       });
     });
+    // HTTP 停止后再终止 TTS worker，避免新的合成请求重新拉起线程。
+    await disposeVoiceTtsEngine();
   };
 
   if (options.exitOnError) {

@@ -133,7 +133,8 @@ const BARGE_IN_MIN_CHARS_SPEAKING = 4;
 // 否则会出现「模型已开始请求 → 立刻被 barge-in abort → TTS 永远无声」。
 const BARGE_IN_POST_COMMIT_GUARD_MS = 1600;
 // Agent 说完后的追问窗口：窗口内可以不喊“VOID”直接追问；窗口外必须唤醒。
-const VOICE_FOLLOW_UP_WINDOW_MS = 8000;
+// 25 秒：唤醒一次后可连续说两三句话，避免每句都要重喊；静默超窗后必须重新喊 VOID。
+const VOICE_FOLLOW_UP_WINDOW_MS = 25000;
 const ERROR_RESPONSE_HIDE_MS = 14000;
 const THINKING_TEXT = "正在思考...";
 const REGENERATING_TEXT = "正在重新思考...";

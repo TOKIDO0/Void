@@ -496,6 +496,8 @@ async function readOpenAiCompatibleStream(
     number,
     { id: string; name: string; arguments: string }
   >();
+  // 收到 OpenAI 兼容流的 [DONE] 哨兵后立即收尾，不再等 TCP/上层流关闭。
+  let sawStreamDone = false;
 
   // 根因修复（永远等待）：响应头到达后 body 挂起时 reader.read() 永不 settle，
   // 90 秒 fetch 超时此时早已 cleanup。每次 read 都带空闲超时，挂起即 cancel 并抛诚实错误。
@@ -513,7 +515,7 @@ async function readOpenAiCompatibleStream(
   };
 
   try {
-    while (true) {
+    while (!sawStreamDone) {
       let readResult: ReadableStreamReadResult<Uint8Array>;
       try {
         readResult = await readWithIdleTimeout();
@@ -543,8 +545,15 @@ async function readOpenAiCompatibleStream(
       }
 
       const payload = trimmedLine.slice(5).trim();
-      if (!payload || payload === "[DONE]") {
+      if (!payload) {
         continue;
+      }
+      // [DONE] 是流结束哨兵：立刻退出读取并取消连接。
+      // 之前把它当普通内容跳过、只等 done，会在上游发完 [DONE] 但不断开时
+      // 空转到 60s 空闲超时，误报「模型连接已挂起」。
+      if (payload === "[DONE]") {
+        sawStreamDone = true;
+        break;
       }
 
       try {
@@ -588,6 +597,13 @@ async function readOpenAiCompatibleStream(
     }
     }
   } finally {
+    if (sawStreamDone) {
+      try {
+        await reader.cancel();
+      } catch {
+        // [DONE] 后取消失败不影响已收尾的语义
+      }
+    }
     try {
       reader.releaseLock();
     } catch {

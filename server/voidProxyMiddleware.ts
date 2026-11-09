@@ -244,12 +244,18 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
       response.setHeader("Connection", "keep-alive");
       let sseBytes = 0;
       let sseTail = "";
+      // [DONE] 必须按完整 SSE 行匹配，不能直接 includes：
+      // 模型正文里出现字符串 "[DONE]" 时不应提前停止转发。
+      const SSE_DONE_LINE = /^data:\s*\[DONE\]\s*$/m;
       await streamResponseBody(proxyResponse, response, (chunk) => {
         sseBytes += chunk.byteLength;
         sseTail += Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength).toString("utf8");
         if (sseTail.length > 65536) {
           sseTail = sseTail.slice(-65536);
         }
+        // 上游可能发完 [DONE] 仍不关连接；此时立即停止读取并结束响应，
+        // 既避免客户端空等，也避免客户端主动 cancel 导致用量记账丢失。
+        return SSE_DONE_LINE.test(sseTail);
       });
       if (trackedModel && proxyResponse.status >= 200 && proxyResponse.status < 300) {
         const usage = parseUsageFromText(sseTail);
@@ -260,6 +266,11 @@ export async function handleModelProxy(request: IncomingMessage, response: Serve
           totalTokens: usage?.totalTokens ?? 0,
           responseBytes: sseBytes
         });
+      }
+      // 上游流结束后必须结束浏览器响应：否则客户端等不到 done，
+      // 会一直空转到 60s 空闲超时，误报「模型连接已挂起」。
+      if (!response.destroyed && !response.writableEnded) {
+        response.end();
       }
       return;
     }
@@ -424,11 +435,15 @@ async function resolveTargetUrl(
   }
 }
 
-/** 把 fetch 响应体逐块写入 Node 响应（不 end，由调用方决定收尾）；onChunk 旁路观测，不影响背压。 */
+/**
+ * 把 fetch 响应体逐块写入 Node 响应（不 end，由调用方决定收尾）。
+ * onChunk 可返回 true 表示停止转发（如 SSE 已收到 [DONE]）；
+ * 停止时取消上游 reader，不影响调用方后续的 usage 记账。
+ */
 async function streamResponseBody(
   proxyResponse: Response,
   response: ServerResponse,
-  onChunk?: (chunk: Uint8Array) => void
+  onChunk?: (chunk: Uint8Array) => boolean | void
 ): Promise<void> {
   if (!proxyResponse.body) {
     return;
@@ -451,8 +466,12 @@ async function streamResponseBody(
         return;
       }
 
-      onChunk?.(value);
+      const shouldStop = onChunk?.(value) === true;
       const canContinue = response.write(Buffer.from(value));
+      if (shouldStop) {
+        await reader.cancel();
+        return;
+      }
       if (!canContinue) {
         await waitForResponseDrainOrClose(response);
       }
