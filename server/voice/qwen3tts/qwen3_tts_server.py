@@ -19,6 +19,7 @@ import os
 import re
 import threading
 import time
+from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -34,6 +35,7 @@ TARGET_RMS = 0.052
 MAX_INTERNAL_PAUSE_S = 0.20
 LONG_PAUSE_THRESHOLD_S = 0.30
 IDLE_UNLOAD_SECONDS = 300
+MAX_CACHE_ENTRIES = 32
 
 
 def _instruct_for(style: str, language: str) -> str:
@@ -138,7 +140,10 @@ class QwenTtsRuntime:
         self._model = None
         self._load_lock = threading.Lock()
         self._generate_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
+        self._cache: OrderedDict[tuple[str, str, str, str], tuple[np.ndarray, int]] = OrderedDict()
         self._idle_timer: threading.Timer | None = None
+        self._last_request_at = 0.0
 
     def _cancel_idle_timer(self) -> None:
         if self._idle_timer is not None:
@@ -193,34 +198,70 @@ class QwenTtsRuntime:
         """启动后台预热：只付一次模型加载/首句编译成本，避免第一句真人回复超时。"""
         try:
             self.get_model()
+            # 先做一次中文短句预热，承担首句编译成本。
             self.synth("你好。", DEFAULT_SPEAKER, "zh", "neutral")
+            # 空闲 5 秒后再预合成固定日语短反应并进 LRU；若用户已经开口则跳过，
+            # 绝不把预缓存排在真实请求前面。
+            time.sleep(5)
+            if time.time() - self._last_request_at >= 4.5:
+                self.synth("えへへ、うれしい！", DEFAULT_SPEAKER, "ja", "happy")
+                self.synth("こんにちは！VOIDだよ。", DEFAULT_SPEAKER, "ja", "greeting")
             print("[qwen3-tts] warmup done", flush=True)
         except Exception as error:  # noqa: BLE001 - 预热失败不杀服务，真实请求会给明确错误
             print(f"[qwen3-tts] warmup failed: {error}", flush=True)
 
-    def synth(self, text: str, speaker: str, language: str, style: str) -> tuple[np.ndarray, int]:
+    def _cache_get(self, key: tuple[str, str, str, str]) -> tuple[np.ndarray, int] | None:
+        with self._cache_lock:
+            cached = self._cache.get(key)
+            if cached is None:
+                return None
+            self._cache.move_to_end(key)
+            return cached
+
+    def _cache_put(self, key: tuple[str, str, str, str], value: tuple[np.ndarray, int]) -> None:
+        with self._cache_lock:
+            self._cache[key] = value
+            self._cache.move_to_end(key)
+            while len(self._cache) > MAX_CACHE_ENTRIES:
+                self._cache.popitem(last=False)
+
+    def synth(self, text: str, speaker: str, language: str, style: str) -> tuple[np.ndarray, int, bool]:
         model = self.get_model()
         if speaker not in model.get_supported_speakers():
             raise ValueError(f"unknown speaker: {speaker}")
+        self._last_request_at = time.time()
+        cache_key = (text, speaker, language, style)
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached[0], cached[1], True
         instruct = _instruct_for(style, language)
         with self._generate_lock:
             self._cancel_idle_timer()
-            # 短问候/短反应固定随机种子，避免同一句忽快忽慢；正文仍保留自然变化。
-            if style in ("greeting", "happy"):
-                torch.manual_seed(42)
+            # 硬上限防止模型偶发重复/空转：12Hz 下 120 token ≈ 10s 音频，
+            # 足够覆盖 8–18 字短块；实测把 57.8s 的病态生成压回 6.3s 内。
+            max_new_tokens = min(320, max(120, len(text) * 8 + 40))
+            # 全风格统一：采样 + 固定种子 + 硬上限。实测 20 句 P50 2.7s / P95 6.3s，
+            # 比 greedy（偶发 14–57s）稳定，也比无上限采样（偶发 15.8s）可控。
+            torch.manual_seed(42)
+            generate_kwargs = {
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "max_new_tokens": max_new_tokens
+            }
             wavs, sample_rate = model.generate_custom_voice(
                 text=text,
                 speaker=speaker,
                 language="Japanese" if language == "ja" else "Chinese",
                 instruct=instruct,
-                temperature=0.7,
-                top_p=0.9,
+                **generate_kwargs
             )
             samples = np.asarray(wavs[0], dtype=np.float32).reshape(-1)
             samples = _compress_long_pauses(samples, int(sample_rate))
             samples = _normalize_loudness(samples)
+            result = (samples, int(sample_rate))
+            self._cache_put(cache_key, result)
             self._schedule_idle_unload()
-            return samples, int(sample_rate)
+            return result[0], result[1], False
 
 
 class QwenTtsHandler(BaseHTTPRequestHandler):
@@ -298,7 +339,7 @@ class QwenTtsHandler(BaseHTTPRequestHandler):
             self._send_json(429, {"ok": False, "error": "tts queue full"})
             return
         try:
-            samples, sample_rate = self.runtime.synth(text, speaker, language, style)
+            samples, sample_rate, cached = self.runtime.synth(text, speaker, language, style)
             pcm = np.clip(samples, -1.0, 1.0)
             pcm = (pcm * 32767.0).astype("<i2").tobytes()
             self.send_response(200)
@@ -306,6 +347,7 @@ class QwenTtsHandler(BaseHTTPRequestHandler):
             self.send_header("X-VOID-TTS-Sample-Rate", str(sample_rate))
             self.send_header("X-VOID-TTS-Provider", "qwen3")
             self.send_header("X-VOID-TTS-Speaker", speaker)
+            self.send_header("X-VOID-TTS-Cached", "1" if cached else "0")
             self.send_header("Content-Length", str(len(pcm)))
             self.end_headers()
             try:

@@ -22,6 +22,8 @@ const ENGINE_ROOT = resolve(process.env.VOID_QWEN_TTS_ENGINE_ROOT?.trim() || joi
 const SERVER_SOURCE = join(process.cwd(), "server", "voice", "qwen3tts", "qwen3_tts_server.py");
 // 当前 ModelScope 版本（2026-11）的权重哈希；升级模型时同步更新。
 const EXPECTED_MODEL_SHA256 = "38b1d5971bdbd982b561cccec982669a53b0537c3cf5e9bd4778ed07bb2f5137";
+const ENGINE_PYTHON = join(ENGINE_ROOT, "venv", "Scripts", "python.exe");
+const ENGINE_MODEL = join(ENGINE_ROOT, "model", MODEL_NAME);
 const DEV_PYTHON = join(RUNTIME_ROOT, "tts-eval", "qwen3-tts", ".venv", "Scripts", "python.exe");
 const DEV_MODEL = join(RUNTIME_ROOT, "tts-eval", "models", "Qwen3-TTS", MODEL_NAME);
 
@@ -103,8 +105,10 @@ async function writeManifest({ python, modelDir }) {
 }
 
 async function registerExisting() {
-  const python = process.env.VOID_QWEN_TTS_PYTHON?.trim() || DEV_PYTHON;
-  const modelDir = process.env.VOID_QWEN_TTS_MODEL_DIR?.trim() || DEV_MODEL;
+  const python = process.env.VOID_QWEN_TTS_PYTHON?.trim()
+    || (existsSync(ENGINE_PYTHON) ? ENGINE_PYTHON : DEV_PYTHON);
+  const modelDir = process.env.VOID_QWEN_TTS_MODEL_DIR?.trim()
+    || (existsSync(ENGINE_MODEL) ? ENGINE_MODEL : DEV_MODEL);
   log("登记本机已有 Qwen3-TTS 环境（不重新下载）");
   await writeManifest({ python, modelDir });
 }

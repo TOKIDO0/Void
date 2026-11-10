@@ -396,6 +396,8 @@ export function VoidStage() {
   }, [tryCompleteVoiceOutputSession]);
 
   const finalizeVoiceOutputSession = useCallback((nextVisualState: VoidVisualState = "idle") => {
+    // 本轮所有句子已入队：让播放器在队列读完后收尾，而不是每句各开一个 AudioContext。
+    voicePlaybackControllerRef.current.endPcmTurn();
     voiceOutputStreamFinishedRef.current = true;
     tryCompleteVoiceOutputSession(nextVisualState);
   }, [tryCompleteVoiceOutputSession]);
@@ -833,7 +835,10 @@ export function VoidStage() {
       speechSegments.push({ text: expressionAction.text });
     }
     if (speechText) {
-      speechSegments.push({ text: speechText, language: "zh", style: "neutral" });
+      // 非流式/重生成路径也按短块切分，避免整段回复合成完才开口。
+      for (const chunk of splitCompleteSentences(speechText, true)) {
+        speechSegments.push({ text: chunk, language: "zh", style: "neutral" });
+      }
     }
     if (!speechSegments.length) {
       setVisualState("idle");
@@ -887,6 +892,7 @@ export function VoidStage() {
       await completeTextResponse(responseText, pulseKey);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "语音播放失败，请检查语音配置。";
+      voicePlaybackControllerRef.current.stop();
       showResponseLayer({
         text: errorMessage,
         tone: "error",
@@ -1999,6 +2005,9 @@ function enqueueSynthesisResult(
 const SYNTHESIS_CHUNK_MIN_CHARS_RAMP = [8, 18, 30];
 // 软切封顶：无强标点（。！？；换行）的超长串，达到此长度即允许在弱停顿（逗号、顿号）处切，避免一口气憋太长
 const SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS = 48;
+// 首块硬上限：没有任何标点的长句也必须尽快开口，避免首句被整段合成拖到 6–7 秒。
+// 只在中日韩字符/空格处硬切，不切断英文单词。
+const SYNTHESIS_FIRST_CHUNK_MAX_CHARS = 18;
 
 function resolveChunkMinChars(chunkIndex: number) {
   const rampIndex = Math.min(chunkIndex, SYNTHESIS_CHUNK_MIN_CHARS_RAMP.length - 1);
@@ -2048,17 +2057,35 @@ function extractReadySentences(text: string, includeRemainder: boolean, emittedC
 
     const isStrongBoundary = isSentenceDelimiter(character);
     const isSoftBoundary = isSoftSentenceDelimiter(character);
+    const globalChunkIndex = emittedChunkOffset + sentences.length;
+    const currentChunkLength = index + 1 - chunkStartIndex;
+    const isCjkCharacter = /[\u3400-\u9fff]/.test(character);
+    // 首块没有标点时也要硬切，保证 TTFA 不被整句合成拖住。
+    if (
+      globalChunkIndex === 0
+      && currentChunkLength >= SYNTHESIS_FIRST_CHUNK_MAX_CHARS
+      && bracketDepth === 0
+      && (isCjkCharacter || character === " ")
+    ) {
+      const hardChunk = text.slice(chunkStartIndex, index + 1).trim();
+      if (hardChunk) {
+        sentences.push(hardChunk);
+        chunkStartIndex = index + 1;
+        consumedLength = index + 1;
+      }
+      continue;
+    }
+
     if (!isStrongBoundary && !isSoftBoundary) {
       continue;
     }
 
     // 括号内的标点一律不作为切分边界；仅当块已超软切封顶（异常超长未闭合括号）才放弃保护，防卡死
-    if (bracketDepth > 0 && index + 1 - chunkStartIndex < SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS) {
+    if (bracketDepth > 0 && currentChunkLength < SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS) {
       continue;
     }
 
     const chunk = text.slice(chunkStartIndex, index + 1).trim();
-    const globalChunkIndex = emittedChunkOffset + sentences.length;
     // 首块允许在弱停顿处切以尽快开口；后续块仅当强标点、或已超过软切封顶时才允许弱停顿切分
     const boundaryAllowed = isStrongBoundary
       || globalChunkIndex === 0
