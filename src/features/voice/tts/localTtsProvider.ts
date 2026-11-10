@@ -19,7 +19,8 @@ export class LocalTtsProvider implements VoiceTtsProvider {
           {
             engine: "qwen3",
             speaker: this.speaker,
-            language: request.language ?? "zh",
+            // 未显式指定语言时交给服务端按文本自动判定，避免英文/日文被强行按中文发音。
+            language: request.language,
             style: request.style ?? "neutral"
           }
         );

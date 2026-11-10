@@ -15,6 +15,11 @@ export type VoiceRuntimeConfig = {
   qwenSpeaker: string;
   /** Kokoro 音色 id（47=zf_xiaoxiao）。 */
   localTtsVoiceId: number;
+  /**
+   * 本地平滑优先：先攒够 2 个合成块再开口。
+   * 本地 Qwen3 的 RTF≈1.8，不等缓冲会每 ~2 秒断一次；代价是首字多等约 2–3 秒。
+   */
+  localTtsSmoothStart: boolean;
 };
 
 /**
@@ -36,6 +41,7 @@ const VOICE_TTS_PROVIDER_STORAGE_KEY = "void.voice.ttsProvider";
 const LOCAL_TTS_ENGINE_STORAGE_KEY = "void.voice.localTtsEngine";
 const QWEN_SPEAKER_STORAGE_KEY = "void.voice.qwenSpeaker";
 const LOCAL_TTS_VOICE_STORAGE_KEY = "void.voice.localTtsVoiceId";
+const LOCAL_TTS_SMOOTH_START_STORAGE_KEY = "void.voice.smoothStart";
 const DEFAULT_LOCAL_TTS_VOICE_ID = 47;
 
 /**
@@ -59,6 +65,7 @@ export function loadVoiceRuntimeConfig(): VoiceRuntimeConfig {
   const storedProvider = window.localStorage.getItem(VOICE_TTS_PROVIDER_STORAGE_KEY)?.trim();
   const storedEngine = window.localStorage.getItem(LOCAL_TTS_ENGINE_STORAGE_KEY)?.trim();
   const storedQwenSpeaker = window.localStorage.getItem(QWEN_SPEAKER_STORAGE_KEY)?.trim() ?? "";
+  const storedSmoothStart = window.localStorage.getItem(LOCAL_TTS_SMOOTH_START_STORAGE_KEY)?.trim();
   const storedVoiceId = Number.parseInt(
     window.localStorage.getItem(LOCAL_TTS_VOICE_STORAGE_KEY)?.trim() ?? "",
     10
@@ -73,7 +80,8 @@ export function loadVoiceRuntimeConfig(): VoiceRuntimeConfig {
     qwenSpeaker: normalizeQwen3Speaker(storedQwenSpeaker),
     localTtsVoiceId: Number.isInteger(storedVoiceId) && storedVoiceId >= 0 && storedVoiceId <= 53
       ? storedVoiceId
-      : DEFAULT_LOCAL_TTS_VOICE_ID
+      : DEFAULT_LOCAL_TTS_VOICE_ID,
+    localTtsSmoothStart: storedSmoothStart === "1"
   };
 }
 
@@ -86,7 +94,10 @@ function clearLegacyClientVoiceSecrets() {
 }
 
 export function saveVoiceRuntimeConfig(
-  config: Partial<Pick<VoiceRuntimeConfig, "doubaoSpeakerId" | "localTtsEngine" | "qwenSpeaker">>
+  config: Partial<Pick<
+    VoiceRuntimeConfig,
+    "doubaoSpeakerId" | "localTtsEngine" | "qwenSpeaker" | "voiceTtsProvider" | "localTtsSmoothStart"
+  >>
 ) {
   if (config.doubaoSpeakerId !== undefined) {
     persistLocalValue(DOUBAO_SPEAKER_ID_STORAGE_KEY, config.doubaoSpeakerId);
@@ -96,6 +107,12 @@ export function saveVoiceRuntimeConfig(
   }
   if (config.qwenSpeaker !== undefined) {
     persistLocalValue(QWEN_SPEAKER_STORAGE_KEY, normalizeQwen3Speaker(config.qwenSpeaker));
+  }
+  if (config.voiceTtsProvider !== undefined) {
+    persistLocalValue(VOICE_TTS_PROVIDER_STORAGE_KEY, config.voiceTtsProvider === "cloud" ? "cloud" : "local");
+  }
+  if (config.localTtsSmoothStart !== undefined) {
+    persistLocalValue(LOCAL_TTS_SMOOTH_START_STORAGE_KEY, config.localTtsSmoothStart ? "1" : "");
   }
 }
 

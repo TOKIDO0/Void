@@ -39,7 +39,8 @@ export async function synthesizeLocalTts(
         voice: voiceId,
         engine: options.engine ?? "kokoro",
         speaker: options.speaker,
-        language: options.language ?? "zh",
+        // 缺省不传 language：服务端按 kana/汉字自行判定，避免把英文段落读成中文。
+        language: options.language,
         style: options.style ?? "neutral"
       }),
       signal

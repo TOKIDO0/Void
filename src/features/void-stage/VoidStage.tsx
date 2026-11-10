@@ -38,10 +38,12 @@ import { DEFAULT_VOICE_STATE, type VoiceActivityLevel, type VoiceStateSnapshot }
 import { createVoiceSttProvider } from "../voice/stt/voiceSttProviderFactory";
 import { VoiceTtsOrchestrator } from "../voice/tts/voiceTtsOrchestrator";
 import { warmupLocalTtsEngine } from "../voice/tts/localTtsBridgeClient";
-import { selectJapaneseReaction, type JapaneseReaction } from "../voice/tts/japaneseReaction";
+import { selectTurnReaction, type TurnReaction } from "../voice/tts/turnReaction";
+import { resolveTurnSpeechStyle } from "../voice/tts/turnSpeechStyle";
 import { VoicePlaybackController } from "../voice/tts/voicePlaybackController";
-import type { VoiceSynthesisResult } from "../voice/tts/voiceTtsContract";
+import type { VoiceSynthesisResult, VoiceTtsStyle } from "../voice/tts/voiceTtsContract";
 import { stripLinksForSpeech } from "../voice/tts/speechTextSanitizer";
+import { extractReadySentences, splitCompleteSentences } from "../voice/tts/speechChunking";
 import { ProviderRequestError } from "../../lib/model-providers/providerErrors";
 import { stripProtocolMarkup } from "../../lib/model-providers/dsmlToolCallParser";
 import { recognizeUserEmotion } from "../emotion/userEmotionRecognizer";
@@ -194,9 +196,11 @@ export function VoidStage() {
   const lastVoiceCommitAtRef = useRef(0);
   // 本轮情绪派生的 TTS 表达参数：整轮一致，供流式/整段合成透传给豆包 audio_params。
   const turnTtsExpressionRef = useRef<VoiceSynthesisExpression>({});
-  // 本轮日语短反应：只进 TTS，不写入聊天文本/历史；每轮最多一句。
-  const turnJapaneseReactionRef = useRef<JapaneseReaction | null>(null);
-  const turnJapaneseReactionQueuedRef = useRef(false);
+  // 本轮开场短反应：只进 TTS，不写入聊天文本/历史；每轮最多一句。
+  const turnReactionRef = useRef<TurnReaction | null>(null);
+  const turnReactionQueuedRef = useRef(false);
+  // 本轮语音语调：整轮所有合成块共用，禁止逐块变化（防同一段回复出现多种情绪）。
+  const turnTtsStyleRef = useRef<VoiceTtsStyle>("neutral");
   // P4.a 本轮最多一句 TTS-only 边界表达；不写入回复历史，也不参与工具事实结算。
   const turnTtsExpressionActionRef = useRef<TtsExpressionAction | null>(null);
   // 情绪视觉偏移：驱动中央流体 profile 的乘性偏移，需触发重渲染故用 state。
@@ -371,6 +375,13 @@ export function VoidStage() {
     voiceOutputAbortControllerRef.current = new AbortController();
     voiceOutputStreamFinishedRef.current = false;
 
+    // 本地 Qwen3 的 RTF≈1.8，首块即播会每 ~2 秒断一次；
+    // 平滑优先先攒 2 块再开口。云端流式无需这个缓冲。
+    const voiceConfig = loadVoiceRuntimeConfig();
+    voicePlaybackControllerRef.current.setSmoothStart(
+      voiceConfig.voiceTtsProvider === "local" && voiceConfig.localTtsSmoothStart
+    );
+
     voicePlaybackControllerRef.current.setLifecycle({
       onStart: () => {
         setVoiceState((currentState) => ({
@@ -417,9 +428,14 @@ export function VoidStage() {
     agentEmotionStateRef.current = nextAgentEmotion;
     saveAgentEmotionState(nextAgentEmotion);
 
-    // 日语只用于打招呼/开心短反应；生气/难过/压力时不使用日语。只进 TTS，不改聊天文本。
-    turnJapaneseReactionRef.current = selectJapaneseReaction(nextAgentEmotion.label, message);
-    turnJapaneseReactionQueuedRef.current = false;
+    // 开场短反应只看「用户本轮情绪」，不看 Agent 持久标签，避免常驻情绪导致每轮都插反应。
+    turnReactionRef.current = selectTurnReaction(emotionReading.label, message);
+    turnReactionQueuedRef.current = false;
+    // 整轮语调在首句合成前定死：所有合成块（含短反应）共用，情绪不会在句间跳变。
+    turnTtsStyleRef.current = resolveTurnSpeechStyle(
+      emotionReading.label,
+      emotionReading.safetyCritical
+    );
 
     // 关系情感并行结算：与一期共用 safetyCritical，避免安全词表双写。
     // 重新生成沿用同一条用户消息，不得再次累计同一个社会事件，否则一次辱骂会被重复记仇。
@@ -457,15 +473,15 @@ export function VoidStage() {
     return { ...emotionPolicy, behaviorDecision };
   }, []);
 
-  const takeJapaneseReaction = useCallback(() => {
-    if (turnJapaneseReactionQueuedRef.current) {
+  const takeTurnReaction = useCallback(() => {
+    if (turnReactionQueuedRef.current) {
       return null;
     }
-    const reaction = turnJapaneseReactionRef.current;
+    const reaction = turnReactionRef.current;
     if (!reaction) {
       return null;
     }
-    turnJapaneseReactionQueuedRef.current = true;
+    turnReactionQueuedRef.current = true;
     return reaction;
   }, []);
 
@@ -821,23 +837,25 @@ export function VoidStage() {
 
     // 送入合成前剥离括号情绪标注；P4.a 插句仅进入 TTS，不写入显示或历史。
     const speechText = sanitizeTextForSpeech(responseText);
-    // 日语短反应只进音频；有日语时跳过 P4.a 插句，避免两个短反应叠在一起。
-    const japaneseReaction = takeJapaneseReaction();
-    const expressionAction = japaneseReaction ? null : turnTtsExpressionActionRef.current;
-    if (japaneseReaction) {
+    // 开场短反应只进音频；有短反应时跳过 P4.a 插句，避免两个开场句叠在一起。
+    const turnReaction = takeTurnReaction();
+    const expressionAction = turnReaction ? null : turnTtsExpressionActionRef.current;
+    if (turnReaction) {
       turnTtsExpressionActionRef.current = null;
     }
+    // 整轮语调唯一真源：短反应、插句、正文全部共用同一个 style。
+    const turnStyle = turnTtsStyleRef.current;
     const speechSegments: Array<string | VoiceSentenceInput> = [];
-    if (japaneseReaction) {
-      speechSegments.push({ text: japaneseReaction.text, language: "ja", style: japaneseReaction.style });
+    if (turnReaction) {
+      speechSegments.push({ text: turnReaction.text, style: turnStyle });
     }
     if (expressionAction) {
-      speechSegments.push({ text: expressionAction.text });
+      speechSegments.push({ text: expressionAction.text, style: turnStyle });
     }
     if (speechText) {
-      // 非流式/重生成路径也按短块切分，避免整段回复合成完才开口。
+      // 非流式/重生成路径也按块切分：首块短保开口速度，后续块合并 2–4 句保持韵律连贯。
       for (const chunk of splitCompleteSentences(speechText, true)) {
-        speechSegments.push({ text: chunk, language: "zh", style: "neutral" });
+        speechSegments.push({ text: chunk, style: turnStyle });
       }
     }
     if (!speechSegments.length) {
@@ -885,7 +903,7 @@ export function VoidStage() {
       signal
     );
     finalizeVoiceOutputSession("idle");
-  }, [finalizeVoiceOutputSession, scheduleResponseLayerHide, showResponseLayer, startVoiceOutputSession, takeJapaneseReaction, voicePreferences.voiceOutputEnabled]);
+  }, [finalizeVoiceOutputSession, scheduleResponseLayerHide, showResponseLayer, startVoiceOutputSession, takeTurnReaction, voicePreferences.voiceOutputEnabled]);
 
   const completeTextResponseWithErrorHandling = useCallback(async (responseText: string, pulseKey: string) => {
     try {
@@ -904,45 +922,6 @@ export function VoidStage() {
     }
   }, [completeTextResponse, scheduleResponseLayerHide, showResponseLayer]);
 
-  const streamVoiceOutput = useCallback(async (responseText: string) => {
-    if (!voicePreferences.voiceOutputEnabled) {
-      return;
-    }
-
-    const runtimeConfig = loadVoiceRuntimeConfig();
-    const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
-    const sentences = splitCompleteSentences(responseText, true);
-    if (!sentences.length) {
-      return;
-    }
-
-    const signal = startVoiceOutputSession();
-    await orchestrator.synthesizeSentences(
-      sentences,
-      {
-        requestMode: runtimeConfig.requestMode,
-        voiceMode: "default",
-        preferredGender: "female",
-        scene: "default"
-      },
-      async ({ result }) => {
-        if (signal.aborted) {
-          if ("audioUrl" in result) {
-            URL.revokeObjectURL(result.audioUrl);
-          } else {
-            void result.pcmStream.cancel();
-          }
-          return;
-        }
-
-        enqueueSynthesisResult(voicePlaybackControllerRef.current, result);
-      },
-      signal
-    );
-    finalizeVoiceOutputSession("idle");
-    voiceFollowUpUntilRef.current = Date.now() + VOICE_FOLLOW_UP_WINDOW_MS;
-  }, [finalizeVoiceOutputSession, startVoiceOutputSession, voicePreferences.voiceOutputEnabled]);
-
   const createStreamingVoiceBatcher = useCallback(() => {
     if (!voicePreferences.voiceOutputEnabled) {
       return null;
@@ -956,12 +935,14 @@ export function VoidStage() {
 
     const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
     const signal = startVoiceOutputSession();
-    // 日语短反应只进音频；有日语时跳过 P4.a 插句，避免两个短反应叠在一起。
-    const japaneseReaction = takeJapaneseReaction();
-    const expressionAction = japaneseReaction ? null : turnTtsExpressionActionRef.current;
-    if (japaneseReaction) {
+    // 开场短反应只进音频；有短反应时跳过 P4.a 插句，避免两个开场句叠在一起。
+    const turnReaction = takeTurnReaction();
+    const expressionAction = turnReaction ? null : turnTtsExpressionActionRef.current;
+    if (turnReaction) {
       turnTtsExpressionActionRef.current = null;
     }
+    // 整轮语调唯一真源：短反应、插句、正文全部共用同一个 style。
+    const turnStyle = turnTtsStyleRef.current;
     let didQueueExpression = false;
     // 整轮语音输出只维护一个流式合成会话：全局并发受控，按 index 顺序入队，避免打爆供应商触发 429
     const synthesisSession = orchestrator.createStreamingSession(
@@ -993,8 +974,8 @@ export function VoidStage() {
       },
       signal
     );
-    if (japaneseReaction) {
-      synthesisSession.push([{ text: japaneseReaction.text, language: "ja", style: japaneseReaction.style }]);
+    if (turnReaction) {
+      synthesisSession.push([{ text: turnReaction.text, style: turnStyle }]);
     }
     let synthesizedCursor = 0;
     // 本轮已产出的合成块数量，供渐进式阈值定位（首块最短、后续渐长）
@@ -1008,9 +989,10 @@ export function VoidStage() {
 
       if (expressionAction && !didQueueExpression) {
         didQueueExpression = true;
-        synthesisSession.push([expressionAction.text]);
+        synthesisSession.push([{ text: expressionAction.text, style: turnStyle }]);
       }
-      synthesisSession.push(speechSentences);
+      // 逐块共用同一 style：Qwen3 的 instruct 是单次合成内生效，逐块换 style 会撕裂情绪。
+      synthesisSession.push(speechSentences.map((text) => ({ text, style: turnStyle })));
     };
 
     return {
@@ -1038,7 +1020,7 @@ export function VoidStage() {
         voiceFollowUpUntilRef.current = Date.now() + VOICE_FOLLOW_UP_WINDOW_MS;
       }
     };
-  }, [finalizeVoiceOutputSession, startVoiceOutputSession, takeJapaneseReaction, voicePreferences.voiceOutputEnabled]);
+  }, [finalizeVoiceOutputSession, startVoiceOutputSession, takeTurnReaction, voicePreferences.voiceOutputEnabled]);
 
   const failTextResponse = useCallback((
     error: unknown,
@@ -1997,23 +1979,6 @@ function enqueueSynthesisResult(
   playbackController.enqueue(result.audioUrl);
 }
 
-// 渐进式分块（progressive chunking）：首块尽量短以最小化首字发声延迟（TTFA），
-// 后续块逐渐变长——此时首句已在播放，有余量从容合成，换取更少请求与更自然的韵律。
-// 数组按「本轮已产出的合成块序号」取阈值，越靠后越长，末位为封顶值。
-// 首块保低延迟（TTFA 只由第 0 块决定），后续块显著加长使其更接近完整句，
-// 减少「半句起调」造成的跨句语气突变（依据见 21 号文档 §0 根因 B2）。
-const SYNTHESIS_CHUNK_MIN_CHARS_RAMP = [8, 18, 30];
-// 软切封顶：无强标点（。！？；换行）的超长串，达到此长度即允许在弱停顿（逗号、顿号）处切，避免一口气憋太长
-const SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS = 48;
-// 首块硬上限：没有任何标点的长句也必须尽快开口，避免首句被整段合成拖到 6–7 秒。
-// 只在中日韩字符/空格处硬切，不切断英文单词。
-const SYNTHESIS_FIRST_CHUNK_MAX_CHARS = 18;
-
-function resolveChunkMinChars(chunkIndex: number) {
-  const rampIndex = Math.min(chunkIndex, SYNTHESIS_CHUNK_MIN_CHARS_RAMP.length - 1);
-  return SYNTHESIS_CHUNK_MIN_CHARS_RAMP[rampIndex];
-}
-
 // 朗读文本净化：AI 回复中形如「（轻声）」「(笑)」的括号情绪/动作标注，显示时保留（用户可见其情绪），
 // 但 TTS 合成前必须剥离，否则会被逐字读出。仅用于送入合成的文本，绝不改动显示层。
 function sanitizeTextForSpeech(text: string) {
@@ -2032,104 +1997,4 @@ function sanitizeTextForSpeech(text: string) {
     // 剥离后可能留下多余空白
     .replace(/[ \t]{2,}/g, " ")
     .trim();
-}
-
-/**
- * 从流式文本中切出「已就绪」的合成块。
- * @param includeRemainder 收尾时为 true，把剩余不足一块的尾巴也一并吐出
- * @param emittedChunkOffset 本轮此前已产出的合成块数量，用于渐进式阈值定位（首块最短）
- */
-function extractReadySentences(text: string, includeRemainder: boolean, emittedChunkOffset = 0) {
-  const sentences: string[] = [];
-  let consumedLength = 0;
-  let chunkStartIndex = 0;
-  // 括号嵌套深度：进入括号内不切句，保证成对括号（含内部标点）整体落在同一块，
-  // 之后 sanitizeTextForSpeech 才能把旁白整体剥离，避免旁白被切散后残留文字被朗读。
-  let bracketDepth = 0;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (isOpenBracket(character)) {
-      bracketDepth += 1;
-    } else if (isCloseBracket(character) && bracketDepth > 0) {
-      bracketDepth -= 1;
-    }
-
-    const isStrongBoundary = isSentenceDelimiter(character);
-    const isSoftBoundary = isSoftSentenceDelimiter(character);
-    const globalChunkIndex = emittedChunkOffset + sentences.length;
-    const currentChunkLength = index + 1 - chunkStartIndex;
-    const isCjkCharacter = /[\u3400-\u9fff]/.test(character);
-    // 首块没有标点时也要硬切，保证 TTFA 不被整句合成拖住。
-    if (
-      globalChunkIndex === 0
-      && currentChunkLength >= SYNTHESIS_FIRST_CHUNK_MAX_CHARS
-      && bracketDepth === 0
-      && (isCjkCharacter || character === " ")
-    ) {
-      const hardChunk = text.slice(chunkStartIndex, index + 1).trim();
-      if (hardChunk) {
-        sentences.push(hardChunk);
-        chunkStartIndex = index + 1;
-        consumedLength = index + 1;
-      }
-      continue;
-    }
-
-    if (!isStrongBoundary && !isSoftBoundary) {
-      continue;
-    }
-
-    // 括号内的标点一律不作为切分边界；仅当块已超软切封顶（异常超长未闭合括号）才放弃保护，防卡死
-    if (bracketDepth > 0 && currentChunkLength < SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS) {
-      continue;
-    }
-
-    const chunk = text.slice(chunkStartIndex, index + 1).trim();
-    // 首块允许在弱停顿处切以尽快开口；后续块仅当强标点、或已超过软切封顶时才允许弱停顿切分
-    const boundaryAllowed = isStrongBoundary
-      || globalChunkIndex === 0
-      || chunk.length >= SYNTHESIS_CHUNK_SOFT_FLUSH_CHARS;
-    if (!boundaryAllowed || chunk.length < resolveChunkMinChars(globalChunkIndex)) {
-      continue;
-    }
-
-    sentences.push(chunk);
-    chunkStartIndex = index + 1;
-    consumedLength = index + 1;
-  }
-
-  if (includeRemainder) {
-    const remainder = text.slice(chunkStartIndex).trim();
-    if (remainder) {
-      sentences.push(remainder);
-      consumedLength = text.length;
-    }
-  }
-
-  return {
-    sentences,
-    consumedLength
-  };
-}
-
-function splitCompleteSentences(text: string, includeRemainder: boolean) {
-  return extractReadySentences(text, includeRemainder).sentences;
-}
-
-function isSentenceDelimiter(character: string) {
-  return character === "。" || character === "！" || character === "？" || character === "；" || character === "\n";
-}
-
-function isSoftSentenceDelimiter(character: string) {
-  return character === "，" || character === "、" || character === ",";
-}
-
-// 开/闭括号判定：供切句阶段的括号保护使用，覆盖中文（）、英文 ()、【】、[]。
-function isOpenBracket(character: string) {
-  return character === "（" || character === "(" || character === "【" || character === "[";
-}
-
-function isCloseBracket(character: string) {
-  return character === "）" || character === ")" || character === "】" || character === "]";
 }

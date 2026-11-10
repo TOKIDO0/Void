@@ -263,7 +263,8 @@ export function synthesizeLocalTts(
   if (options.engine === "qwen3") {
     return synthesizeQwenTts(normalized, {
       speaker: options.speaker?.trim() || "ono_anna",
-      language: options.language === "ja" ? "ja" : "zh",
+      // 缺省交给服务端自动判定语言，避免英文/日文被强行按中文发音。
+      language: options.language,
       style: options.style ?? "neutral"
     }, signal);
   }

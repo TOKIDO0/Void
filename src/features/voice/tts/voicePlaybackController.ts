@@ -21,6 +21,9 @@ type PcmStreamItem = {
  * - worklet 自带 200ms 启动缓冲，首块到齐即开口；
  * - 句子流仍在后台读取，读取顺序与播放顺序一致。
  */
+/** 平滑优先时先攒几个合成块再开口。2 块约等于 3–4 秒音频缓冲。 */
+const SMOOTH_START_STREAMS = 2;
+
 export class VoicePlaybackController {
   private currentAudio: HTMLAudioElement | null = null;
   private currentAudioUrl = "";
@@ -37,12 +40,22 @@ export class VoicePlaybackController {
   private pcmFinishPosted = false;
   private pcmSampleRate = 24000;
   private pcmStreamQueue: PcmStreamItem[] = [];
+  /** 开口前需要攒够的合成块数；1 = 首块即播，2 = 平滑优先。 */
+  private pcmSmoothStartStreams = 1;
   private pcmPumpRunning = false;
   private pcmDrainedPromise: Promise<void> | null = null;
   private pcmDrainedResolver: (() => void) | null = null;
 
   setLifecycle(lifecycle: VoicePlaybackLifecycle = {}) {
     this.lifecycle = lifecycle;
+  }
+
+  /**
+   * 平滑优先：等攒够 2 个合成块再开口，减少句间空洞。
+   * 只影响本地模式；云端流式本身就是连续的，不需要这个缓冲。
+   */
+  setSmoothStart(enabled: boolean) {
+    this.pcmSmoothStartStreams = enabled ? SMOOTH_START_STREAMS : 1;
   }
 
   enqueue(audioSourceUrl: string) {
@@ -74,7 +87,10 @@ export class VoicePlaybackController {
       this.beginPcmTurn(sampleRate);
     }
     this.pcmStreamQueue.push({ stream, sampleRate, sessionId });
-    void this.pumpPcmQueue();
+    // 平滑优先：不足 2 块时先不读，等下一块到齐再一起送 worklet。
+    if (this.pcmStreamQueue.length >= this.pcmSmoothStartStreams) {
+      void this.pumpPcmQueue();
+    }
   }
 
   /** 本轮所有句子都已入队；等队列读完后给 worklet 发 finish。 */
@@ -83,9 +99,15 @@ export class VoicePlaybackController {
       return;
     }
     this.pcmTurnEndRequested = true;
-    if (!this.pcmPumpRunning && this.pcmStreamQueue.length === 0) {
-      void this.finishPcmTurnIfReady();
+    if (this.pcmPumpRunning) {
+      return;
     }
+    // 本轮只有 1 块时不能再等第 2 块，直接开播并收尾。
+    if (this.pcmStreamQueue.length > 0) {
+      void this.pumpPcmQueue();
+      return;
+    }
+    void this.finishPcmTurnIfReady();
   }
 
   stop() {
@@ -99,6 +121,10 @@ export class VoicePlaybackController {
     this.pcmAudioContext = null;
     if (pcmAudioContext && pcmAudioContext.state !== "closed") {
       void pcmAudioContext.close();
+    }
+    // 平滑优先会短暂扣留未读取的流；打断时必须主动 cancel，避免 HTTP body 悬挂。
+    for (const item of this.pcmStreamQueue) {
+      void item.stream.cancel().catch(() => undefined);
     }
     this.pcmStreamQueue = [];
     this.pcmTurnActive = false;

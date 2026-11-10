@@ -57,6 +57,13 @@ type SettingsCopy = {
   voiceSttStatusUnavailable: string;
   voiceTtsLocalEngine: string;
   voiceTtsLocalHint: string;
+  voiceTtsMode: string;
+  voiceTtsModeLocal: string;
+  voiceTtsModeCloud: string;
+  voiceTtsModeLocalHint: string;
+  voiceTtsModeCloudHint: string;
+  localTtsSmoothStart: string;
+  localTtsSmoothStartHint: string;
   localTtsEngine: string;
   localTtsEngineQwen: string;
   localTtsEngineKokoro: string;
@@ -171,6 +178,13 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     voiceSttStatusUnavailable: "无法读取本地语音状态",
     voiceTtsLocalEngine: "本地 Kokoro（音色 47）",
     voiceTtsLocalHint: "默认在本机合成，不联网、不计费。",
+    voiceTtsMode: "语音输出方式",
+    voiceTtsModeLocal: "本地（隐私优先）",
+    voiceTtsModeCloud: "云端低延迟",
+    voiceTtsModeLocalHint: "本机合成，首字约 3–5 秒；句间可能短暂停顿。",
+    voiceTtsModeCloudHint: "云端流式，首字比本地快；音频会上传，需要托管语音可用。",
+    localTtsSmoothStart: "平滑优先",
+    localTtsSmoothStartHint: "先攒一个短块再开口，句间停顿更少；首字会慢约 2–3 秒。",
     localTtsEngine: "本地语音引擎",
     localTtsEngineQwen: "Qwen3-TTS（推荐）",
     localTtsEngineKokoro: "Kokoro（低配/快速）",
@@ -281,6 +295,13 @@ export const SETTINGS_COPY: Record<SettingsLanguage, SettingsCopy> = {
     voiceSttStatusUnavailable: "Local voice status unavailable",
     voiceTtsLocalEngine: "Local Kokoro (voice 47)",
     voiceTtsLocalHint: "Synthesized on this device. No network or fees.",
+    voiceTtsMode: "Speech output",
+    voiceTtsModeLocal: "Local (private)",
+    voiceTtsModeCloud: "Cloud (low latency)",
+    voiceTtsModeLocalHint: "On-device. First audio takes about 3–5 s; short pauses can occur between chunks.",
+    voiceTtsModeCloudHint: "Cloud streaming, faster to first audio than local. Audio is uploaded and needs the hosted voice service.",
+    localTtsSmoothStart: "Prefer smooth playback",
+    localTtsSmoothStartHint: "Waits for one more chunk before speaking; fewer pauses, about 2–3 s slower to first audio.",
     localTtsEngine: "Local voice engine",
     localTtsEngineQwen: "Qwen3-TTS (recommended)",
     localTtsEngineKokoro: "Kokoro (low-spec/fast)",

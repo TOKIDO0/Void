@@ -1,7 +1,10 @@
 export type VoiceTtsLanguage = "zh" | "ja";
-export type VoiceTtsStyle = "greeting" | "happy" | "neutral" | "serious";
+export type VoiceTtsStyle = "happy" | "neutral" | "serious";
 
-/** 单句 TTS 输入：可逐句覆盖语言/风格（日语短反应 + 中文正文）。 */
+/**
+ * 单个合成块输入。语言/风格可逐块覆盖，但生产路径必须整轮共用同一 style：
+ * Qwen3-TTS 的 instruct 只在单次合成内生效，逐块切换会让同一段回复出现多种情绪。
+ */
 export type VoiceSentenceInput = {
   text: string;
   language?: VoiceTtsLanguage;
@@ -25,7 +28,7 @@ export type VoiceSynthesisRequest = {
   contextText?: string;
   // 本轮情绪派生的表达参数，整轮一致，不逐句变（防自造忽高忽低）。
   expression?: VoiceSynthesisExpression;
-  /** 单句语言/风格；未指定时由本地供应商默认 zh/neutral。 */
+  /** 单块语言/风格；语言缺省时由引擎按文本自动判定，风格缺省为 neutral。 */
   language?: VoiceTtsLanguage;
   style?: VoiceTtsStyle;
   signal?: AbortSignal;

@@ -14,6 +14,16 @@ const INERTIA_ALPHA = 0.6;
 const DECAY_TIME_CONSTANT_MS = 180_000;
 /** 标签切换所需的最小目标强度×置信度门槛，防抖 */
 const LABEL_SWITCH_THRESHOLD = 0.45;
+/**
+ * 中性输入时的回落系数：每来一轮无情绪线索的消息，强度只保留 55%。
+ * 必须有这个显式回落，否则「惯性 + 中性目标 0.1」会把强度钉在 0.25 的不动点上，
+ * 标签永远回不到 neutral（历史缺陷：导致 happy 常驻、每轮都触发开心反应）。
+ */
+const NEUTRAL_PULL_ALPHA = 0.55;
+/** 强度低于此值即认为情绪平复，标签回落 neutral */
+const LABEL_DECAY_THRESHOLD = 0.15;
+/** 平复后的中性基线强度（与 INITIAL_AGENT_EMOTION_STATE 保持一致） */
+const NEUTRAL_BASELINE_INTENSITY = 0.2;
 /** 安全场景下强制的关怀基调强度 */
 const SAFETY_CARE_INTENSITY = 0.85;
 
@@ -44,14 +54,29 @@ export function evolveAgentEmotion(
   // 先按时间对上一状态做向 neutral 的衰减
   const decayed = decayTowardNeutral(previous, now);
 
+  // 中性输入：不注入任何新情绪，只把既有情绪按轮次回落。
+  // 独立分支处理，避免和中途的惯性混合互相抵消形成永久的强度不动点。
+  if (reading.label === "neutral") {
+    const nextIntensity = clampUnit(decayed.intensity * NEUTRAL_PULL_ALPHA);
+    const nextLabel: EmotionLabel = nextIntensity < LABEL_DECAY_THRESHOLD ? "neutral" : decayed.label;
+    return appendHistory(
+      {
+        label: nextLabel,
+        intensity: nextLabel === "neutral" ? NEUTRAL_BASELINE_INTENSITY : nextIntensity,
+        updatedAt: now,
+        history: decayed.history
+      },
+      now
+    );
+  }
+
   // 牵引力：用户情绪对 Agent 的影响受置信度加权
   const traction = reading.confidence;
   const targetIntensity = reading.intensity * traction;
 
   // 标签是否切换：需目标情绪足够强且置信，否则维持当前标签仅调强度
   const shouldSwitchLabel =
-    reading.label !== "neutral"
-    && reading.label !== decayed.label
+    reading.label !== decayed.label
     && targetIntensity >= LABEL_SWITCH_THRESHOLD;
 
   const nextLabel: EmotionLabel = shouldSwitchLabel ? reading.label : decayed.label;
@@ -85,8 +110,13 @@ function decayTowardNeutral(state: AgentEmotionState, now: number): AgentEmotion
   const decayFactor = Math.exp(-elapsed / DECAY_TIME_CONSTANT_MS);
   const decayedIntensity = clampUnit(state.intensity * decayFactor);
 
-  if (decayedIntensity < 0.15) {
-    return { label: "neutral", intensity: 0.2, updatedAt: state.updatedAt, history: state.history };
+  if (decayedIntensity < LABEL_DECAY_THRESHOLD) {
+    return {
+      label: "neutral",
+      intensity: NEUTRAL_BASELINE_INTENSITY,
+      updatedAt: state.updatedAt,
+      history: state.history
+    };
   }
 
   return { ...state, intensity: decayedIntensity };

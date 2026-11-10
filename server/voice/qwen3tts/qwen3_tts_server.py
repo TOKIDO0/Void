@@ -32,27 +32,40 @@ DEFAULT_SPEAKER = "ono_anna"
 MAX_TEXT_CHARS = 500
 SAMPLE_RATE_FALLBACK = 24000
 TARGET_RMS = 0.052
+# 停顿规范化（业界做法：silence truncation + 固定句间间隔，不把停顿交给模型）。
+# - 句内停顿超过 LONG_PAUSE_THRESHOLD_S 才裁，裁到 MAX_INTERNAL_PAUSE_S；
+# - 句首/句尾静音统一裁到固定预算，拼接处不会出现“空一大截”或“贴太紧”；
+# - 不加长停顿：Qwen3-TTS 不解析 SSML，长停顿只会放大换气声。
 MAX_INTERNAL_PAUSE_S = 0.20
-LONG_PAUSE_THRESHOLD_S = 0.30
+LONG_PAUSE_THRESHOLD_S = 0.34
+EDGE_LEAD_S = 0.06
+EDGE_TAIL_S = 0.09
+EDGE_FADE_S = 0.012
 IDLE_UNLOAD_SECONDS = 300
 MAX_CACHE_ENTRIES = 32
 
 
-def _instruct_for(style: str, language: str) -> str:
+def _instruct_for(style: str) -> str:
     """把业务风格映射成模型可执行的 instruct。
 
-    v6（英文）是用户实际听过并认可的开心/问候风格；v7（无情绪）只控语速。
-    生气时不使用任何“开心日语”描述。
+    实测英文祈使句是最稳定的杠杆（中文/参数模板更弱）。官方与社区经验：
+    要写具体声学描述、保持 1–3 句、给出明确的节奏约束；"relaxed" 这类词会
+    让模型放软、加大换气，因此统一改成“稳定语速 + 短停顿”。
     """
-    if style in ("greeting", "happy"):
-        return "Happy, bright, clear voice. Speak at a normal pace with no long pauses."
+    if style == "happy":
+        return (
+            "Speak in a warm, cheerful, steady tone at a steady pace. "
+            "Keep pauses between sentences short."
+        )
     if style == "serious":
-        if language == "ja":
-            return "落ち着いた真剣な口調で、普通の速さで、間を長く取らずに話してください。"
-        return "用严肃、克制的语气，语速正常，句子之间不要停顿太久，不要用开心的日语。"
-    if language == "ja":
-        return "間を長く取らず、少し速めに話してください。"
-    return "用自然、稍快的语速，句子之间不要停顿太久。"
+        return (
+            "Speak in a calm, serious, restrained tone at a steady pace. "
+            "Keep pauses between sentences short."
+        )
+    return (
+        "Speak in a natural conversational tone at a steady pace. "
+        "Keep pauses between sentences short."
+    )
 
 
 def _detect_language(text: str, requested: str | None) -> str:
@@ -66,8 +79,13 @@ def _detect_language(text: str, requested: str | None) -> str:
     return "ja" if re.search(r"[\u3040-\u30ff]", text) else "zh"
 
 
-def _compress_long_pauses(samples: np.ndarray, sample_rate: int) -> np.ndarray:
-    """把句内 >0.3s 的静音压缩到 0.2s，保留句首/句尾静音。"""
+def _normalize_pauses(samples: np.ndarray, sample_rate: int) -> np.ndarray:
+    """停顿规范化：裁句首/句尾静音 + 裁掉过长的句内停顿。
+
+    业界（Auto-Editor / VoiceStudio / 播客后期链）的通用做法是：
+    每段渲染自带前后静音，拼接时先裁边、再插入固定间隔，而不是让模型自由换气。
+    这里按同一原则处理，避免“动不动大喘气”。
+    """
     if samples.size == 0:
         return samples
     frame = max(1, int(sample_rate * 0.01))
@@ -75,39 +93,57 @@ def _compress_long_pauses(samples: np.ndarray, sample_rate: int) -> np.ndarray:
     energy = np.sqrt(np.convolve(pad, np.ones(frame) / frame, mode="valid"))[: samples.size]
     threshold = max(0.008, float(np.percentile(energy, 60) * 0.15))
     voiced = energy > threshold
-
-    runs: list[tuple[int, int]] = []
-    index = 0
-    while index < voiced.size:
-        if not voiced[index]:
-            end = index
-            while end < voiced.size and not voiced[end]:
-                end += 1
-            runs.append((index, end))
-            index = end
-        else:
-            index += 1
-
-    if not runs:
+    if not voiced.any():
         return samples
+
+    # energy / voiced 都是逐采样点长度，下面的下标一律按采样点计（不要再乘 frame）。
     first_voiced = int(np.argmax(voiced))
-    last_voiced = len(voiced) - int(np.argmax(voiced[::-1]))
-    keep = int(sample_rate * MAX_INTERNAL_PAUSE_S)
+    last_voiced = int(len(voiced) - np.argmax(voiced[::-1]))
+    lead_budget = int(sample_rate * EDGE_LEAD_S)
+    tail_budget = int(sample_rate * EDGE_TAIL_S)
+    max_pause = int(sample_rate * MAX_INTERNAL_PAUSE_S)
+    min_cut = int(sample_rate * LONG_PAUSE_THRESHOLD_S)
+
     pieces: list[np.ndarray] = []
-    cursor = 0
-    for start, end in runs:
-        if start <= first_voiced or end >= last_voiced:
+    cursor = max(0, first_voiced - lead_budget)
+    index = first_voiced
+    while index < last_voiced:
+        if voiced[index]:
+            index += 1
             continue
-        pause = end - start
-        if pause <= sample_rate * LONG_PAUSE_THRESHOLD_S:
-            continue
-        # 保留停顿的前半段和后半段，避免切在语音起音/尾音上。
-        head = min(keep // 2, pause)
-        tail = min(keep - head, pause - head)
-        pieces.append(samples[cursor:start + head])
-        cursor = end - tail
-    pieces.append(samples[cursor:])
-    return np.concatenate(pieces) if pieces else samples
+        end = index
+        while end < last_voiced and not voiced[end]:
+            end += 1
+        pieces.append(samples[cursor:index])
+        pause = end - index
+        if pause <= min_cut:
+            # 正常句读停顿：原样保留
+            pieces.append(samples[index:end])
+        else:
+            # 超长停顿/换气：只保留前后边缘，总长压到 max_pause
+            head = min(max_pause // 2, pause)
+            tail = min(max_pause - head, pause - head)
+            pieces.append(samples[index:index + head])
+            pieces.append(samples[end - tail:end])
+        cursor = end
+        index = end
+
+    end_sample = min(samples.size, last_voiced + tail_budget)
+    pieces.append(samples[cursor:end_sample])
+    trimmed = np.concatenate([piece for piece in pieces if piece.size > 0])
+    return _apply_edge_fades(trimmed, sample_rate)
+
+
+def _apply_edge_fades(samples: np.ndarray, sample_rate: int) -> np.ndarray:
+    """给块首/块尾加极短淡入淡出，拼接时不爆音、不出现突兀起音。"""
+    fade = min(int(sample_rate * EDGE_FADE_S), samples.size // 2)
+    if fade <= 0:
+        return samples
+    ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
+    result = samples.copy()
+    result[:fade] *= ramp
+    result[-fade:] *= ramp[::-1]
+    return result
 
 
 def _normalize_loudness(samples: np.ndarray) -> np.ndarray:
@@ -119,9 +155,12 @@ def _normalize_loudness(samples: np.ndarray) -> np.ndarray:
     for index in range(0, samples.size - frame, frame):
         chunk = samples[index:index + frame]
         rms = float(np.sqrt(np.mean(chunk * chunk)))
-        if rms > 0.01:
+        # 只统计明显有声的帧（≈ -34 dBFS 以上），把换气/底噪排除在增益计算外，
+        # 否则轻微气声会被当成语音主体，反而被放大。
+        if rms > 0.02:
             values.append(rms)
-    current = float(np.mean(values)) if values else 0.0
+    # 取偏上分位而不是均值：更接近“语音主体电平”，对个别极响帧不敏感。
+    current = float(np.percentile(values, 70)) if values else 0.0
     if current <= 1e-6:
         return samples
     gain = TARGET_RMS / current
@@ -198,14 +237,9 @@ class QwenTtsRuntime:
         """启动后台预热：只付一次模型加载/首句编译成本，避免第一句真人回复超时。"""
         try:
             self.get_model()
-            # 先做一次中文短句预热，承担首句编译成本。
+            # 一次中文短句预热即可承担首句编译成本；不再预合成固定短语，
+            # 避免把用不到的历史文案留在 LRU 里。
             self.synth("你好。", DEFAULT_SPEAKER, "zh", "neutral")
-            # 空闲 5 秒后再预合成固定日语短反应并进 LRU；若用户已经开口则跳过，
-            # 绝不把预缓存排在真实请求前面。
-            time.sleep(5)
-            if time.time() - self._last_request_at >= 4.5:
-                self.synth("えへへ、うれしい！", DEFAULT_SPEAKER, "ja", "happy")
-                self.synth("こんにちは！VOIDだよ。", DEFAULT_SPEAKER, "ja", "greeting")
             print("[qwen3-tts] warmup done", flush=True)
         except Exception as error:  # noqa: BLE001 - 预热失败不杀服务，真实请求会给明确错误
             print(f"[qwen3-tts] warmup failed: {error}", flush=True)
@@ -234,12 +268,12 @@ class QwenTtsRuntime:
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached[0], cached[1], True
-        instruct = _instruct_for(style, language)
+        instruct = _instruct_for(style)
         with self._generate_lock:
             self._cancel_idle_timer()
-            # 硬上限防止模型偶发重复/空转：12Hz 下 120 token ≈ 10s 音频，
-            # 足够覆盖 8–18 字短块；实测把 57.8s 的病态生成压回 6.3s 内。
-            max_new_tokens = min(320, max(120, len(text) * 8 + 40))
+            # 硬上限防止模型偶发重复/空转。12Hz 下约 2.7 token/字；
+            # 块已回到 20–60 字，这里给 ~1.8 倍余量即可，越长越容易在尾部加速/换气。
+            max_new_tokens = min(380, max(150, round(len(text) * 6 + 50)))
             # 全风格统一：采样 + 固定种子 + 硬上限。实测 20 句 P50 2.7s / P95 6.3s，
             # 比 greedy（偶发 14–57s）稳定，也比无上限采样（偶发 15.8s）可控。
             torch.manual_seed(42)
@@ -256,7 +290,7 @@ class QwenTtsRuntime:
                 **generate_kwargs
             )
             samples = np.asarray(wavs[0], dtype=np.float32).reshape(-1)
-            samples = _compress_long_pauses(samples, int(sample_rate))
+            samples = _normalize_pauses(samples, int(sample_rate))
             samples = _normalize_loudness(samples)
             result = (samples, int(sample_rate))
             self._cache_put(cache_key, result)

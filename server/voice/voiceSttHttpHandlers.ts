@@ -94,8 +94,9 @@ export async function handleVoiceSttHttpRequest(
         const voice = typeof body.voice === "number" ? body.voice : undefined;
         const engine = body.engine === "qwen3" ? "qwen3" : "kokoro";
         const speaker = typeof body.speaker === "string" ? body.speaker.trim() : undefined;
-        const language = body.language === "ja" ? "ja" : "zh";
-        const style = body.style === "greeting" || body.style === "happy" || body.style === "serious"
+        // 客户端不传语言时保持 undefined，由引擎按文本自动判定。
+        const language = body.language === "ja" || body.language === "zh" ? body.language : undefined;
+        const style = body.style === "happy" || body.style === "serious"
           ? body.style
           : "neutral";
         const audio = await synthesizeLocalTts(text, voice, abortController.signal, {

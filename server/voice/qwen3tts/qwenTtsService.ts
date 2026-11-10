@@ -14,12 +14,13 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { VoiceTtsEngineError } from "../voiceTtsShared";
 
-export type QwenTtsStyle = "greeting" | "happy" | "neutral" | "serious";
+export type QwenTtsStyle = "happy" | "neutral" | "serious";
 export type QwenTtsLanguage = "zh" | "ja";
 
 export type QwenTtsOptions = {
   speaker: string;
-  language: QwenTtsLanguage;
+  /** 不传则由 Python 服务按文本内容自动判定语言。 */
+  language?: QwenTtsLanguage;
   style: QwenTtsStyle;
 };
 

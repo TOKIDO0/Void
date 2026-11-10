@@ -288,6 +288,27 @@ export function ModelSettingsModal({
     }));
   };
 
+  const updateVoiceTtsProvider = (provider: "local" | "cloud") => {
+    markDirty();
+    setVoiceRuntimeConfig((currentConfig) => ({ ...currentConfig, voiceTtsProvider: provider }));
+  };
+
+  const updateDoubaoSpeakerId = (event: ChangeEvent<HTMLInputElement>) => {
+    markDirty();
+    setVoiceRuntimeConfig((currentConfig) => ({
+      ...currentConfig,
+      doubaoSpeakerId: event.target.value
+    }));
+  };
+
+  const updateLocalTtsSmoothStart = (event: ChangeEvent<HTMLInputElement>) => {
+    markDirty();
+    setVoiceRuntimeConfig((currentConfig) => ({
+      ...currentConfig,
+      localTtsSmoothStart: event.target.checked
+    }));
+  };
+
   // 切换厂商时恢复该厂商上次保存的仓位（baseUrl / API Key / 模型），
   // 其它厂商的配置原样保留，切来切去互不覆盖。
   const switchToPreset = (presetId: string) => {
@@ -467,7 +488,9 @@ export function ModelSettingsModal({
     saveVoiceRuntimeConfig({
       doubaoSpeakerId: voiceRuntimeConfig.doubaoSpeakerId,
       localTtsEngine: voiceRuntimeConfig.localTtsEngine,
-      qwenSpeaker: voiceRuntimeConfig.qwenSpeaker
+      qwenSpeaker: voiceRuntimeConfig.qwenSpeaker,
+      voiceTtsProvider: voiceRuntimeConfig.voiceTtsProvider,
+      localTtsSmoothStart: voiceRuntimeConfig.localTtsSmoothStart
     });
     saveWebSearchConfig(webSearchDraft);
     setSemanticSearchEnabled(semanticSearchDraft);
@@ -676,46 +699,97 @@ export function ModelSettingsModal({
               <div className="model-settings-modal__card">
                 <div className="model-settings-modal__grid">
                   <label className="model-settings-modal__field">
-                    <span>{copy.localTtsEngine}</span>
+                    <span>{copy.voiceTtsMode}</span>
                     <DarkSelect
-                      aria-label={copy.localTtsEngine}
-                      value={voiceRuntimeConfig.localTtsEngine}
-                      onChange={(value) => updateLocalTtsEngine(value === "kokoro" ? "kokoro" : "qwen3")}
+                      aria-label={copy.voiceTtsMode}
+                      value={voiceRuntimeConfig.voiceTtsProvider}
+                      onChange={(value) => updateVoiceTtsProvider(value === "cloud" ? "cloud" : "local")}
                       options={[
-                        { value: "qwen3", label: copy.localTtsEngineQwen },
-                        { value: "kokoro", label: copy.localTtsEngineKokoro }
+                        { value: "local", label: copy.voiceTtsModeLocal },
+                        { value: "cloud", label: copy.voiceTtsModeCloud }
                       ]}
                     />
                   </label>
-                  {voiceRuntimeConfig.localTtsEngine === "qwen3" ? (
+                </div>
+
+                {voiceRuntimeConfig.voiceTtsProvider === "cloud" ? (
+                  <>
                     <label className="model-settings-modal__field">
-                      <span>{copy.qwenSpeaker}</span>
-                      <DarkSelect
-                        aria-label={copy.qwenSpeaker}
-                        value={voiceRuntimeConfig.qwenSpeaker}
-                        onChange={updateQwenSpeaker}
-                        options={QWEN3_SPEAKERS.map((speaker) => ({
-                          value: speaker.id,
-                          label: `${speaker.label} · ${language === "zh-CN" ? speaker.zh : speaker.en}`
-                        }))}
+                      <span>{copy.doubaoSpeakerId}</span>
+                      <input
+                        type="text"
+                        aria-label={copy.doubaoSpeakerId}
+                        value={voiceRuntimeConfig.doubaoSpeakerId}
+                        onChange={updateDoubaoSpeakerId}
+                        spellCheck={false}
                       />
                     </label>
-                  ) : null}
-                </div>
-                {voiceRuntimeConfig.localTtsEngine === "qwen3" ? (
-                  <>
-                    <p className="model-settings-modal__hint">
-                      {selectedQwenSpeaker.label} · {language === "zh-CN" ? selectedQwenSpeaker.zh : selectedQwenSpeaker.en}
-                    </p>
-                    <small>{copy.qwenSpeakerHint}</small>
+                    <p className="model-settings-modal__hint">{copy.voiceTtsModeCloudHint}</p>
+                    <small>{copy.doubaoSpeakerIdHint}</small>
                   </>
                 ) : (
                   <>
-                    <p className="model-settings-modal__hint">{copy.voiceTtsLocalEngine}</p>
-                    <small>{copy.voiceTtsLocalHint}</small>
+                    <div className="model-settings-modal__grid">
+                      <label className="model-settings-modal__field">
+                        <span>{copy.localTtsEngine}</span>
+                        <DarkSelect
+                          aria-label={copy.localTtsEngine}
+                          value={voiceRuntimeConfig.localTtsEngine}
+                          onChange={(value) => updateLocalTtsEngine(value === "kokoro" ? "kokoro" : "qwen3")}
+                          options={[
+                            { value: "qwen3", label: copy.localTtsEngineQwen },
+                            { value: "kokoro", label: copy.localTtsEngineKokoro }
+                          ]}
+                        />
+                      </label>
+                      {voiceRuntimeConfig.localTtsEngine === "qwen3" ? (
+                        <label className="model-settings-modal__field">
+                          <span>{copy.qwenSpeaker}</span>
+                          <DarkSelect
+                            aria-label={copy.qwenSpeaker}
+                            value={voiceRuntimeConfig.qwenSpeaker}
+                            onChange={updateQwenSpeaker}
+                            options={QWEN3_SPEAKERS.map((speaker) => ({
+                              value: speaker.id,
+                              label: `${speaker.label} · ${language === "zh-CN" ? speaker.zh : speaker.en}`
+                            }))}
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+                    {voiceRuntimeConfig.localTtsEngine === "qwen3" ? (
+                      <>
+                        <p className="model-settings-modal__hint">
+                          {selectedQwenSpeaker.label} · {language === "zh-CN" ? selectedQwenSpeaker.zh : selectedQwenSpeaker.en}
+                        </p>
+                        <small>{copy.qwenSpeakerHint}</small>
+                      </>
+                    ) : (
+                      <>
+                        <p className="model-settings-modal__hint">{copy.voiceTtsLocalEngine}</p>
+                        <small>{copy.voiceTtsLocalHint}</small>
+                      </>
+                    )}
+                    <small>{copy.qwenEngineHint}</small>
+                    <div className="model-settings-modal__switch-row">
+                      <div>
+                        <span className="model-settings-modal__switch-title">{copy.localTtsSmoothStart}</span>
+                        <small>{copy.localTtsSmoothStartHint}</small>
+                      </div>
+                      <label className="model-settings-modal__switch">
+                        <input
+                          type="checkbox"
+                          checked={voiceRuntimeConfig.localTtsSmoothStart}
+                          onChange={updateLocalTtsSmoothStart}
+                        />
+                        <span className="model-settings-modal__switch-track">
+                          <span className="model-settings-modal__switch-thumb" />
+                        </span>
+                      </label>
+                    </div>
+                    <p className="model-settings-modal__hint">{copy.voiceTtsModeLocalHint}</p>
                   </>
                 )}
-                <small>{copy.qwenEngineHint}</small>
               </div>
             </section>
           </div>
