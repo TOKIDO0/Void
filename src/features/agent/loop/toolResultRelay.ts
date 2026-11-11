@@ -1,5 +1,11 @@
 import type { ToolResult } from "../tools";
+import type { ToolError } from "../tools/toolTypes";
 import { describeToolOutputTrust } from "../security/toolOutputTrustPolicy";
+import {
+  resolveDesktopRemediation,
+  resolveFileRemediation,
+  type ToolErrorRemediation
+} from "../tools/toolErrorRemediation";
 import { sanitizeToolErrorMessage } from "../tools/sanitizeToolError";
 
 export type ToolResultRelay = Record<string, unknown>;
@@ -31,7 +37,9 @@ export function buildToolResultRelay(
       ok: false,
       error: {
         ...result.error,
-        message: sanitizeToolErrorMessage(result.error.message)
+        message: sanitizeToolErrorMessage(result.error.message),
+        // CORE-02：浏览器域已在映射器内挂载纠偏；文件/桌面域在此统一补齐，模型只读这一份回灌。
+        ...resolveRelayRemediation(result.error)
       }
     };
   }
@@ -51,6 +59,24 @@ export function buildToolResultRelay(
     relay.truncation = truncation;
   }
   return relay;
+}
+
+/**
+ * CORE-02：按来源码补齐纠偏（文件/桌面域）。
+ * 浏览器域已在自己的映射器里挂载，这里只在缺失时补，避免重复。
+ */
+function resolveRelayRemediation(error: ToolError): Partial<ToolErrorRemediation> {
+  if (error.nextStep) {
+    return {};
+  }
+  const details = error.details ?? {};
+  if (typeof details.desktopCode === "string") {
+    return resolveDesktopRemediation(details.desktopCode) ?? {};
+  }
+  if (typeof details.fileCode === "string") {
+    return resolveFileRemediation(details.fileCode) ?? {};
+  }
+  return {};
 }
 
 function createTruncationStats(): RelayTruncationStats {

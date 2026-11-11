@@ -8,6 +8,7 @@ import {
   type ToolError,
   type ToolResourceRequirement
 } from "../tools";
+import { resolveBrowserRemediation, withToolRemediation } from "../tools/toolErrorRemediation";
 import { getBrowserBridgeErrorInfo } from "./browserBridgeClient";
 import {
   BRIDGE_AUTH_FAILURE_KIND,
@@ -67,31 +68,36 @@ export function mapBrowserErrorToToolError(error: unknown): ToolError {
     );
   }
 
-  switch (info.code) {
-    case "INVALID_REQUEST":
-      return createToolError("SCHEMA_INVALID", info.message, info.details, false);
-    case "BRIDGE_UNREACHABLE":
-      // 标记 bridgeUnreachable，供循环层识别并给用户「本机浏览器服务未启动」的如实兜底话术。
-      return createToolError(
-        "EXECUTION_FAILED",
-        info.message,
-        { ...info.details, bridgeUnreachable: true },
-        true
-      );
-    case "BROWSER_UNAVAILABLE":
-      return createToolError("EXECUTION_FAILED", info.message, info.details, true);
-    case "RESOURCE_LIMIT":
-      return createToolError("RESOURCE_BUSY", info.message, info.details, true);
-    case "TIMEOUT":
-      return createToolError("TIMEOUT", info.message, info.details, true);
-    case "SESSION_NOT_FOUND":
-    case "PAGE_NOT_FOUND":
-    case "NAVIGATION_FAILED":
-    case "PARSE_FAILED":
-      return createToolError("EXECUTION_FAILED", info.message, info.details, false);
-    default:
-      return createToolError("EXECUTION_FAILED", info.message, info.details, true);
-  }
+  const mapped = (() => {
+    switch (info.code) {
+      case "INVALID_REQUEST":
+        return createToolError("SCHEMA_INVALID", info.message, info.details, false);
+      case "BRIDGE_UNREACHABLE":
+        // 标记 bridgeUnreachable，供循环层识别并给用户「本机浏览器服务未启动」的如实兜底话术。
+        return createToolError(
+          "EXECUTION_FAILED",
+          info.message,
+          { ...info.details, bridgeUnreachable: true },
+          true
+        );
+      case "BROWSER_UNAVAILABLE":
+        return createToolError("EXECUTION_FAILED", info.message, info.details, true);
+      case "RESOURCE_LIMIT":
+        return createToolError("RESOURCE_BUSY", info.message, info.details, true);
+      case "TIMEOUT":
+        return createToolError("TIMEOUT", info.message, info.details, true);
+      case "SESSION_NOT_FOUND":
+      case "PAGE_NOT_FOUND":
+      case "NAVIGATION_FAILED":
+      case "PARSE_FAILED":
+        return createToolError("EXECUTION_FAILED", info.message, info.details, false);
+      default:
+        return createToolError("EXECUTION_FAILED", info.message, info.details, true);
+    }
+  })();
+
+  // CORE-02：按桥接错误码挂载归因/禁止动作/下一步，让模型第一次失败就换路。
+  return withToolRemediation(mapped, resolveBrowserRemediation(info.code));
 }
 
 export function throwAsToolError(error: unknown): never {

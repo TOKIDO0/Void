@@ -99,6 +99,12 @@ export type ToolError = {
   retriable: boolean;
   /** 可选细节，禁止放入密钥 */
   details?: Record<string, unknown>;
+  /** CORE-02 归因：为什么会这样（面向模型，一句话）。 */
+  cause?: string;
+  /** CORE-02 禁止动作：明确不要再做什么，防止同路重试。 */
+  forbidden?: string;
+  /** CORE-02 下一步：应该改用什么工具或什么参数。 */
+  nextStep?: string;
 };
 
 /**

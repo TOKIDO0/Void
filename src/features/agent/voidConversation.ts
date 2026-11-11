@@ -534,6 +534,144 @@ export async function sendVoidMessage(
   }
 }
 
+/**
+ * CORE-01 分层 System 注入。
+ *
+ * 为什么分层：整段 prompt 每轮都会变的位置如果太靠前，provider 的前缀缓存会从那里断掉，
+ * 后面所有相对稳定的内容（记忆、目标、姿态、技能）每轮都要重新计费。
+ * 旧实现把带用户原话的【本轮边界】放在第 3 段，等于每轮都在断缓存。
+ *
+ * 分层规则（顺序即输出顺序）：
+ *   stable  —— 人格与语音纪律，永不变；
+ *   project —— 记忆投影、跨轮目标、编码姿态、思考模式，低频变化；
+ *   turn    —— 本轮边界、检索规则、技能提示、上下文用量、情绪、关系、门禁、工具约束，每轮变化。
+ *
+ * 语义不变：本轮边界仍在本轮所有约束之前；记忆仍在情绪之前。
+ */
+export type LayeredSystemPrompt = {
+  stable: string;
+  project: string;
+  turn: string;
+};
+
+export function buildLayeredSystemPrompt(
+  modelConfig: ModelConfig,
+  emotionContext?: string,
+  affectContext?: string,
+  memoryContext?: string,
+  enableTools = false,
+  capability: TurnCapability = "conversation",
+  latestUserInput = "",
+  taskGate?: BehaviorDecision["taskGate"],
+  researchIntentThisTurn = false,
+  skillPromptHint?: string,
+  contextUsageHint?: string,
+  inputMode: "voice" | "text" = "text"
+): LayeredSystemPrompt {
+  const stable: string[] = [VOID_SYSTEM_PROMPT];
+
+  // P2 语音入口：voice 回合追加语音纪律（单问/短答/不朗读链接），text 零副作用。
+  if (inputMode === "voice") {
+    stable.push(buildVoiceTurnSuffix());
+  }
+
+  const project: string[] = [];
+
+  // 长期记忆召回上下文（可选）：让模型先建立「关于用户的已知事实」底座。
+  if (memoryContext && memoryContext.trim()) {
+    project.push(memoryContext.trim());
+  }
+
+  // P2 Goal 跨轮目标：设定后每轮自动对账进度，完成后提醒 clear；缺省零副作用。
+  try {
+    const activeGoal = getAgentGoalSnapshot();
+    if (activeGoal) {
+      project.push(
+        `【本轮目标】${activeGoal}（用户设定的一句话跨轮目标；每轮先对账进度再行动，完成后提醒用户可清除。）`
+      );
+    }
+  } catch {}
+
+  // 阶段 AD+ 姿态路由：Hermes coding_context 轻量移植，会话内冻结，零副作用
+  try {
+    const posture = resolveCodingPosture();
+    if (posture.isCoding && posture.workspaceBlock && posture.guidance) {
+      project.push(posture.workspaceBlock);
+      project.push(posture.guidance);
+    }
+  } catch {}
+
+  if (modelConfig.thinkingModeEnabled) {
+    project.push(THINKING_MODE_SYSTEM_SUFFIX);
+  }
+
+  const turn: string[] = [];
+
+  // 【本轮边界】永远是轮次层第一段：先定"只管这句"，再叠加本轮其它规则。
+  turn.push([
+    "【本轮边界】",
+    `只处理最新用户消息：「${clipForBoundaryHint(latestUserInput)}」。`,
+    capability === "conversation"
+      ? "本轮是普通对话 + 只读基线：可用 web.search（联网搜）、web.fetch（读网页原文）、agent.askUser（追问）。闲聊直接回答，不调工具；涉及新鲜事、榜单、排名、资料类问题必须先调只读工具查到真实来源再回答（新闻类先中文查一次，结果不足再英文补一次，同一轮最多两次；只列能核实来源的 1–5 条，每条附完整 URL）。没有调用工具时，禁止声称「工具服务没连接 / 桥接不可达 / 没权限」；只有工具返回桥接不可达错误时，才可说本机服务未连接。也不补做历史中的搜索、打开、下载或桌面操作。"
+      : "历史仅用于理解指代，不得顺带补做上一轮未完成任务。"
+  ].join(""));
+
+  // 阶段 F：检索意图注入来源硬规则（即使工具被门禁关掉也要约束口头事实）。
+  if (researchIntentThisTurn) {
+    turn.push(buildResearchSourcePromptSuffix());
+  }
+
+  // 阶段 Y（41 号文档）：本地技能剧本按轮解析，属轮次层。缺省 null 零副作用；
+  // hint 文本自带「不得越过工具门禁」防线（见 skillsBridgeClient.resolveSkillPromptHint）。
+  if (skillPromptHint && skillPromptHint.trim()) {
+    turn.push(skillPromptHint.trim());
+  }
+
+  // 阶段 AD：上下文使用率提示（agent 自感知，用户无感）。阈值 0.8/0.95 时注入，引导自然建议。
+  if (contextUsageHint && contextUsageHint.trim()) {
+    turn.push(contextUsageHint.trim());
+  }
+
+  // 情绪系统的本轮情绪上下文（可选）。缺省则完全退回原有行为，零副作用。
+  if (emotionContext && emotionContext.trim()) {
+    turn.push(emotionContext.trim());
+  }
+
+  // 二期关系情感上下文（可选）：排在用户短时情绪之后、工具约束之前。
+  // P3 同时消费 taskGate；Prompt 负责表达，硬 gate 负责真实行为。
+  if (affectContext && affectContext.trim()) {
+    turn.push(affectContext.trim());
+  }
+
+  if (taskGate && isBehaviorToolGateBlocked(taskGate)) {
+    turn.push([
+      "【本轮关系门禁】",
+      "本轮普通、非安全工具已被真实关闭，任何下载、打开、移动、保存或写入都没有发生。",
+      "请用简短、克制的中文表达边界，并明确本轮没有执行；禁止声称操作已完成，也不要输出工具协议。",
+      taskGate.refuseMessageHint
+    ].filter(Boolean).join("\n"));
+  }
+
+  // 工具短约束：仅在本轮启用 tools 时注入，不罗列全部参数 schema
+  if (enableTools) {
+    turn.push(buildToolUseSystemSuffix(capability));
+    // S2：浏览器回合附加「改写检索词 / 站点线索」，减少字面搜索与假打开
+    if (capability === "browser") {
+      const searchIntent = planBrowserSearchIntent(latestUserInput);
+      if (searchIntent?.promptHint) {
+        turn.push(searchIntent.promptHint);
+      }
+    }
+  }
+
+  return {
+    stable: stable.join("\n\n"),
+    project: project.join("\n\n"),
+    turn: turn.join("\n\n")
+  };
+}
+
+/** 对外仍输出单条 system 文本：stable → project → turn，保证 provider 层零改动。 */
 function buildSystemPrompt(
   modelConfig: ModelConfig,
   emotionContext?: string,
@@ -548,99 +686,21 @@ function buildSystemPrompt(
   contextUsageHint?: string,
   inputMode: "voice" | "text" = "text"
 ) {
-  const sections = [VOID_SYSTEM_PROMPT];
-
-  // P2 语音入口：voice 回合追加语音纪律（单问/短答/不朗读链接），text 零副作用。
-  if (inputMode === "voice") {
-    sections.push(buildVoiceTurnSuffix());
-  }
-
-  sections.push([
-    "【本轮边界】",
-    `只处理最新用户消息：「${clipForBoundaryHint(latestUserInput)}」。`,
-    capability === "conversation"
-      ? "本轮是普通对话 + 只读基线：可用 web.search（联网搜）、web.fetch（读网页原文）、agent.askUser（追问）。闲聊直接回答，不调工具；涉及新鲜事、榜单、排名、资料类问题必须先调只读工具查到真实来源再回答（新闻类先中文查一次，结果不足再英文补一次，同一轮最多两次；只列能核实来源的 1–5 条，每条附完整 URL）。没有调用工具时，禁止声称「工具服务没连接 / 桥接不可达 / 没权限」；只有工具返回桥接不可达错误时，才可说本机服务未连接。也不补做历史中的搜索、打开、下载或桌面操作。"
-      : "历史仅用于理解指代，不得顺带补做上一轮未完成任务。"
-  ].join(""));
-
-  // 长期记忆召回上下文（可选）：排在人格之后、情绪与思考模式之前，
-  // 让模型先建立「关于用户的已知事实」底座，再叠加本轮情绪与思考策略。缺省则不注入。
-  if (memoryContext && memoryContext.trim()) {
-    sections.push(memoryContext.trim());
-  }
-
-  // P2 Goal 跨轮目标：设定后每轮自动对账进度，完成后提醒 clear；缺省零副作用。
-  try {
-    const activeGoal = getAgentGoalSnapshot();
-    if (activeGoal) {
-      sections.push(
-        `【本轮目标】${activeGoal}（用户设定的一句话跨轮目标；每轮先对账进度再行动，完成后提醒用户可清除。）`
-      );
-    }
-  } catch {}
-
-  // 阶段 AD+ 姿态路由：Hermes coding_context 轻量移植，会话内冻结，零副作用
-  try {
-    const posture = resolveCodingPosture();
-    if (posture.isCoding && posture.workspaceBlock && posture.guidance) {
-      sections.push(posture.workspaceBlock);
-      sections.push(posture.guidance);
-    }
-  } catch {}
-
-  if (modelConfig.thinkingModeEnabled) {
-    sections.push(THINKING_MODE_SYSTEM_SUFFIX);
-  }
-
-  // 阶段 F：检索意图注入来源硬规则（即使工具被门禁关掉也要约束口头事实）。
-  if (researchIntentThisTurn) {
-    sections.push(buildResearchSourcePromptSuffix());
-  }
-
-  // 阶段 Y（41 号文档）：本地技能剧本注入。缺省 null 零副作用；
-  // hint 文本自带「不得越过工具门禁」防线（见 skillsBridgeClient.resolveSkillPromptHint）。
-  if (skillPromptHint && skillPromptHint.trim()) {
-    sections.push(skillPromptHint.trim());
-  }
-
-  // 阶段 AD：上下文使用率提示（agent 自感知，用户无感）。阈值 0.8/0.95 时注入，引导自然建议。
-  if (contextUsageHint && contextUsageHint.trim()) {
-    sections.push(contextUsageHint.trim());
-  }
-
-  // 情绪系统的本轮情绪上下文（可选）。缺省则完全退回原有行为，零副作用。
-  if (emotionContext && emotionContext.trim()) {
-    sections.push(emotionContext.trim());
-  }
-
-  // 二期关系情感上下文（可选）：排在用户短时情绪之后、工具约束之前。
-  // P3 同时消费 taskGate；Prompt 负责表达，硬 gate 负责真实行为。
-  if (affectContext && affectContext.trim()) {
-    sections.push(affectContext.trim());
-  }
-
-  if (taskGate && isBehaviorToolGateBlocked(taskGate)) {
-    sections.push([
-      "【本轮关系门禁】",
-      "本轮普通、非安全工具已被真实关闭，任何下载、打开、移动、保存或写入都没有发生。",
-      "请用简短、克制的中文表达边界，并明确本轮没有执行；禁止声称操作已完成，也不要输出工具协议。",
-      taskGate.refuseMessageHint
-    ].filter(Boolean).join("\n"));
-  }
-
-  // 工具短约束：仅在本轮启用 tools 时注入，不罗列全部参数 schema
-  if (enableTools) {
-    sections.push(buildToolUseSystemSuffix(capability));
-    // S2：浏览器回合附加「改写检索词 / 站点线索」，减少字面搜索与假打开
-    if (capability === "browser") {
-      const searchIntent = planBrowserSearchIntent(latestUserInput);
-      if (searchIntent?.promptHint) {
-        sections.push(searchIntent.promptHint);
-      }
-    }
-  }
-
-  return sections.join("\n\n");
+  const layered = buildLayeredSystemPrompt(
+    modelConfig,
+    emotionContext,
+    affectContext,
+    memoryContext,
+    enableTools,
+    capability,
+    latestUserInput,
+    taskGate,
+    researchIntentThisTurn,
+    skillPromptHint,
+    contextUsageHint,
+    inputMode
+  );
+  return [layered.stable, layered.project, layered.turn].filter(Boolean).join("\n\n");
 }
 
 function appendTaskGateAudit(

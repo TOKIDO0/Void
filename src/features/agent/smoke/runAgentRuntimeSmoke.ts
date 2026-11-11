@@ -1685,6 +1685,136 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       notes.push("P3 无效过滤：短/语气词/背景音/无唤醒长句被拦，唤醒与追问窗放行，不写记忆");
     }
 
+    // CORE-01 分层 System 注入：稳定前缀在前，易变轮次内容在后
+    const { buildLayeredSystemPrompt } = await import("../voidConversation");
+    const layered = buildLayeredSystemPrompt(
+      {
+        provider: "openai-compatible",
+        presetId: "smoke",
+        apiKey: "sk-smoke",
+        baseUrl: "http://127.0.0.1:9",
+        modelName: "smoke-model",
+        modelStrength: "middle",
+        thinkingModeEnabled: false,
+        temperature: 0,
+        maxOutputTokens: 256,
+        streamEnabled: false
+      },
+      "【本轮情绪】平静",
+      undefined,
+      "已知的用户长期记忆：\n- [用户画像·本人] 喜欢被叫小陈",
+      true,
+      "conversation",
+      "帮我看看今天的安排"
+    );
+    const layeredChecks = [
+      // 稳定层必须是人格开头，且不含每轮变化的边界
+      layered.stable.startsWith(VOID_SYSTEM_PROMPT.slice(0, 20)),
+      !layered.stable.includes("【本轮边界】"),
+      // 轮次层第一段是边界
+      layered.turn.startsWith("【本轮边界】"),
+      // 记忆属项目层，不能落进轮次层
+      layered.project.includes("喜欢被叫小陈") && !layered.turn.includes("喜欢被叫小陈"),
+      // 情绪属轮次层
+      layered.turn.includes("【本轮情绪】") && !layered.project.includes("【本轮情绪】"),
+      // 拼装顺序 stable → project → turn
+      (() => {
+        const joined = [layered.stable, layered.project, layered.turn].join("\n\n");
+        return joined.indexOf("喜欢被叫小陈") < joined.indexOf("【本轮边界】");
+      })()
+    ];
+    if (layeredChecks.some((ok) => !ok)) {
+      failures.push(`CORE-01 分层注入顺序异常：${JSON.stringify({ stable: layered.stable.slice(0, 30), projectHasMemory: layered.project.includes("小陈"), turnHead: layered.turn.slice(0, 20) })}`);
+    } else {
+      notes.push("CORE-01 分层注入：人格/语音为稳定前缀，记忆/目标/姿态为项目层，边界/情绪/门禁/工具为轮次层，顺序 stable→project→turn");
+    }
+
+    // CORE-02 错误即提示词：按来源码挂载归因/禁止动作/下一步，未知码零副作用
+    const remediationModule = await import("../tools/toolErrorRemediation");
+    const { buildToolResultRelay } = await import("../loop/toolResultRelay");
+    const browserRem = remediationModule.resolveBrowserRemediation("BRIDGE_UNREACHABLE");
+    const fileRem = remediationModule.resolveFileRemediation("OVERWRITE_REFUSED");
+    const desktopRem = remediationModule.resolveDesktopRemediation("APP_NOT_FOUND");
+    const relayFile = buildToolResultRelay("file.writeText", {
+      ok: false,
+      error: {
+        code: "PERMISSION_DENIED",
+        message: "目标已存在",
+        retriable: false,
+        details: { fileCode: "OVERWRITE_REFUSED" }
+      }
+    }) as { error?: { cause?: string; forbidden?: string; nextStep?: string } };
+    const relayUnknown = buildToolResultRelay("file.writeText", {
+      ok: false,
+      error: {
+        code: "EXECUTION_FAILED",
+        message: "未知内部错误",
+        retriable: false,
+        details: { fileCode: "SOMETHING_NEW" }
+      }
+    }) as { error?: { cause?: string; nextStep?: string } };
+    const remediationChecks = [
+      Boolean(browserRem?.cause && browserRem?.forbidden && browserRem?.nextStep),
+      Boolean(fileRem?.nextStep),
+      Boolean(desktopRem?.nextStep),
+      // 回灌层必须真正带给模型
+      Boolean(relayFile.error?.cause && relayFile.error?.forbidden && relayFile.error?.nextStep),
+      // 未知码不加戏
+      relayUnknown.error?.nextStep === undefined && relayUnknown.error?.cause === undefined
+    ];
+    if (remediationChecks.some((ok) => !ok)) {
+      failures.push(`CORE-02 错误纠偏异常：browser=${Boolean(browserRem)} file=${Boolean(relayFile.error?.nextStep)} desktop=${Boolean(desktopRem)} unknownSilent=${relayUnknown.error?.nextStep === undefined}`);
+    } else {
+      notes.push("CORE-02 错误即提示词：浏览器/文件/桌面按来源码挂载归因+禁止动作+下一步，未知码零副作用，回灌层已透传");
+    }
+
+    // CORE-03 记忆召回前验证：过期分区带 ⚠ 标记 + 使用纪律；不涉及时不注入
+    const { projectEntries } = await import("../../memory/memoryProjection");
+    const nowMs = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const staleProjection = projectEntries([
+      {
+        id: "smoke-stale-profile", memoryType: "userProfile", subjectType: "self", subjectName: "用户本人",
+        content: "在字节工作", confidence: 0.8, sensitivity: "normal", source: "smoke",
+        createdAt: nowMs - 120 * day, updatedAt: nowMs - 100 * day
+      },
+      {
+        id: "smoke-fresh-knowledge", memoryType: "knowledgeCache", subjectType: "self", subjectName: "用户本人",
+        content: "某库的用法", confidence: 0.8, sensitivity: "normal", source: "smoke",
+        createdAt: nowMs - 200 * day, updatedAt: nowMs - 200 * day
+      }
+    ], { now: nowMs });
+    const freshProjection = projectEntries([
+      {
+        id: "smoke-fresh-pref", memoryType: "preference", subjectType: "self", subjectName: "用户本人",
+        content: "喜欢被叫小陈", confidence: 0.9, sensitivity: "normal", source: "smoke",
+        createdAt: nowMs - 5 * day, updatedAt: nowMs - 5 * day
+      }
+    ], { now: nowMs });
+    const staleChecks = [
+      // 100 天的 userProfile 必须带过期标记
+      staleProjection.includes("⚠可能过期"),
+      // 纪律句只在存在过期条目时注入
+      staleProjection.includes("【记忆使用纪律】"),
+      // knowledgeCache 不参与过期判定（同一投影里只应有一条 ⚠）
+      staleProjection.split("⚠可能过期").length - 1 === 1,
+      // 新鲜记忆不注入纪律句
+      !freshProjection.includes("【记忆使用纪律】") && !freshProjection.includes("⚠"),
+      // 关闭开关零副作用
+      !projectEntries([
+        {
+          id: "smoke-off", memoryType: "userProfile", subjectType: "self", subjectName: "用户本人",
+          content: "在字节工作", confidence: 0.8, sensitivity: "normal", source: "smoke",
+          createdAt: nowMs - 120 * day, updatedAt: nowMs - 100 * day
+        }
+      ], { now: nowMs, showStaleness: false }).includes("⚠")
+    ];
+    if (staleChecks.some((ok) => !ok)) {
+      failures.push(`CORE-03 记忆时效异常：stale=${staleProjection.includes("⚠")} discipline=${staleProjection.includes("记忆使用纪律")} fresh=${freshProjection.includes("⚠")}`);
+    } else {
+      notes.push("CORE-03 记忆召回前验证：状态性分区超阈值带 ⚠ + 使用纪律，knowledgeCache 不标记，新鲜记忆不注入纪律");
+    }
+
     // T2 进度文案完整性：全量工具均有可读文案，不回退到 humanize 兜底
     const { formatToolProgressMessage } = await import("../loop/toolProgressCopy");
     const missingProgress = productionTools.filter((t) => formatToolProgressMessage(t.name).startsWith("正在处理："));
