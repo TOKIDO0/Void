@@ -535,6 +535,37 @@ export async function sendVoidMessage(
 }
 
 /**
+ * CORE-07 时间快照：给模型一个可据以推算"今天/明天/下周三"的锚点。
+ *
+ * 为什么必须有：日程与提醒全部依赖相对时间；模型自带的训练截止日期不等于当前日期，
+ * 一旦猜错，用户说"明天下午三点"就会落到错误的一天。
+ * 为什么放在轮次层：时间每轮都在变，放进稳定层会破坏前缀缓存。
+ */
+export function buildTimeSnapshotSuffix(now = new Date()): string {
+  const weekday = new Intl.DateTimeFormat("zh-CN", { weekday: "long" }).format(now);
+  const dateText = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(now);
+  const timeText = new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(now);
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "本机时区";
+  const offsetMinutes = -now.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const offsetHours = String(Math.floor(Math.abs(offsetMinutes) / 60)).padStart(2, "0");
+  const offsetRest = String(Math.abs(offsetMinutes) % 60).padStart(2, "0");
+  return [
+    "【当前时间】",
+    `${dateText} ${weekday} ${timeText}（${timeZone}，UTC${sign}${offsetHours}:${offsetRest}）`,
+    "涉及今天/明天/后天/下周几等相对时间时，一律以此为准推算，不要凭训练数据猜日期。"
+  ].join("");
+}
+
+/**
  * CORE-01 分层 System 注入。
  *
  * 为什么分层：整段 prompt 每轮都会变的位置如果太靠前，provider 的前缀缓存会从那里断掉，
@@ -615,6 +646,10 @@ export function buildLayeredSystemPrompt(
       ? "本轮是普通对话 + 只读基线：可用 web.search（联网搜）、web.fetch（读网页原文）、agent.askUser（追问）。闲聊直接回答，不调工具；涉及新鲜事、榜单、排名、资料类问题必须先调只读工具查到真实来源再回答（新闻类先中文查一次，结果不足再英文补一次，同一轮最多两次；只列能核实来源的 1–5 条，每条附完整 URL）。没有调用工具时，禁止声称「工具服务没连接 / 桥接不可达 / 没权限」；只有工具返回桥接不可达错误时，才可说本机服务未连接。也不补做历史中的搜索、打开、下载或桌面操作。"
       : "历史仅用于理解指代，不得顺带补做上一轮未完成任务。"
   ].join(""));
+
+  // CORE-07 时间快照：日程/提醒/相对时间全部依赖这个，缺了模型只能猜。
+  // 放在边界之后、其余约束之前：既保证"只管这句"优先，又不破坏稳定前缀缓存。
+  turn.push(buildTimeSnapshotSuffix());
 
   // 阶段 F：检索意图注入来源硬规则（即使工具被门禁关掉也要约束口头事实）。
   if (researchIntentThisTurn) {

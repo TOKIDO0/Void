@@ -1713,6 +1713,8 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       !layered.stable.includes("【本轮边界】"),
       // 轮次层第一段是边界
       layered.turn.startsWith("【本轮边界】"),
+      // CORE-07：轮次层必须带时间锚点，且时间不落进稳定层
+      layered.turn.includes("【当前时间】") && !layered.stable.includes("【当前时间】"),
       // 记忆属项目层，不能落进轮次层
       layered.project.includes("喜欢被叫小陈") && !layered.turn.includes("喜欢被叫小陈"),
       // 情绪属轮次层
