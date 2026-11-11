@@ -34,7 +34,7 @@ import { handleMcpHttpRequest } from "./mcp/mcpHttpHandlers";
 import { hooksRegistry } from "./hooks/hooksRegistry";
 import { buildSandboxStatus } from "./sandbox/sandboxStatus";
 import { handleSchedulerHttpRequest } from "./scheduler/schedulerHttpHandlers";
-import { handleUsageHttpRequest } from "./usage/usageHttpHandlers";
+import { handleCalendarHttpRequest } from "./calendar/calendarHttpHandlers";import { handleUsageHttpRequest } from "./usage/usageHttpHandlers";
 import { startScheduler, stopScheduler } from "./scheduler/schedulerRunner";
 import { handleSkillsHttpRequest } from "./skills/skillsHttpHandlers";
 import { handleSoftwareHttpRequest } from "./software/softwareHttpHandlers";
@@ -515,6 +515,12 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
   // P4 后台调度器（sidecar 进程内计时 + 隔离执行；Key 仅内存）
   if (pathname.startsWith("/void-scheduler")) {
     void handleSchedulerHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // CAL 日程事件（事件真源；提醒由 scheduler job 派生）
+  if (pathname.startsWith("/void-calendar")) {
+    void handleCalendarHttpRequest(request, response, pathname);
     return;
   }
 

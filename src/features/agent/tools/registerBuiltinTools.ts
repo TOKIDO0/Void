@@ -61,6 +61,10 @@ import { agentScheduleListTool } from "./builtin/agentScheduleListTool";
 import { agentScheduleRemoveTool } from "./builtin/agentScheduleRemoveTool";
 import { agentScheduleRunNowTool } from "./builtin/agentScheduleRunNowTool";
 import { agentScheduleInspectTool } from "./builtin/agentScheduleInspectTool";
+import { calendarCreateEventTool } from "./builtin/calendarCreateEventTool";
+import { calendarListEventsTool } from "./builtin/calendarListEventsTool";
+import { calendarUpdateEventTool } from "./builtin/calendarUpdateEventTool";
+import { calendarCancelEventTool } from "./builtin/calendarCancelEventTool";
 import { desktopTakeoverStartTool } from "./builtin/desktopTakeoverStartTool";
 import { desktopTakeoverStopTool } from "./builtin/desktopTakeoverStopTool";
 import { desktopTakeoverInputTool } from "./builtin/desktopTakeoverInputTool";
@@ -151,6 +155,10 @@ export function registerBuiltinTools() {
     agentScheduleRemoveTool,
     agentScheduleRunNowTool,
     agentScheduleInspectTool,
+    calendarCreateEventTool,
+    calendarListEventsTool,
+    calendarUpdateEventTool,
+    calendarCancelEventTool,
     desktopTakeoverStartTool,
     desktopTakeoverStopTool,
     desktopTakeoverInputTool,

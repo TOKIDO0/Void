@@ -21,6 +21,7 @@ import type { RiskLevel, ToolDefinition, ToolMetadata } from "../toolTypes";
 
 export type AgentCapabilityGroupId =
   | "agent"
+  | "calendar"
   | "browser"
   | "file"
   | "software"
@@ -102,6 +103,18 @@ const CAPABILITY_GROUPS: CapabilityGroupDefinition[] = [
       "agent.scheduleRemove",
       "agent.scheduleRunNow",
       "agent.scheduleInspect"
+    ]
+  },
+  {
+    id: "calendar",
+    label: "日程与日程提醒",
+    summary: "查看、创建、修改、取消日程事件；创建或改时间会自动绑到点提醒，取消或完成会解绑。",
+    requiresBridge: true,
+    toolNames: [
+      "calendar.createEvent",
+      "calendar.listEvents",
+      "calendar.updateEvent",
+      "calendar.cancelEvent"
     ]
   },
   {
@@ -257,7 +270,7 @@ export const agentInspectCapabilitiesTool: ToolDefinition<
           properties: {
             id: {
               type: "string",
-              enum: ["agent", "browser", "file", "software", "clipboard", "desktop", "security"]
+              enum: ["agent", "calendar", "browser", "file", "software", "clipboard", "desktop", "security"]
             },
             label: { type: "string" },
             summary: { type: "string", maxLength: 300 },
