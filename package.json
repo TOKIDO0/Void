@@ -1,11 +1,12 @@
 {
   "name": "void-web-mvp",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "typecheck:server": "tsc --noEmit -p tsconfig.server.json",
     "preview": "vite preview",
     "sidecar:build": "node scripts/build-sidecar.mjs",
     "stt:model:fetch": "node scripts/fetch-stt-model.mjs",
@@ -71,3 +72,4 @@
     "ws": "^8.21.0"
   }
 }
+

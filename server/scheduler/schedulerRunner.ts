@@ -63,6 +63,10 @@ export function setSchedulerModelKey(config: ModelConfig | null): void {
   }
   const provider = (config.provider ?? "").trim();
   const modelName = (config.modelName ?? "").trim();
+  // 类型门禁（CORE-11）：provider 只接受已知协议，不允许把任意字符串透传到 provider 层。
+  if (provider !== "openai-compatible" && provider !== "anthropic") {
+    throw createScheduleError("INVALID_REQUEST", `不支持的 provider：${provider || "(空)"}`);
+  }
   // P0-2 vault 链路：允许前端传 vault: 引用代替明文 apiKey；
   // sidecar 读不到 Stronghold，引用仅做审计标记，执行仍需当次内存 Key。
   const maybeVaultRef = (config as { modelVaultRef?: unknown }).modelVaultRef;

@@ -178,10 +178,11 @@ export function computeNextRunAtMs(job: Pick<ScheduleJob, "kind" | "atMs" | "eve
   if (job.kind === "cron") {
     try {
       // 光标推后 1s，避开整点毫秒边界，保证严格未来（防忙循环）。
+      // 注意：croner v10 的正确选项是 startAt；旧写法 currentDate 会被静默忽略，等于保护从未生效。
       const cron = new Cron(job.expr ?? "", {
         timezone: job.tz,
         catch: false,
-        currentDate: new Date(nowMs + 1000)
+        startAt: new Date(nowMs + 1000)
       });
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const next = cron.nextRun();
