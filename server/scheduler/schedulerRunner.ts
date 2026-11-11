@@ -18,6 +18,7 @@ import {
 } from "./schedulerEngine";
 import { schedulerStore } from "./schedulerStore";
 import {
+  createRunDelivery,
   createScheduleError,
   type ScheduleJob,
   type SchedulerRunRecord,
@@ -142,7 +143,7 @@ export function startScheduler(): { dueNow: string[]; missed: string[] } {
       finishedAt: now,
       status: "missed",
       summary: "过期未执行（应用未运行），已停用留查。",
-      delivered: false
+      delivery: createRunDelivery()
     });
   }
   armTimer();
@@ -185,7 +186,7 @@ export function requestManualRun(id: string): SchedulerRunRecord {
     jobName: job.name,
     startedAt: now,
     status: "running",
-    delivered: false
+    delivery: createRunDelivery()
   });
   manualOnce.add(id);
   manualRecords.set(id, record.id);
@@ -231,7 +232,7 @@ export function cancelSchedulerRun(runId: string): { cancelled: boolean; runId: 
       status: "failed",
       finishedAt: Date.now(),
       summary: "用户取消（排队中未执行）",
-      delivered: false
+      delivery: createRunDelivery()
     });
     appendToolAudit({
       at: Date.now(),
@@ -365,7 +366,7 @@ async function runJobById(id: string): Promise<void> {
       jobName: job.name,
       startedAt: now,
       status: "running",
-      delivered: false
+      delivery: createRunDelivery()
     });
   }
   if (!key) {
@@ -420,7 +421,7 @@ async function runJobById(id: string): Promise<void> {
       // C 条件通知：无异常免打扰 —— 成功落账但直接记已投递，不进通知。
       const clean = stripNotifyMarker(result.content).slice(0, 500);
       finishRun(job, record, "succeeded", clean || "巡检无异常（免打扰）。");
-      markRunDelivered(record.id);
+      markRunSuppressed(record.id);
     } else {
       finishRun(job, record, "succeeded", result.content.slice(0, 500));
     }
@@ -438,11 +439,8 @@ async function runJobById(id: string): Promise<void> {
   }
 }
 
-function markRunDelivered(runId: string): void {
-  const stored = schedulerStore.listRuns(MAX_RUN_RECORDS).find((item) => item.id === runId);
-  if (stored) {
-    schedulerStore.updateRun({ ...stored, delivered: true });
-  }
+function markRunSuppressed(runId: string): void {
+  schedulerStore.suppressDelivery(runId);
 }
 
 function finishRun(job: ScheduleJob, record: SchedulerRunRecord, status: SchedulerRunStatus, summary: string): void {
@@ -482,7 +480,7 @@ function finishRun(job: ScheduleJob, record: SchedulerRunRecord, status: Schedul
       schedulerStore.updateJob(fresh);
     }
   }
-  schedulerStore.updateRun({ ...record, status, finishedAt: now, summary: finalSummary, delivered: false });
+  schedulerStore.updateRun({ ...record, status, finishedAt: now, summary: finalSummary, delivery: createRunDelivery() });
   // P1 可审计：每次落账记一条（终态可查，不含 prompt/正文，只记结论）。
   appendToolAudit({
     at: now,

@@ -34,6 +34,9 @@ async function main() {
     const { schedulerStore } = await import(
       pathToFileURL(path.join(projectRoot, "server/scheduler/schedulerStore.ts")).href
     );
+    const { createRunDelivery } = await import(
+      pathToFileURL(path.join(projectRoot, "server/scheduler/schedulerTypes.ts")).href
+    );
     const now = Date.now();
 
     // at 归一化 + 非法拒绝
@@ -83,8 +86,8 @@ async function main() {
     assert(reloaded !== null && reloaded.name === "smoke-every" && reloaded.everyMs === 3600_000, "重启后应恢复任务");
     schedulerStore.updateJob({ ...reloaded, enabled: false });
     assert(schedulerStore.getJob(inserted.id)?.enabled === false, "update 应持久");
-    const run = schedulerStore.appendRun({ jobId: inserted.id, jobName: "smoke-every", startedAt: now, status: "running", delivered: false });
-    schedulerStore.updateRun({ ...run, status: "succeeded", finishedAt: now + 1, summary: "ok", delivered: false });
+    const run = schedulerStore.appendRun({ jobId: inserted.id, jobName: "smoke-every", startedAt: now, status: "running", delivery: createRunDelivery() });
+    schedulerStore.updateRun({ ...run, status: "succeeded", finishedAt: now + 1, summary: "ok", delivery: createRunDelivery() });
     assert(schedulerStore.listRuns(10).some((item) => item.id === run.id && item.status === "succeeded"), "run 记录应落账");
     assert(schedulerStore.removeJob(inserted.id) === true && schedulerStore.getJob(inserted.id) === null, "remove 应删");
     expectScheduleError(() => schedulerStore.updateJob({ ...reloaded, id: "job_missing" }), "NOT_FOUND");
@@ -202,13 +205,45 @@ async function main() {
       const missing = await postJson("/void-scheduler/jobs/run", { id: "job_missing" });
       assert(missing.ok === false, "触发不存在任务应失败");
 
-      // 投递：pending 拉取 → ack 确认
-      const pending0 = await getJson("/void-scheduler/runs/pending");
-      assert(pending0.ok === true && pending0.data.some((run) => run.id === firstRunId), "完成 run 应进 pending");
-      const ack = await postJson("/void-scheduler/runs/ack", { runIds: [firstRunId, "run_missing"] });
-      assert(ack.ok === true && ack.data.acknowledged === 1, "ack 应确认1条并忽略不存在 id");
-      const pending1 = await getJson("/void-scheduler/runs/pending");
-      assert(!pending1.data.some((run) => run.id === firstRunId), "ack 后不再 pending");
+      // PRO-06 投递：claim 原子领取 → 按真实结果上报（sent/failed）
+      const claim0 = await postJson("/void-scheduler/runs/claim", {});
+      assert(claim0.ok === true && claim0.data.some((run) => run.id === firstRunId), "完成 run 应可被 claim");
+      assert(claim0.data.find((run) => run.id === firstRunId).delivery.state === "delivering", "claim 后应为 delivering");
+
+      const ack = await postJson("/void-scheduler/runs/ack", {
+        records: [{ runId: firstRunId, result: "sent" }, { runId: "run_missing", result: "sent" }]
+      });
+      assert(ack.ok === true && ack.data.recorded === 1, "ack 应记录1条并忽略不存在 id");
+
+      const claim1 = await postJson("/void-scheduler/runs/claim", {});
+      assert(!claim1.data.some((run) => run.id === firstRunId), "sent 后不再被领取");
+
+      const runsAfterAck = await getJson("/void-scheduler/runs?limit=20");
+      const ackedRun = runsAfterAck.data.find((run) => run.id === firstRunId);
+      assert(ackedRun.delivery.state === "sent", "ack(sent) 后状态应为 sent");
+
+      // 幂等：重复上报不改变终态、不重复计数
+      const ackAgain = await postJson("/void-scheduler/runs/ack", {
+        records: [{ runId: firstRunId, result: "failed", errorCode: "UNKNOWN" }]
+      });
+      assert(ackAgain.data.recorded === 0, "重复 ack 应无变更");
+      const stillSent = (await getJson("/void-scheduler/runs?limit=20")).data.find((run) => run.id === firstRunId);
+      assert(stillSent.delivery.state === "sent", "终态不被后续上报覆盖");
+
+      // 失败上报保留痕迹（权限被拒场景）
+      const failedRun = schedulerStore.appendRun({
+        jobId: "job_probe", jobName: "probe", startedAt: Date.now(), status: "succeeded", summary: "x",
+        delivery: createRunDelivery()
+      });
+      await postJson("/void-scheduler/runs/claim", {});
+      await postJson("/void-scheduler/runs/ack", {
+        records: [{ runId: failedRun.id, result: "failed", errorCode: "PERMISSION_DENIED" }]
+      });
+      const failedView = (await getJson("/void-scheduler/runs?limit=20")).data.find((run) => run.id === failedRun.id);
+      assert(failedView.delivery.state === "failed" && failedView.delivery.errorCode === "PERMISSION_DENIED",
+        "失败必须如实落 failed + 原因码，不能冒充已送达");
+      const summary0 = await getJson("/void-scheduler/delivery/summary");
+      assert(summary0.data.undelivered >= 1, "未送达计数应包含 failed");
 
       // 预授权判定 + anchor 锚点
       const { shouldPreApprove } = runner;
@@ -287,20 +322,19 @@ async function main() {
       assert(whenGarbage.ok === false, "无法理解的 when 应拒绝");
 
       // A2 启动播报：过期 at 进 sweep 即记 missed run（未投递），供投递轮询播报
-      const { schedulerStore } = await import(
-        pathToFileURL(path.join(projectRoot, "server/scheduler/schedulerStore.ts")).href
-      );
       const expired = schedulerStore.insertJob({
         name: "smoke-expired", prompt: "hi", kind: "at", atMs: Date.now() - 3600_000,
         allowedToolNames: ["web.search"], timeoutMs: 60000, enabled: true, missedCount: 0, failStreak: 0
       });
       runner.startScheduler();
       try {
-        const pendingMissed = await getJson("/void-scheduler/runs/pending");
-        const missedRun = pendingMissed.data.find((run) => run.jobId === expired.id);
-        assert(missedRun !== undefined && missedRun.status === "missed", "过期任务启动即记 missed run");
-        const ackMissed = await postJson("/void-scheduler/runs/ack", { runIds: [missedRun.id] });
-        assert(ackMissed.data.acknowledged === 1, "missed run 可 ack");
+        const claimMissed = await postJson("/void-scheduler/runs/claim", {});
+        const missedRun = claimMissed.data.find((run) => run.jobId === expired.id);
+        assert(missedRun !== undefined && missedRun.status === "missed", "过期任务启动即记 missed run 并可被领取");
+        const ackMissed = await postJson("/void-scheduler/runs/ack", {
+          records: [{ runId: missedRun.id, result: "sent" }]
+        });
+        assert(ackMissed.data.recorded === 1, "missed run 可上报投递");
       } finally {
         runner.stopScheduler();
         schedulerStore.removeJob(expired.id);
@@ -338,9 +372,9 @@ async function main() {
           await new Promise((r) => setTimeout(r, 500));
         }
         assert(quietTerminal !== null && quietTerminal.status === "succeeded", "免打扰 run 应成功落账");
-        const pendingAfterQuiet = await getJson("/void-scheduler/runs/pending");
-        assert(!pendingAfterQuiet.data.some((run) => run.id === quietRun.data.runId), "免打扰 run 不进 pending");
-        assert(quietTerminal.delivered === true, "免打扰 run 直接记已投递");
+        assert(quietTerminal.delivery.state === "suppressed", "免打扰 run 落 suppressed，不进待投递");
+        const claimAfterQuiet = await postJson("/void-scheduler/runs/claim", {});
+        assert(!claimAfterQuiet.data.some((run) => run.id === quietRun.data.runId), "suppressed 不参与领取");
       } finally {
         uninstallQuiet();
       }
@@ -401,18 +435,101 @@ async function main() {
       const cronReloaded = schedulerStore.getJob(cronJob.data.id);
       assert(cronReloaded !== null && cronReloaded.expr === "0 0 1 1 *" && cronReloaded.nextRunAtMs === cronJob.data.nextRunAtMs, "cron 重启应恢复");
       await postJson("/void-scheduler/jobs/remove", { id: cronJob.data.id });
+
+      // PRO-06 状态机门禁：租约过期/尝试上限/入队过期/队列上界/旧数据迁移
+      const drainDeliveries = async () => {
+        for (let i = 0; i < 12; i += 1) {
+          const claimed = await postJson("/void-scheduler/runs/claim", {});
+          if (!claimed.data.length) return;
+          await postJson("/void-scheduler/runs/ack", {
+            records: claimed.data.map((run) => ({ runId: run.id, result: "sent" }))
+          });
+        }
+      };
+      await drainDeliveries();
+
+      // A4 租约过期：客户端崩溃后应回到 pending 并可再次领取
+      const leaseRun = schedulerStore.appendRun({
+        jobId: "job_lease", jobName: "lease", startedAt: Date.now(), status: "succeeded", summary: "lease",
+        delivery: createRunDelivery()
+      });
+      const leaseClaim1 = await postJson("/void-scheduler/runs/claim", {});
+      const leaseFirst = leaseClaim1.data.find((run) => run.id === leaseRun.id);
+      assert(leaseFirst !== undefined && leaseFirst.delivery.attempts === 1, "首次领取 attempts 应为 1");
+      const stored = schedulerStore.listRuns(100).find((run) => run.id === leaseRun.id);
+      schedulerStore.updateRun({ ...stored, delivery: { ...stored.delivery, leaseUntil: Date.now() - 1000 } });
+      const leaseClaim2 = await postJson("/void-scheduler/runs/claim", {});
+      const leaseSecond = leaseClaim2.data.find((run) => run.id === leaseRun.id);
+      assert(leaseSecond !== undefined && leaseSecond.delivery.attempts === 2, "租约过期应可重领且 attempts 递增");
+      await postJson("/void-scheduler/runs/ack", { records: [{ runId: leaseRun.id, result: "sent" }] });
+
+      // A5 尝试上限：达到上限后转 failed，不再领取
+      const cappedRun = schedulerStore.appendRun({
+        jobId: "job_capped", jobName: "capped", startedAt: Date.now(), status: "succeeded", summary: "capped",
+        delivery: { state: "pending", attempts: 5, enqueuedAt: Date.now() }
+      });
+      const cappedClaim = await postJson("/void-scheduler/runs/claim", {});
+      assert(!cappedClaim.data.some((run) => run.id === cappedRun.id), "尝试达上限不应再领取");
+      const cappedView = (await getJson("/void-scheduler/runs?limit=100")).data.find((run) => run.id === cappedRun.id);
+      assert(cappedView.delivery.state === "failed" && cappedView.delivery.errorCode === "DELIVERY_ATTEMPTS_EXCEEDED",
+        "尝试超限应落 failed 并留原因码");
+
+      // A6 入队过期：超过 60 分钟不再补发
+      const staleRun = schedulerStore.appendRun({
+        jobId: "job_stale", jobName: "stale", startedAt: Date.now(), status: "succeeded", summary: "stale",
+        delivery: { state: "pending", attempts: 0, enqueuedAt: Date.now() - 61 * 60_000 }
+      });
+      const staleClaim = await postJson("/void-scheduler/runs/claim", {});
+      assert(!staleClaim.data.some((run) => run.id === staleRun.id), "过期记录不应补发");
+      const staleView = (await getJson("/void-scheduler/runs?limit=100")).data.find((run) => run.id === staleRun.id);
+      assert(staleView.delivery.state === "expired", "超时应落 expired 留痕");
+
+      // A7 队列上界：第 51 条入队即失败，不静默丢弃
+      await drainDeliveries();
+      for (let i = 0; i < 50; i += 1) {
+        schedulerStore.appendRun({
+          jobId: `job_fill_${i}`, jobName: `fill${i}`, startedAt: Date.now(), status: "succeeded",
+          summary: `fill${i}`, delivery: createRunDelivery()
+        });
+      }
+      const overflow = schedulerStore.appendRun({
+        jobId: "job_overflow", jobName: "overflow", startedAt: Date.now(), status: "succeeded", summary: "overflow",
+        delivery: createRunDelivery()
+      });
+      assert(overflow.delivery.state === "failed" && overflow.delivery.errorCode === "QUEUE_FULL",
+        "超过待投递上界应落 failed/QUEUE_FULL");
+      await drainDeliveries();
+
+      // A9 旧数据迁移：delivered 布尔迁移为 sent/pending
+      writeFileSync(
+        path.join(runtimeRoot, "scheduler", "jobs.json"),
+        JSON.stringify({
+          version: 1,
+          jobs: [],
+          runs: [
+            { id: "run_legacy_sent", jobId: "j", jobName: "n", startedAt: 1000, status: "succeeded", summary: "a", delivered: true },
+            { id: "run_legacy_pending", jobId: "j", jobName: "n", startedAt: 1000, status: "succeeded", summary: "b", delivered: false }
+          ]
+        }),
+        "utf8"
+      );
+      schedulerStore.resetMemory();
+      const migrated = schedulerStore.listRuns(10);
+      assert(migrated.find((run) => run.id === "run_legacy_sent")?.delivery.state === "sent", "旧 delivered=true 应迁移为 sent");
+      assert(migrated.find((run) => run.id === "run_legacy_pending")?.delivery.state === "pending", "旧 delivered=false 应迁移为 pending");
     } finally {
       runner.stopScheduler();
       await new Promise((resolve) => httpServer.close(resolve));
     }
 
     console.log("[agent-scheduler-smoke] PASSED");
+    console.log(" - PRO-06投递：claim领取→如实上报sent/failed→重复上报幂等→终态不被覆盖");
+    console.log(" - PRO-06状态机：租约过期重领递增/尝试超限failed/入队超时expired/队列上界QUEUE_FULL/旧delivered迁移");
     console.log(" - 失败升级：every连败3次缀标记，at失败缀停用");
     console.log(" - 自然时间：17例归一（上下午/半/上下周/号/每天cron/间隔）+4例拒绝+when归一/冲突/二选一/垃圾拒绝");
-    console.log(" - 条件通知：首行NO_NOTIFY免打扰落账且不进pending，有异常正常投递");
-    console.log(" - 启动播报：过期任务记 missed run 进 pending，可 ack");
+    console.log(" - 条件通知：首行NO_NOTIFY免打扰落suppressed，不参与领取");
+    console.log(" - 启动播报：过期任务记 missed run 可领取并上报");
     console.log(" - 预授权：scope内静态L2放行/L0与scope外与L3与未知拒绝；anchor决定下次，非法anchor拒绝");
-    console.log(" - 投递：完成run进pending→ack确认1条→不再pending");
     console.log(" - 端点E2E：unlock不回显Key→创建/列表→手动触发隔离turn成功→at自删→未解锁pause→删幂等");
     console.log(" - at/every 归一化与非法拒绝；下次触发严格递增；宽限补跑/超限missed/不补跑风暴");
     console.log(" - 落账：at成功删/失败停用，every累计续算；存储落盘重读删全闭环，脏文件回退");

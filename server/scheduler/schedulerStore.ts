@@ -9,10 +9,28 @@ import { resolveRuntimeRoot } from "../file/fileRuntimePaths";
 import { MAX_JOBS, MAX_RUN_RECORDS, nextJobId, nextRunId } from "./schedulerEngine";
 import {
   createScheduleError,
+  type DeliveryState,
+  type RunDelivery,
   type ScheduleJob,
   type SchedulerRunRecord,
   type SchedulerState
 } from "./schedulerTypes";
+
+/** 投递边界（PRO-06）：全部有上界，禁止无界增长。 */
+export const MAX_PENDING_DELIVERY = 50;
+export const MAX_DELIVERY_BATCH = 10;
+export const DELIVERY_LEASE_MS = 90_000;
+export const DELIVERY_EXPIRE_MS = 60 * 60_000;
+export const MAX_DELIVERY_ATTEMPTS = 5;
+
+const DELIVERY_STATES: ReadonlySet<DeliveryState> = new Set([
+  "pending",
+  "delivering",
+  "sent",
+  "failed",
+  "expired",
+  "suppressed"
+]);
 
 function schedulerDir(): string {
   const fromEnv = process.env.VOID_SCHEDULER_DIR?.trim();
@@ -30,8 +48,37 @@ function emptyState(): SchedulerState {
   return { version: 1, jobs: [], runs: [] };
 }
 
-/** 只接受 vault: 引用；其余（含明文）一律丢弃且不落盘。 */
-function readJobVaultRef(job: Record<string, unknown>): string | undefined {
+/**
+ * 投递记录迁移与校验。
+ * 旧格式只有 `delivered: boolean`：true → sent，false/缺失 → pending（会重新投递一次，可接受）。
+ */
+function sanitizeDelivery(run: Record<string, unknown>): RunDelivery {
+  const raw = run.delivery;
+  if (typeof raw === "object" && raw !== null) {
+    const record = raw as Record<string, unknown>;
+    const state = typeof record.state === "string" && DELIVERY_STATES.has(record.state as DeliveryState)
+      ? (record.state as DeliveryState)
+      : "pending";
+    return {
+      state,
+      attempts: typeof record.attempts === "number" && record.attempts >= 0 ? Math.floor(record.attempts) : 0,
+      enqueuedAt: typeof record.enqueuedAt === "number"
+        ? record.enqueuedAt
+        : (typeof run.startedAt === "number" ? run.startedAt : Date.now()),
+      lastAttemptAt: typeof record.lastAttemptAt === "number" ? record.lastAttemptAt : undefined,
+      leaseUntil: typeof record.leaseUntil === "number" ? record.leaseUntil : undefined,
+      errorCode: typeof record.errorCode === "string" ? record.errorCode : undefined
+    };
+  }
+  const legacyDelivered = run.delivered === true;
+  return {
+    state: legacyDelivered ? "sent" : "pending",
+    attempts: legacyDelivered ? 1 : 0,
+    enqueuedAt: typeof run.startedAt === "number" ? run.startedAt : Date.now()
+  };
+}
+
+/** 只接受 vault: 引用；其余（含明文）一律丢弃且不落盘。 */function readJobVaultRef(job: Record<string, unknown>): string | undefined {
   const candidate = job.modelVaultRef;
   if (typeof candidate !== "string") return undefined;
   const trimmed = candidate.trim();
@@ -104,7 +151,7 @@ function sanitizeState(raw: unknown): SchedulerState {
           ? run.status
           : "failed",
         summary: typeof run.summary === "string" ? run.summary : undefined,
-        delivered: run.delivered === true
+        delivery: sanitizeDelivery(run)
       });
     }
   }
@@ -213,6 +260,9 @@ class SchedulerStore {
   appendRun(run: Omit<SchedulerRunRecord, "id">): SchedulerRunRecord {
     const state = this.ensureLoaded();
     const record: SchedulerRunRecord = { ...run, id: nextRunId() };
+    if (record.delivery.state === "pending") {
+      this.enqueueDelivery(record, record.delivery.enqueuedAt);
+    }
     state.runs.push(record);
     state.runs = state.runs.slice(-MAX_RUN_RECORDS);
     this.flush();
@@ -232,29 +282,125 @@ class SchedulerStore {
     return this.ensureLoaded().runs.slice(-Math.max(1, Math.min(limit, MAX_RUN_RECORDS))).map((run) => ({ ...run }));
   }
 
-  /** 未投递的终态 runs（投递器拉取，上限 10，有界）。 */
-  listPendingDelivery(limit = 10): SchedulerRunRecord[] {
-    return this.ensureLoaded().runs
-      .filter((run) => !run.delivered && run.status !== "running")
-      .slice(-Math.max(1, Math.min(limit, 10)))
-      .map((run) => ({ ...run }));
+  /** 入队一条待投递记录；积压超上限时直接落 failed，不静默丢弃。 */
+  private enqueueDelivery(record: SchedulerRunRecord, now: number): void {
+    const pendingCount = this.ensureLoaded().runs
+      .filter((run) => run.delivery.state === "pending" || run.delivery.state === "delivering")
+      .length;
+    if (pendingCount >= MAX_PENDING_DELIVERY) {
+      record.delivery = {
+        state: "failed",
+        attempts: 0,
+        enqueuedAt: now,
+        errorCode: "QUEUE_FULL"
+      };
+    }
   }
 
-  /** 确认投递，返回实际确认条数。 */
-  acknowledgeRuns(ids: string[]): number {
+  /**
+   * 原子领取待投递记录（PRO-06）。
+   * 先回收过期租约与超时待投递，再把 pending 置为 delivering 并写租约，
+   * 保证同一记录同一时刻只被一个客户端通知。
+   */
+  claimPendingDelivery(limit = MAX_DELIVERY_BATCH): SchedulerRunRecord[] {
     const state = this.ensureLoaded();
-    const wanted = new Set(ids.filter((id) => typeof id === "string"));
-    let count = 0;
+    const now = Date.now();
+    const capped = Math.max(1, Math.min(Math.floor(limit) || MAX_DELIVERY_BATCH, MAX_DELIVERY_BATCH));
+    let changed = false;
+
     for (const run of state.runs) {
-      if (wanted.has(run.id) && !run.delivered) {
-        run.delivered = true;
-        count += 1;
+      const delivery = run.delivery;
+      if (delivery.state === "delivering") {
+        if (!delivery.leaseUntil || delivery.leaseUntil <= now) {
+          // 租约过期：客户端可能已崩溃，回到 pending 等下次领取。
+          delivery.state = delivery.attempts >= MAX_DELIVERY_ATTEMPTS ? "failed" : "pending";
+          delivery.leaseUntil = undefined;
+          if (delivery.state === "failed") {
+            delivery.errorCode = delivery.errorCode ?? "LEASE_EXPIRED";
+          }
+          changed = true;
+        }
+        continue;
+      }
+      if (delivery.state === "pending") {
+        if (delivery.attempts >= MAX_DELIVERY_ATTEMPTS) {
+          delivery.state = "failed";
+          delivery.errorCode = delivery.errorCode ?? "DELIVERY_ATTEMPTS_EXCEEDED";
+          changed = true;
+          continue;
+        }
+        if (now - delivery.enqueuedAt > DELIVERY_EXPIRE_MS) {
+          delivery.state = "expired";
+          changed = true;
+        }
       }
     }
-    if (count > 0) {
+
+    // 最旧优先：提醒的价值随时间衰减，也避免新记录把旧记录顶死。
+    const candidates = state.runs
+      .filter((run) => run.delivery.state === "pending" && run.status !== "running")
+      .sort((a, b) => a.delivery.enqueuedAt - b.delivery.enqueuedAt)
+      .slice(0, capped);
+
+    for (const run of candidates) {
+      run.delivery.state = "delivering";
+      run.delivery.attempts += 1;
+      run.delivery.lastAttemptAt = now;
+      run.delivery.leaseUntil = now + DELIVERY_LEASE_MS;
+      changed = true;
+    }
+
+    if (changed) {
       this.flush();
     }
-    return count;
+    return candidates.map((run) => ({ ...run, delivery: { ...run.delivery } }));
+  }
+
+  /**
+   * 按结果落投递状态（幂等）。
+   * 只有 delivering 记录接受结果；重复上报不改变终态。
+   */
+  recordDeliveryResults(
+    results: Array<{ runId: string; result: "sent" | "failed"; errorCode?: string }>
+  ): number {
+    const state = this.ensureLoaded();
+    let changed = 0;
+    for (const item of results) {
+      const run = state.runs.find((candidate) => candidate.id === item.runId);
+      if (!run || run.delivery.state !== "delivering") {
+        continue;
+      }
+      run.delivery.state = item.result === "sent" ? "sent" : "failed";
+      run.delivery.leaseUntil = undefined;
+      run.delivery.errorCode = item.errorCode;
+      changed += 1;
+    }
+    if (changed > 0) {
+      this.flush();
+    }
+    return changed;
+  }
+
+  /** 按条件通知策略主动不打扰（终态，不算送达）。 */
+  suppressDelivery(runId: string): void {
+    const state = this.ensureLoaded();
+    const run = state.runs.find((candidate) => candidate.id === runId);
+    if (!run) {
+      return;
+    }
+    run.delivery = {
+      state: "suppressed",
+      attempts: run.delivery.attempts,
+      enqueuedAt: run.delivery.enqueuedAt
+    };
+    this.flush();
+  }
+
+  /** 待投递/失败/过期计数（托盘未读与台账使用）。 */
+  countUndelivered(): number {
+    return this.ensureLoaded().runs
+      .filter((run) => run.delivery.state === "pending" || run.delivery.state === "delivering" || run.delivery.state === "failed")
+      .length;
   }
 
   /** 测试/隔离专用：重置内存态（不删文件；文件由调用方隔离目录保证）。 */

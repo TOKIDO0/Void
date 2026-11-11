@@ -48,6 +48,37 @@ export type SchedulerRunStatus =
   | "paused_needs_user"
   | "missed";
 
+/**
+ * 投递状态机（PRO-06）。
+ * pending → delivering(租约) → sent / failed；
+ * 租约过期回 pending，attempts 超限或入队超时转终态。
+ * suppressed = 按条件通知策略主动不打扰（巡检无异常），属终态但不是"送达"。
+ */
+export type DeliveryState = "pending" | "delivering" | "sent" | "failed" | "expired" | "suppressed";
+
+export type RunDelivery = {
+  state: DeliveryState;
+  /** 领取次数；用于失败上限判定。 */
+  attempts: number;
+  /** 入队时间；过期判定基准。 */
+  enqueuedAt: number;
+  lastAttemptAt?: number;
+  /** delivering 租约到期时间，仅 state=delivering 时有意义。 */
+  leaseUntil?: number;
+  /** 失败原因码：PERMISSION_DENIED / BRIDGE_UNREACHABLE / QUEUE_FULL / UNKNOWN。 */
+  errorCode?: string;
+};
+
+/** 新建一条待投递记录（runner 建 run 时使用）。 */
+export function createRunDelivery(): RunDelivery {
+  return { state: "pending", attempts: 0, enqueuedAt: Date.now() };
+}
+
+/** 按条件通知策略主动不打扰。 */
+export function createSuppressedDelivery(): RunDelivery {
+  return { state: "suppressed", attempts: 0, enqueuedAt: Date.now() };
+}
+
 export type SchedulerRunRecord = {
   id: string;
   jobId: string;
@@ -56,8 +87,8 @@ export type SchedulerRunRecord = {
   finishedAt?: number;
   status: "running" | SchedulerRunStatus;
   summary?: string;
-  /** 投递是否已送达前端台账/通知。 */
-  delivered: boolean;
+  /** 投递状态真源（PRO-06）。 */
+  delivery: RunDelivery;
 };
 
 export type SchedulerState = {

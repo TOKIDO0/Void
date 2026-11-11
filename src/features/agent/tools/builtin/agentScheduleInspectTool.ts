@@ -70,7 +70,7 @@ export const agentScheduleInspectTool: ToolDefinition<Record<string, never>, Rec
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["id", "jobId", "startedAt", "status", "delivered"],
+          required: ["id", "jobId", "startedAt", "status", "delivered", "deliveryState"],
           properties: {
             id: { type: "string" },
             jobId: { type: "string" },
@@ -79,7 +79,14 @@ export const agentScheduleInspectTool: ToolDefinition<Record<string, never>, Rec
             finishedAt: { type: "number" },
             status: { type: "string" },
             summary: { type: "string" },
-            delivered: { type: "boolean" }
+            /** 派生字段：等价于 deliveryState === "sent"，保持旧工具契约可用。 */
+            delivered: { type: "boolean" },
+            deliveryState: {
+              type: "string",
+              enum: ["pending", "delivering", "sent", "failed", "expired", "suppressed"]
+            },
+            deliveryAttempts: { type: "number" },
+            deliveryErrorCode: { type: "string" }
           }
         }
       },
@@ -101,7 +108,21 @@ export const agentScheduleInspectTool: ToolDefinition<Record<string, never>, Rec
         listScheduledJobs(context.signal),
         fetchRecentRuns(10, context.signal)
       ]);
-      return { status, jobs, recentRuns, jobCount: jobs.length } as unknown as Record<string, unknown>;
+      // PRO-06：投递状态是结构化对象；对模型保留派生布尔 delivered，避免破坏既有契约。
+      const runs = recentRuns.map((run) => ({
+        id: run.id,
+        jobId: run.jobId,
+        jobName: run.jobName,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+        status: run.status,
+        summary: run.summary,
+        delivered: run.delivery.state === "sent",
+        deliveryState: run.delivery.state,
+        deliveryAttempts: run.delivery.attempts,
+        deliveryErrorCode: run.delivery.errorCode
+      }));
+      return { status, jobs, recentRuns: runs, jobCount: jobs.length } as unknown as Record<string, unknown>;
     } catch (error) {
       throwAsSchedulerToolError(error);
     }

@@ -13,6 +13,7 @@ import {
   listScheduledJobs,
   removeScheduledJob,
   runScheduledJobNow,
+  type SchedulerDeliveryView,
   type SchedulerJobView,
   type SchedulerRunView,
   type SchedulerStatusView
@@ -78,6 +79,28 @@ const COPY: Record<SettingsLanguage, Record<string, string>> = {
 
 // 存活门禁重查间隔：报错期间静默重查，恢复即停。
 const BRIDGE_AUTO_RETRY_MS = 5000;
+
+/**
+ * PRO-06：投递状态补充说明（接在执行状态后）。
+ * sent/suppressed 不占位；未送达要如实写出来，否则用户会以为提醒已经到过。
+ */
+function formatDeliveryNote(delivery: SchedulerDeliveryView, language: SettingsLanguage): string {
+  const zh = language === "zh-CN";
+  switch (delivery.state) {
+    case "pending":
+      return zh ? " · 待投递" : " · Pending delivery";
+    case "delivering":
+      return zh ? " · 投递中" : " · Delivering";
+    case "failed":
+      return zh
+        ? ` · 未送达${delivery.errorCode ? `（${delivery.errorCode}）` : ""}`
+        : ` · Not delivered${delivery.errorCode ? ` (${delivery.errorCode})` : ""}`;
+    case "expired":
+      return zh ? " · 投递已过期" : " · Delivery expired";
+    default:
+      return "";
+  }
+}
 
 export function TasksContent() {
   const [language, setLanguage] = useState<SettingsLanguage>(() => loadSettingsLanguage());
@@ -180,6 +203,7 @@ export function TasksContent() {
     return new Date(timestamp).toLocaleString(language === "zh-CN" ? "zh-CN" : "en-US", { hour12: false });
   }, [copy.na, language]);
 
+
   return (
     <div className="security-status__embedded">
       <div className="security-status__toolbar">
@@ -248,6 +272,7 @@ export function TasksContent() {
                     <div className="tasks__row-meta">
                       {run.status} · {formatTime(run.finishedAt ?? run.startedAt)}
                       {run.summary ? ` · ${run.summary.slice(0, 60)}` : ""}
+                      {formatDeliveryNote(run.delivery, language)}
                     </div>
                   </div>
                 </div>

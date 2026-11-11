@@ -41,6 +41,14 @@ export type SchedulerJobView = {
   failStreak: number;
 };
 
+export type SchedulerDeliveryView = {
+  state: "pending" | "delivering" | "sent" | "failed" | "expired" | "suppressed";
+  attempts: number;
+  enqueuedAt: number;
+  lastAttemptAt?: number;
+  errorCode?: string;
+};
+
 export type SchedulerRunView = {
   id: string;
   jobId: string;
@@ -49,7 +57,7 @@ export type SchedulerRunView = {
   finishedAt?: number;
   status: string;
   summary?: string;
-  delivered: boolean;
+  delivery: SchedulerDeliveryView;
 };
 
 export type SchedulerStatusView = {
@@ -248,10 +256,20 @@ export async function fetchRecentRuns(limit = 10, signal?: AbortSignal): Promise
   return getSchedulerApi<SchedulerRunView[]>(`/void-scheduler/runs?limit=${capped}`, signal);
 }
 
-export async function fetchPendingRuns(signal?: AbortSignal): Promise<SchedulerRunView[]> {
-  return getSchedulerApi<SchedulerRunView[]>("/void-scheduler/runs/pending", signal);
+/** PRO-06：未送达计数（托盘未读徽标；含失败待处理）。 */
+export async function fetchDeliverySummary(signal?: AbortSignal): Promise<{ undelivered: number }> {
+  return getSchedulerApi<{ undelivered: number }>("/void-scheduler/delivery/summary", signal);
 }
 
-export async function acknowledgeRuns(runIds: string[], signal?: AbortSignal): Promise<{ acknowledged: number }> {
-  return postSchedulerApi<{ acknowledged: number }>("/void-scheduler/runs/ack", { runIds }, signal);
+/** PRO-06：原子领取待投递记录（服务端写租约，避免重复通知）。 */
+export async function claimPendingDeliveries(signal?: AbortSignal): Promise<SchedulerRunView[]> {
+  return postSchedulerApi<SchedulerRunView[]>("/void-scheduler/runs/claim", {}, signal);
+}
+
+/** 按结果上报投递（幂等）：只有真正送达才报 sent。 */
+export async function reportDeliveryResults(
+  records: Array<{ runId: string; result: "sent" | "failed"; errorCode?: string }>,
+  signal?: AbortSignal
+): Promise<{ recorded: number }> {
+  return postSchedulerApi<{ recorded: number }>("/void-scheduler/runs/ack", { records }, signal);
 }

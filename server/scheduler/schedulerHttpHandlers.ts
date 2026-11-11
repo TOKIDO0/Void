@@ -17,7 +17,7 @@ import {
   schedulerRunningCount,
   setSchedulerModelKey
 } from "./schedulerRunner";
-import { schedulerStore } from "./schedulerStore";
+import { MAX_DELIVERY_BATCH, schedulerStore } from "./schedulerStore";
 import { getScheduleErrorInfo, type ScheduleCreateInput } from "./schedulerTypes";
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
@@ -217,18 +217,37 @@ export async function handleSchedulerHttpRequest(
     return true;
   }
 
-  if (request.method === "GET" && pathname === "/void-scheduler/runs/pending") {
-    await withSchedulerHandler(response, () => schedulerStore.listPendingDelivery(10));
+  if (request.method === "GET" && pathname === "/void-scheduler/delivery/summary") {
+    await withSchedulerHandler(response, () => ({
+      undelivered: schedulerStore.countUndelivered()
+    }));
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/void-scheduler/runs/claim") {
+    await withSchedulerHandler(response, () => schedulerStore.claimPendingDelivery());
     return true;
   }
 
   if (request.method === "POST" && pathname === "/void-scheduler/runs/ack") {
     await withSchedulerHandler(response, async () => {
       const body = asRecord(await readJsonBody(request));
-      const runIds = Array.isArray(body.runIds)
-        ? body.runIds.filter((x): x is string => typeof x === "string").slice(0, 20)
-        : [];
-      return { acknowledged: schedulerStore.acknowledgeRuns(runIds) };
+      const rawRecords = Array.isArray(body.records) ? body.records.slice(0, MAX_DELIVERY_BATCH) : [];
+      const results: Array<{ runId: string; result: "sent" | "failed"; errorCode?: string }> = [];
+      for (const item of rawRecords) {
+        const record = asRecord(item);
+        const runId = typeof record.runId === "string" ? record.runId.trim() : "";
+        const result = record.result === "sent" ? "sent" : record.result === "failed" ? "failed" : null;
+        if (!runId || !result) {
+          continue;
+        }
+        results.push({
+          runId,
+          result,
+          errorCode: typeof record.errorCode === "string" ? record.errorCode.slice(0, 40) : undefined
+        });
+      }
+      return { recorded: schedulerStore.recordDeliveryResults(results) };
     });
     return true;
   }
