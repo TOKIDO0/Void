@@ -81,10 +81,10 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
 
   const productionTools = listToolMetadata();
   // 26 既有 + software 3 个 + file.writeText/searchText/inspectWriteTarget/inspectPath/findByName/listRecentArtifacts + security + agent 自检 7 个 + desktop 应用启动 2 个 + file.downloadMedia 泛化 1 个 + 记忆自验 1 个 + file.organizeDirectory 智能整理 1 个 + file.createExcel 精美 Excel 1 个 + file.createPptx 精美 PPT 1 个 + file.createDocx 精美 Word 1 个 + agent.runCode 受限代码沙箱 1 个 + agent.inspectWorkspace 工作区快照 1 个 + desktop 窗口/系统信息 4 个 + desktop 截图 1 个 + desktop 窗口几何 1 个 + desktop 关联打开 1 个 + desktop 控件探针 1 个 + desktop 后台投递 2 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 = 71
-  if (productionTools.length !== 86 || productionTools.some((tool) => !tool.outputSchema)) {
-    failures.push(`生产工具契约审计应覆盖 86 个工具，实际 ${productionTools.length}`);
+  if (productionTools.length !== 89 || productionTools.some((tool) => !tool.outputSchema)) {
+    failures.push(`生产工具契约审计应覆盖 89 个工具，实际 ${productionTools.length}`);
   } else {
-    notes.push("86 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、calendar 日程 4 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 读屏 OCR 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + 接管会话/输入/状态/停止 4 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 + agent.scheduleCreate/remove/runNow/list/inspect 后台调度 5 个 + agent.inspectModelUsage 用量自检 1 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
+    notes.push("89 个生产工具通过 outputSchema 契约审计（含通用 software 领域 3 个、calendar 日程 4 个、记忆固结/版本/回滚 3 个、file.writeText、file.searchText、file.inspectWriteTarget、file.inspectPath、file.findByName、file.listRecentArtifacts、file.downloadMedia 通用媒体下载、file.organizeDirectory 智能整理、file.createExcel 精美 Excel、file.createPptx 精美 PPT、file.createDocx 精美 Word、agent.runCode 受限代码沙箱、agent.inspectWorkspace 工作区快照、desktop 窗口/系统信息 4 个 + 桌面截图 1 个 + 读屏 OCR 1 个 + 窗口几何 1 个 + 关联打开 1 个 + 控件探针 1 个 + 后台投递 2 个 + 接管会话/输入/状态/停止 4 个 + web 快轨搜索 1 个 + web 精读 1 个 + agent.todo/goal/askUser/spawnTask 任务协作 4 个 + file.editText 行级编辑 1 个 + agent.scheduleCreate/remove/runNow/list/inspect 后台调度 5 个 + agent.inspectModelUsage 用量自检 1 个、本地安全自检、能力自检、任务预演、单工具契约自检、扩展机制安全边界自检、动态安全 hook 自检、隐私边界自检、任务 Playbook 自检、本地技能目录自检、桌面应用列表/启动与记忆自验）");
   }
 
   const writeTextTool = productionTools.find((tool) => tool.name === "file.writeText");
@@ -1814,6 +1814,78 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
     } else {
       notes.push("CORE-03 记忆召回前验证：状态性分区超阈值带 ⚠ + 使用纪律，knowledgeCache 不标记，新鲜记忆不注入纪律");
     }
+
+    // MEM-04 记忆固结：只合并完全相同事实，保护分区不动，删除前后有快照可回滚
+    const memStoreForConsolidation = await import("../../memory/memoryStore");
+    const { runMemoryConsolidation, restoreMemoryVersionSnapshot } = await import(
+      "../../memory/memoryConsolidationRunner"
+    );
+    const versionStore = await import("../../memory/memoryVersionStore");
+    memStoreForConsolidation.clearMemories();
+    versionStore.clearMemoryVersions();
+    const mkEntry = (
+      id: string,
+      content: string,
+      memoryType: "userProfile" | "healthRecord" | "preference",
+      updatedAt: number,
+      expiresAt?: number
+    ) => ({
+      id, content, memoryType, subjectType: "self" as const, subjectName: "用户本人",
+      confidence: 0.8, sensitivity: "normal" as const, source: "smoke",
+      createdAt: updatedAt - 1000, updatedAt, expiresAt
+    });
+    const nowForConsolidation = Date.now();
+    memStoreForConsolidation.upsertMemory(mkEntry("m_dup_1", "喜欢被叫小陈", "userProfile", nowForConsolidation - 2000));
+    memStoreForConsolidation.upsertMemory(mkEntry("m_dup_2", "喜欢被叫小陈", "userProfile", nowForConsolidation - 1000));
+    memStoreForConsolidation.upsertMemory(mkEntry("m_other", "住在上海", "userProfile", nowForConsolidation));
+    memStoreForConsolidation.upsertMemory(mkEntry("m_health_1", "血压偏高", "healthRecord", nowForConsolidation - 500));
+    memStoreForConsolidation.upsertMemory(mkEntry("m_health_2", "血压偏高", "healthRecord", nowForConsolidation - 400));
+    memStoreForConsolidation.upsertMemory(mkEntry("m_expired", "临时偏好", "preference", nowForConsolidation - 5000, nowForConsolidation - 1000));
+    const beforeConsolidation = memStoreForConsolidation.listMemories().length;
+
+    const dryRun = runMemoryConsolidation({ dryRun: true });
+    const afterDryRun = memStoreForConsolidation.listMemories().length;
+    const applied = runMemoryConsolidation({ reason: "smoke" });
+    const afterApply = memStoreForConsolidation.listMemories();
+    const mergeRemovedDuplicate = !afterApply.some((entry) => entry.id === "m_dup_1");
+    const keptOneDuplicate = afterApply.filter((entry) => entry.content === "喜欢被叫小陈").length === 1;
+    // 回归护栏：内容不同的两条绝不能被当成同一事实合并
+    const keptDistinct = afterApply.some((entry) => entry.id === "m_other");
+    // 保护分区永不自动删除
+    const keptHealth = afterApply.filter((entry) => entry.memoryType === "healthRecord").length === 2;
+    const removedExpired = !afterApply.some((entry) => entry.id === "m_expired");
+    const snapshotSaved = typeof applied.snapshotId === "string";
+    const restored = applied.snapshotId ? restoreMemoryVersionSnapshot(applied.snapshotId) : null;
+    const restoredCount = memStoreForConsolidation.listMemories().length;
+
+    const consolidationChecks = [
+      dryRun.dryRun === true && dryRun.removed === 0,
+      afterDryRun === beforeConsolidation,
+      applied.applied === true,
+      mergeRemovedDuplicate,
+      keptOneDuplicate,
+      keptDistinct,
+      keptHealth,
+      removedExpired,
+      snapshotSaved,
+      restored !== null && restored.restored === true && restoredCount === beforeConsolidation
+    ];
+    if (consolidationChecks.some((ok) => !ok)) {
+      failures.push(`MEM-04 记忆固结异常：${JSON.stringify({
+        dryRunNoop: afterDryRun === beforeConsolidation,
+        merged: mergeRemovedDuplicate,
+        distinct: keptDistinct,
+        health: keptHealth,
+        expired: removedExpired,
+        snapshot: snapshotSaved,
+        restoredCount,
+        beforeConsolidation
+      })}`);
+    } else {
+      notes.push(`MEM-04 记忆固结：${beforeConsolidation} 条 → ${afterApply.length} 条；只合并完全重复、保护分区不动、过期清理生效、快照可回滚`);
+    }
+    memStoreForConsolidation.clearMemories();
+    versionStore.clearMemoryVersions();
 
     // T2 进度文案完整性：全量工具均有可读文案，不回退到 humanize 兜底
     const { formatToolProgressMessage } = await import("../loop/toolProgressCopy");
