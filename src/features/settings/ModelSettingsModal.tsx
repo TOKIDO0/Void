@@ -31,7 +31,7 @@ import { loadVoiceRuntimeConfig, saveVoiceRuntimeConfig } from "../voice/voiceRu
 import type { VoicePreferences } from "../voice/voicePreferences";
 import type { VoiceSttProviderMode } from "../voice/stt/voiceSttContract";
 import { fetchVoiceSttStatus } from "../voice/stt/voiceSttBridgeClient";
-import { QWEN3_SPEAKERS, findQwen3Speaker, normalizeQwen3Speaker } from "../voice/tts/qwen3Voices";
+import { QWEN3_SPEAKERS, normalizeQwen3Speaker } from "../voice/tts/qwen3Voices";
 import { SecurityStatusContent } from "../agent/security/SecurityStatusContent";
 import { TasksContent } from "../agent/scheduler/TasksContent";
 import { BridgeStatusBanner } from "../agent/bridge/BridgeStatusBanner";
@@ -613,7 +613,6 @@ export function ModelSettingsModal({
   // 独立 form 以便复用底部保存；保存时由 VoidStage 统一更新 voicePreferences 并重启 STT 会话。
   if (activeTab === "voice") {
     const isManaged = voiceSttProviderDraft === "managed";
-    const selectedQwenSpeaker = findQwen3Speaker(voiceRuntimeConfig.qwenSpeaker);
     const statusText = (() => {
       switch (voiceSttStatus.state) {
         case "ready":
@@ -685,12 +684,9 @@ export function ModelSettingsModal({
                   <p className="model-settings-modal__hint model-settings-modal__hint--warning">
                     {copy.voiceSttManagedWarning}
                   </p>
-                ) : (
-                  <small>{copy.voiceSttLocalHint}</small>
-                )}
-                <p className="model-settings-modal__hint">
+                ) : null}
+                <p className="model-settings-modal__hint" title={voiceSttStatus.detail ?? undefined}>
                   {statusText}
-                  {voiceSttStatus.detail ? `${language === "zh-CN" ? "：" : ": "}${voiceSttStatus.detail}` : ""}
                 </p>
               </div>
             </section>
@@ -720,18 +716,22 @@ export function ModelSettingsModal({
                         type="text"
                         aria-label={copy.doubaoSpeakerId}
                         value={voiceRuntimeConfig.doubaoSpeakerId}
+                        placeholder={language === "zh-CN" ? "默认女声" : "Default"}
+                        title={copy.doubaoSpeakerIdHint}
                         onChange={updateDoubaoSpeakerId}
                         spellCheck={false}
                       />
                     </label>
                     <p className="model-settings-modal__hint">{copy.voiceTtsModeCloudHint}</p>
-                    <small>{copy.doubaoSpeakerIdHint}</small>
                   </>
                 ) : (
                   <>
                     <div className="model-settings-modal__grid">
                       <label className="model-settings-modal__field">
-                        <span>{copy.localTtsEngine}</span>
+                        <span>
+                          {copy.localTtsEngine}
+                          <InfoTip text={copy.qwenEngineHint} label={copy.localTtsEngine} />
+                        </span>
                         <DarkSelect
                           aria-label={copy.localTtsEngine}
                           value={voiceRuntimeConfig.localTtsEngine}
@@ -744,7 +744,10 @@ export function ModelSettingsModal({
                       </label>
                       {voiceRuntimeConfig.localTtsEngine === "qwen3" ? (
                         <label className="model-settings-modal__field">
-                          <span>{copy.qwenSpeaker}</span>
+                          <span>
+                            {copy.qwenSpeaker}
+                            <InfoTip text={copy.qwenSpeakerHint} label={copy.qwenSpeaker} />
+                          </span>
                           <DarkSelect
                             aria-label={copy.qwenSpeaker}
                             value={voiceRuntimeConfig.qwenSpeaker}
@@ -757,24 +760,12 @@ export function ModelSettingsModal({
                         </label>
                       ) : null}
                     </div>
-                    {voiceRuntimeConfig.localTtsEngine === "qwen3" ? (
-                      <>
-                        <p className="model-settings-modal__hint">
-                          {selectedQwenSpeaker.label} · {language === "zh-CN" ? selectedQwenSpeaker.zh : selectedQwenSpeaker.en}
-                        </p>
-                        <small>{copy.qwenSpeakerHint}</small>
-                      </>
-                    ) : (
-                      <>
-                        <p className="model-settings-modal__hint">{copy.voiceTtsLocalEngine}</p>
-                        <small>{copy.voiceTtsLocalHint}</small>
-                      </>
-                    )}
-                    <small>{copy.qwenEngineHint}</small>
                     <div className="model-settings-modal__switch-row">
                       <div>
-                        <span className="model-settings-modal__switch-title">{copy.localTtsSmoothStart}</span>
-                        <small>{copy.localTtsSmoothStartHint}</small>
+                        <span className="model-settings-modal__switch-title">
+                          {copy.localTtsSmoothStart}
+                          <InfoTip text={copy.localTtsSmoothStartHint} label={copy.localTtsSmoothStart} />
+                        </span>
                       </div>
                       <label className="model-settings-modal__switch">
                         <input
@@ -787,7 +778,6 @@ export function ModelSettingsModal({
                         </span>
                       </label>
                     </div>
-                    <p className="model-settings-modal__hint">{copy.voiceTtsModeLocalHint}</p>
                   </>
                 )}
               </div>
@@ -921,7 +911,7 @@ export function ModelSettingsModal({
                 <label className="model-settings-modal__advanced-toggle">
                   <span>
                     <strong>{language === "zh-CN" ? "高权限模式" : "High permission mode"}</strong>
-                    <p>{language === "zh-CN" ? "开启后，文件写入、应用启动等操作将减少确认次数，但敏感文件读取与红线拦截保持不变。" : "When enabled, file and app operations require fewer confirmations, but sensitive file access and hard blocks remain."}</p>
+                    <p title={language === "zh-CN" ? "开启后，文件写入、应用启动等操作将减少确认次数，但敏感文件读取与红线拦截保持不变。" : "When enabled, file and app operations require fewer confirmations, but sensitive file access and hard blocks remain."}>{language === "zh-CN" ? "减少操作确认，敏感与红线不变。" : "Fewer confirmations; sensitive & hard blocks unchanged."}<InfoTip text={language === "zh-CN" ? "开启后，文件写入、应用启动等操作将减少确认次数，但敏感文件读取与红线拦截保持不变。" : "When enabled, file and app operations require fewer confirmations, but sensitive file access and hard blocks remain."} label={language === "zh-CN" ? "高权限模式" : "High permission mode"} /></p>
                   </span>
                   <span className="model-settings-modal__switch">
                     <input
@@ -939,20 +929,12 @@ export function ModelSettingsModal({
                     <span className="model-settings-modal__switch-slider" />
                   </span>
                 </label>
-                {highPermissionEnabled ? (
-                  <p className="model-settings-modal__hint model-settings-modal__hint--warning">
-                    {language === "zh-CN"
-                      ? "高权限已开启：VOID 将更主动地执行操作。请仅在信任当前任务时保持开启。"
-                      : "High permission is on: VOID will act more autonomously. Keep it on only for trusted tasks."}
-                  </p>
-                ) : null}
               </section>
               <section className="model-settings-modal__field">
                 <label className="model-settings-modal__advanced-toggle">
                   <span>
                     <strong>{language === "zh-CN" ? "开机自启动" : "Launch at login"}</strong>
-                    <p>{language === "zh-CN" ? "开机后自动启动 VOID（托盘常驻），关窗口不退出。默认关闭；开发预览下可能指向开发进程，以正式安装包为准。" : "Start VOID automatically at login (tray resident). Off by default; dev preview may point at the dev process."}</p>
-                    <p>{language === "zh-CN" ? "全局热键：Ctrl+Alt+V 显隐窗口，Ctrl+Alt+R 语音速记（按一下开始/结束）。" : "Global hotkeys: Ctrl+Alt+V toggles window, Ctrl+Alt+R push-to-talk."}</p>
+                    <p title={language === "zh-CN" ? "开机后自动启动 VOID（托盘常驻），关窗口不退出。默认关闭；开发预览下可能指向开发进程，以正式安装包为准。全局热键：Ctrl+Alt+V 显隐窗口，Ctrl+Alt+R 语音速记（按一下开始/结束）。" : "Start VOID automatically at login (tray resident). Off by default; dev preview may point at the dev process. Global hotkeys: Ctrl+Alt+V toggles window, Ctrl+Alt+R push-to-talk."}>{language === "zh-CN" ? "开机自动启动，关窗口不退出。" : "Auto-start at login; closing window stays in tray."}<InfoTip text={language === "zh-CN" ? "开机后自动启动 VOID（托盘常驻），关窗口不退出。默认关闭；开发预览下可能指向开发进程，以正式安装包为准。全局热键：Ctrl+Alt+V 显隐窗口，Ctrl+Alt+R 语音速记（按一下开始/结束）。" : "Start VOID automatically at login (tray resident). Off by default; dev preview may point at the dev process. Global hotkeys: Ctrl+Alt+V toggles window, Ctrl+Alt+R push-to-talk."} label={language === "zh-CN" ? "开机自启动" : "Launch at login"} /></p>
                   </span>
                   <span className="model-settings-modal__switch">
                     <input
@@ -1116,13 +1098,18 @@ export function ModelSettingsModal({
                   </label>
 
                   <label className="model-settings-modal__field">
-                    <span>{copy.apiKey}</span>
+                    <span>
+                      {copy.apiKey}
+                      <InfoTip text={copy.apiKeyHint} label={copy.apiKey} />
+                    </span>
                     <div className="model-settings-modal__input-with-action">
                       <input
                         type={isApiKeyVisible ? "text" : "password"}
                         value={draftConfig.apiKey}
                         autoComplete="off"
-                        placeholder={copy.apiKeyHint}
+                        placeholder="sk-…"
+                        title={copy.apiKeyHint}
+                        aria-label={copy.apiKey}
                         onChange={updateTextField("apiKey")}
                         onBlur={handleProviderFieldBlur}
                       />
@@ -1137,10 +1124,15 @@ export function ModelSettingsModal({
                   </label>
 
                   <label className="model-settings-modal__field">
-                    <span>{copy.baseUrl}</span>
+                    <span>
+                      {copy.baseUrl}
+                      <InfoTip text={copy.baseUrlHint} label={copy.baseUrl} />
+                    </span>
                     <input
                       type="url"
                       value={draftConfig.baseUrl}
+                      title={copy.baseUrlHint}
+                      aria-label={copy.baseUrl}
                       onChange={updateTextField("baseUrl")}
                       onBlur={handleProviderFieldBlur}
                     />
@@ -1153,6 +1145,7 @@ export function ModelSettingsModal({
                     type="button"
                     aria-expanded={isAdvancedModelOpen}
                     onClick={() => setIsAdvancedModelOpen((current) => !current)}
+                    title={copy.advancedModelHint}
                   >
                     {copy.advancedModel}
                   </button>
@@ -1165,7 +1158,6 @@ export function ModelSettingsModal({
                         placeholder={copy.customModelNameHint}
                         onChange={updateTextField("modelName")}
                       />
-                      <small>{copy.advancedModelHint}</small>
                     </label>
                   ) : null}
                 </div>
@@ -1195,13 +1187,17 @@ export function ModelSettingsModal({
                   </label>
 
                   <label className="model-settings-modal__field">
-                    <span>{copy.webSearchKey}</span>
+                    <span>
+                      {copy.webSearchKey}
+                      <InfoTip text={copy.webSearchKeyHint} label={copy.webSearchKey} />
+                    </span>
                     <div className="model-settings-modal__key-row">
                       <input
                         type={isWebSearchKeyVisible ? "text" : "password"}
                         value={webSearchDraft.apiKey}
                         autoComplete="off"
-                        placeholder={copy.webSearchKeyHint}
+                        placeholder="Key"
+                        title={copy.webSearchKeyHint}
                         onChange={(event) => {
                           markDirty();
                           const nextValue = event.target.value;
@@ -1224,7 +1220,6 @@ export function ModelSettingsModal({
                         {copy.webSearchGetKey}
                       </button>
                     </div>
-                    <small>{copy.webSearchNoKeyHint}</small>
                     <div>
                       <button
                         type="button"
@@ -1271,8 +1266,10 @@ export function ModelSettingsModal({
 
                 <div className={`model-settings-modal__switch-row${!canStream ? " is-disabled" : ""}`}>
                   <div>
-                    <span className="model-settings-modal__switch-title">{copy.streamOutput}</span>
-                    <small>{copy.streamOutputHint}</small>
+                    <span className="model-settings-modal__switch-title">
+                      {copy.streamOutput}
+                      <InfoTip text={copy.streamOutputHint} label={copy.streamOutput} />
+                    </span>
                   </div>
                   <label className="model-settings-modal__switch">
                     <input
@@ -1289,8 +1286,10 @@ export function ModelSettingsModal({
 
                 <div className="model-settings-modal__switch-row">
                   <div>
-                    <span className="model-settings-modal__switch-title">{copy.supportsVision}</span>
-                    <small>{copy.supportsVisionHint}</small>
+                    <span className="model-settings-modal__switch-title">
+                      {copy.supportsVision}
+                      <InfoTip text={copy.supportsVisionHint} label={copy.supportsVision} />
+                    </span>
                   </div>
                   <label className="model-settings-modal__switch">
                     <input
@@ -1311,8 +1310,10 @@ export function ModelSettingsModal({
               <div className="model-settings-modal__card">
                 <div className="model-settings-modal__switch-row">
                   <div>
-                    <span className="model-settings-modal__switch-title">{copy.semanticSearch}</span>
-                    <small>{copy.semanticSearchHint}</small>
+                    <span className="model-settings-modal__switch-title">
+                      {copy.semanticSearch}
+                      <InfoTip text={copy.semanticSearchHint} label={copy.semanticSearch} />
+                    </span>
                   </div>
                   <label className="model-settings-modal__switch">
                     <input
@@ -1337,6 +1338,22 @@ export function ModelSettingsModal({
   );
 }
 
+/** 减法优化：说明文字收进 ⓘ tooltip，不常显，避免每项一段小字。 */
+function InfoTip({ text, label }: { text: string; label: string }) {
+  if (!text) return null;
+  return (
+    <span
+      className="model-settings-modal__info-tip"
+      title={text}
+      aria-label={label}
+      role="img"
+      style={{ marginLeft: 6, cursor: "help", opacity: 0.6, fontSize: 12 }}
+    >
+      ⓘ
+    </span>
+  );
+}
+
 /** 四点式档位：N 个档共用一条中心线，点选切换，无 range 拖杆。 */
 function DotSlider({
   label,
@@ -1358,7 +1375,10 @@ function DotSlider({
   return (
     <div className="model-settings-modal__field model-settings-modal__dot-field">
       <div className="model-settings-modal__level-header">
-        <span>{label}</span>
+        <span>
+          {label}
+          <InfoTip text={hint} label={label} />
+        </span>
         <strong>{selectedLabel}</strong>
       </div>
       <div className="model-settings-modal__dot-line" role="group" aria-label={label}>
@@ -1382,7 +1402,6 @@ function DotSlider({
           ))}
         </div>
       </div>
-      <small>{hint}</small>
     </div>
   );
 }

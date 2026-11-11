@@ -33,14 +33,13 @@ type FetchState =
 
 const COPY: Record<SettingsLanguage, Record<string, string>> = {
   "zh-CN": {
-    intro: "后台定时任务与键鼠接管会话一览。删除需点两次确认；触发与停止点一次即执行。",
     refresh: "刷新",
     refreshing: "刷新中…",
     loadingTitle: "正在读取台账…",
     errorTitle: "台账读取失败",
     retry: "重试",
     jobsTitle: "定时任务",
-    emptyJobs: "暂无后台任务。对 VOID 说“每天早上8点给我做早报”即可创建。",
+    emptyJobs: "暂无后台任务。",
     runsTitle: "近期执行",
     emptyRuns: "暂无执行记录。",
     takeoverTitle: "键鼠接管",
@@ -55,7 +54,6 @@ const COPY: Record<SettingsLanguage, Record<string, string>> = {
     na: "—"
   },
   "en-US": {
-    intro: "Scheduled jobs and takeover sessions. Delete needs two taps; run and stop execute on tap.",
     refresh: "Refresh",
     refreshing: "Refreshing…",
     loadingTitle: "Loading ledger…",
@@ -185,7 +183,6 @@ export function TasksContent() {
   return (
     <div className="security-status__embedded">
       <div className="security-status__toolbar">
-        <p className="security-status__intro">{copy.intro}</p>
         <button
           type="button"
           className="security-status__refresh"

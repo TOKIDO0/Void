@@ -103,7 +103,15 @@ export function SecurityStatusContent() {
   return (
     <div className="security-status__embedded">
       <div className="security-status__toolbar">
-        <p className="security-status__intro">{copy.intro}</p>
+        <span
+          className="security-status__intro"
+          title={copy.intro}
+          aria-label={copy.intro}
+          role="img"
+          style={{ opacity: 0.6, cursor: "help" }}
+        >
+          ⓘ
+        </span>
         <button
           type="button"
           className="security-status__refresh"
@@ -258,8 +266,6 @@ export function SecurityStatusContent() {
                 ))}
               </ul>
             </section>
-
-            <p className="security-status__note">{copy.privacyNote}</p>
           </>
         );
       })()}

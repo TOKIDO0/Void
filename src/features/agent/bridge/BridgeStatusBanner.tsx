@@ -64,11 +64,10 @@ export function BridgeStatusBanner() {
   const cause = describeBridgeDownCause(state.result);
   const origin = getBridgeOriginForDisplay();
   return (
-    <div className="bridge-banner bridge-banner--down" role="alert">
+    <div className="bridge-banner bridge-banner--down" role="alert" title={origin || undefined}>
       <div className="bridge-banner__main">
-        <strong>{zh ? "本地工具服务未连接" : "Local tool service unreachable"}</strong>
+        <strong>{zh ? "本地工具服务未连接" : "Local tool service unreachable"}{origin ? <span title={origin}> ⓘ</span> : null}</strong>
         <p>{cause}</p>
-        {origin ? <p className="bridge-banner__origin">{origin}</p> : null}
       </div>
       <button
         type="button"

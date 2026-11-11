@@ -326,19 +326,23 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
             <div className="memory-manager__semantic-card" aria-label={language === "zh-CN" ? "本地语义检索" : "Local semantic search"}>
               <label className="memory-manager__semantic-toggle">
                 <span className="memory-manager__semantic-text">
-                  <strong>{language === "zh-CN" ? "本地语义检索" : "Local semantic search"}</strong>
-                  <small>
-                    {language === "zh-CN"
-                      ? semanticEnabled
-                        ? semanticWarming
-                          ? "模型预热中 · 本轮降级全文，下一轮生效"
-                          : "已开启 · 空闲后台已预热，同义召回更准"
-                        : "已关闭 · 零成本，不加载模型"
-                      : semanticEnabled
-                        ? semanticWarming
-                          ? "Warming up · falls back to full-text this turn"
-                          : "On · warmed up in idle, better recall"
-                        : "Off · zero cost, no model loaded"}
+                  <strong>{language === "zh-CN" ? "本地语义检索" : "Local semantic search"}<span title={language === "zh-CN" ? (semanticEnabled ? (semanticWarming ? "模型预热中，本轮降级全文，下一轮生效" : "空闲后台已预热，同义召回更准") : "零成本，不加载模型") : (semanticEnabled ? (semanticWarming ? "Warming up, falls back to full-text this turn" : "Warmed up in idle, better recall") : "Zero cost, no model loaded")} aria-label={language === "zh-CN" ? "语义检索说明" : "Semantic search info"} style={{ marginLeft: 4, cursor: "help", opacity: 0.6, fontSize: 12 }}>ⓘ</span></strong>
+                  <small
+                    title={
+                      language === "zh-CN"
+                        ? semanticEnabled
+                          ? semanticWarming
+                            ? "模型预热中 · 本轮降级全文，下一轮生效"
+                            : "已开启 · 空闲后台已预热，同义召回更准"
+                          : "已关闭 · 零成本，不加载模型"
+                        : semanticEnabled
+                          ? semanticWarming
+                            ? "Warming up · falls back to full-text this turn"
+                            : "On · warmed up in idle, better recall"
+                          : "Off · zero cost, no model loaded"
+                    }
+                  >
+                    {language === "zh-CN" ? (semanticEnabled ? "开" : "关") : (semanticEnabled ? "On" : "Off")}
                   </small>
                 </span>
                 <span className="model-settings-modal__switch">
@@ -476,10 +480,6 @@ export function MemoryManagerPanel({ isOpen, onClose }: MemoryManagerPanelProps)
 
         <div className="memory-manager__footer">
           <div className="memory-manager__footer-left">
-            <div className="memory-manager__sync">
-              <span className="memory-manager__sync-dot" />
-              <span>{copy.localSynced}</span>
-            </div>
             <div className="memory-manager__lang-switch" aria-label="Language">
               <button
                 type="button"

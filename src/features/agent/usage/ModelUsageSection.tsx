@@ -63,10 +63,9 @@ export function ModelUsageSection({ language }: { language: SettingsLanguage }) 
     <div>
       <span>
         <strong>{zh ? "今日用量" : "Today's usage"}</strong>
-        <p>
-          {zh
-            ? "今天花了多少、调了几次，一眼看到。下面填每天最多花多少，0 就是不管，超了直接停掉不再花钱。"
-            : "What you spent today and how many calls. Set a daily cap below; 0 means no cap, and over-budget requests are stopped."}
+        <p className="model-settings-modal__hint" title={zh ? "超限后模型请求直接返回 429，本次不再转发；0 表示不限。" : "Over-budget model requests return 429 without forwarding; 0 means unlimited."}>
+          {zh ? "超限后停掉不再花钱，0=不限" : "Over-budget requests are stopped, 0=unlimited"}
+          <span aria-hidden="true" style={{ marginLeft: 4, cursor: "help", opacity: 0.6, fontSize: 12 }}>ⓘ</span>
         </p>
       </span>
       {error ? <p className="model-settings-modal__hint model-settings-modal__hint--error">{error}</p> : null}
