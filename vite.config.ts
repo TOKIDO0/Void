@@ -6,11 +6,13 @@ import { handleModelProxy } from "./server/voidProxyMiddleware";
 export default defineConfig({
   // Tauri 集成必需配置：
   // 1) clearScreen:false —— 保留 cargo/桥接编译日志，报错不被清屏冲掉，便于排查。
-  // 2) strictPort —— 固定 5173，端口被占直接报错而非漂移，避免 Tauri devUrl 连到空窗口。
+  // 2) strictPort —— 端口固定（默认 5173，可用 VOID_DEV_PORT 覆盖），被占直接报错而非漂移，
+  //    避免 Tauri devUrl 连到空窗口；桌面启动脚本用 5199 避开其他项目的 Vite。
   // 3) watch.ignored src-tauri/ —— cargo 编译会在 target/ 高频生成并独占锁定大量 .dll，
   //    若 vite 文件监听器去 watch 这些文件会触发 EBUSY 崩溃、连带拖垮整个 tauri dev.
   clearScreen: false,
   server: {
+    port: Number(process.env.VOID_DEV_PORT) || 5173,
     strictPort: true,
     // 开发期禁止浏览器强缓存依赖与源码模块，避免 Chrome 出现
     // net::ERR_CACHE_READ_FAILURE（磁盘缓存索引损坏/被清理后读失败）。

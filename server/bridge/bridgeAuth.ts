@@ -141,6 +141,7 @@ export function sendBridgeAuthReject(response: ServerResponse): void {
 /** vite dev 同源形态：回环 Host + 无 Origin 或 allowlist Origin。 */
 const DEV_SAME_ORIGIN_ALLOWLIST = new Set([
   "http://localhost:5173",
+  "http://localhost:5199",
   "tauri://localhost",
   "http://tauri.localhost"
 ]);

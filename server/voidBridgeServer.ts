@@ -72,6 +72,7 @@ export type VoidBridgeServerHandle = {
 
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
+  "http://localhost:5199",
   "tauri://localhost",
   "http://tauri.localhost"
 ]);
