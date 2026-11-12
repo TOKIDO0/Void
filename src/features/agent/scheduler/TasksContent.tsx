@@ -83,12 +83,28 @@ const BRIDGE_AUTO_RETRY_MS = 5000;
 /**
  * PRO-06：投递状态补充说明（接在执行状态后）。
  * sent/suppressed 不占位；未送达要如实写出来，否则用户会以为提醒已经到过。
+ * PRO-04：pending 且被安静时段拦下时，必须写清“延后到几点”，不能只显示“待投递”。
  */
 function formatDeliveryNote(delivery: SchedulerDeliveryView, language: SettingsLanguage): string {
   const zh = language === "zh-CN";
   switch (delivery.state) {
-    case "pending":
+    case "pending": {
+      if (delivery.holdReason === "QUIET_HOURS" && delivery.holdUntil && delivery.holdUntil > Date.now()) {
+        const clock = new Date(delivery.holdUntil).toLocaleTimeString(
+          zh ? "zh-CN" : "en-US",
+          { hour12: false, hour: "2-digit", minute: "2-digit" }
+        );
+        return zh
+          ? ` · 待投递（安静时段延后至 ${clock}）`
+          : ` · Pending (quiet hours, deferred until ${clock})`;
+      }
+      if (delivery.holdReason === "QUIET_POLICY_ERROR") {
+        return zh
+          ? " · 待投递（安静时段策略异常，已暂停投递）"
+          : " · Pending (quiet-hours policy error, delivery paused)";
+      }
       return zh ? " · 待投递" : " · Pending delivery";
+    }
     case "delivering":
       return zh ? " · 投递中" : " · Delivering";
     case "failed":
@@ -96,9 +112,54 @@ function formatDeliveryNote(delivery: SchedulerDeliveryView, language: SettingsL
         ? ` · 未送达${delivery.errorCode ? `（${delivery.errorCode}）` : ""}`
         : ` · Not delivered${delivery.errorCode ? ` (${delivery.errorCode})` : ""}`;
     case "expired":
+      if (delivery.holdReason === "QUIET_HOURS") {
+        return zh
+          ? " · 投递已过期（安静时段延后后仍未送达）"
+          : " · Delivery expired after quiet-hours deferral";
+      }
       return zh ? " · 投递已过期" : " · Delivery expired";
     default:
       return "";
+  }
+}
+
+/** PRO-01：语音计划已批准但实际没播时，台账要如实写原因，不能只显示“已送达”。 */
+function formatSpeechNote(
+  speech: SchedulerDeliveryView["speechResult"],
+  language: SettingsLanguage
+): string {
+  if (!speech || speech.state === "sent") {
+    return "";
+  }
+  const zh = language === "zh-CN";
+  const reasons: Record<string, { zh: string; en: string }> = {
+    VOICE_OFF: { zh: "语音输出已关闭", en: "voice output off" },
+    WINDOW_HIDDEN: { zh: "窗口未显示", en: "window hidden" },
+    NO_SPEAKER: { zh: "未配置音色", en: "no voice configured" },
+    EMPTY_TEXT: { zh: "无播报内容", en: "empty text" },
+    TTS_FAILED: { zh: "语音合成失败", en: "speech synthesis failed" },
+    NOTIFICATION_FAILED: { zh: "通知未送达", en: "notification failed" }
+  };
+  const reason = speech.reason ? reasons[speech.reason] : undefined;
+  const reasonText = reason ? (zh ? reason.zh : reason.en) : (speech.reason ?? (zh ? "未知原因" : "unknown"));
+  if (speech.state === "skipped") {
+    return zh ? ` · 语音已跳过（${reasonText}）` : ` · Speech skipped (${reasonText})`;
+  }
+  return zh ? ` · 语音失败（${reasonText}）` : ` · Speech failed (${reasonText})`;
+}
+
+function formatRunOrigin(origin: SchedulerRunView["origin"], language: SettingsLanguage): string {
+  if (!origin) {
+    return "";
+  }
+  const zh = language === "zh-CN";
+  switch (origin) {
+    case "calendar":
+      return zh ? "日程提醒" : "Calendar reminder";
+    case "agent":
+      return zh ? "代理主动" : "Agent-initiated";
+    default:
+      return zh ? "用户提醒" : "User reminder";
   }
 }
 
@@ -270,9 +331,11 @@ export function TasksContent() {
                   <div className="tasks__row-main">
                     <div className="tasks__row-title">{run.jobName}</div>
                     <div className="tasks__row-meta">
+                      {run.origin ? `${formatRunOrigin(run.origin, language)} · ` : ""}
                       {run.status} · {formatTime(run.finishedAt ?? run.startedAt)}
                       {run.summary ? ` · ${run.summary.slice(0, 60)}` : ""}
                       {formatDeliveryNote(run.delivery, language)}
+                      {formatSpeechNote(run.delivery.speechResult, language)}
                     </div>
                   </div>
                 </div>

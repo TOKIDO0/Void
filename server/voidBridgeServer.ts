@@ -35,6 +35,11 @@ import { hooksRegistry } from "./hooks/hooksRegistry";
 import { buildSandboxStatus } from "./sandbox/sandboxStatus";
 import { handleSchedulerHttpRequest } from "./scheduler/schedulerHttpHandlers";
 import { handleCalendarHttpRequest } from "./calendar/calendarHttpHandlers";import { handleUsageHttpRequest } from "./usage/usageHttpHandlers";
+import { handleBehaviorHttpRequest } from "./behavior/behaviorHttpHandlers";
+import { handleProactivityHttpRequest } from "./proactivity/proactivityHttpHandlers";
+import { handleProactivityLevelHttpRequest } from "./proactivity/proactivityLevelHttpHandlers";
+import { handleHeartbeatHttpRequest } from "./heartbeat/heartbeatHttpHandlers";
+import { startHeartbeat, stopHeartbeat } from "./heartbeat/heartbeatRunner";
 import { startScheduler, stopScheduler } from "./scheduler/schedulerRunner";
 import { handleSkillsHttpRequest } from "./skills/skillsHttpHandlers";
 import { handleSoftwareHttpRequest } from "./software/softwareHttpHandlers";
@@ -530,6 +535,30 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
     return;
   }
 
+  // BEH-01 行为观察（设备活跃时段每日聚合；原始样本不落盘）
+  if (pathname.startsWith("/void-behavior")) {
+    void handleBehaviorHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // PRO-02 主动程度（等级是代理主动预算的上限）
+  if (pathname === "/void-proactivity/level") {
+    void handleProactivityLevelHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // PRO-04 安静时段（主动触达的唯一投递闸门配置）
+  if (pathname.startsWith("/void-proactivity")) {
+    void handleProactivityHttpRequest(request, response, pathname);
+    return;
+  }
+
+  // PRO-05 静默巡检（只写 PRO-06 队列，不直接发通知）
+  if (pathname.startsWith("/void-heartbeat")) {
+    void handleHeartbeatHttpRequest(request, response, pathname);
+    return;
+  }
+
   // 健康检查：供 Tauri 后端确认 sidecar 已就绪
   if (pathname === "/void-bridge/health") {
     response.statusCode = 200;
@@ -557,6 +586,7 @@ function handleHttpRequest(request: IncomingMessage, response: ServerResponse): 
 export function startBridgeServer(options: VoidBridgeServerOptions = {}): Promise<VoidBridgeServerHandle> {
   ensureRuntimeDirectories();
   startScheduler();
+  startHeartbeat();
   const port = resolvePort(options.port);
   const host = resolveListenHost(options.host);
   activeBridgeHost = host;
@@ -574,6 +604,7 @@ export function startBridgeServer(options: VoidBridgeServerOptions = {}): Promis
       return;
     }
     shutdownStarted = true;
+    stopHeartbeat();
     stopScheduler();
     await browserSessionManager.dispose();
     await new Promise<void>((resolve, reject) => {

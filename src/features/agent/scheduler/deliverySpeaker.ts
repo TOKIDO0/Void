@@ -53,22 +53,31 @@ function enqueueResult(result: VoiceSynthesisResult): void {
   controller.enqueue(result.audioUrl);
 }
 
-/** 播报投递摘要；成功入队返回 true，任一门禁/失败返回 false（不抛）。 */
-export async function speakDeliveryText(rawText: string): Promise<boolean> {
+/** 播报结果：区分“能力不满足”（skipped）与“真的失败”（failed），供台账如实呈现。 */
+export type DeliverySpeechOutcome =
+  | { state: "sent" }
+  | { state: "skipped"; reason: "VOICE_OFF" | "WINDOW_HIDDEN" | "NO_SPEAKER" | "EMPTY_TEXT" }
+  | { state: "failed"; reason: "TTS_FAILED" };
+
+/**
+ * 播报投递摘要。
+ * 只执行 PRO-01 已经批准的计划；这里的三道门是“能不能执行”，不是“该不该播”。
+ */
+export async function speakDeliveryText(rawText: string): Promise<DeliverySpeechOutcome> {
   try {
     if (!loadVoicePreferences().voiceOutputEnabled) {
-      return false;
+      return { state: "skipped", reason: "VOICE_OFF" };
     }
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-      return false;
+      return { state: "skipped", reason: "WINDOW_HIDDEN" };
     }
     const text = sanitizeDeliveryText(rawText);
     if (!text) {
-      return false;
+      return { state: "skipped", reason: "EMPTY_TEXT" };
     }
     const runtimeConfig = loadVoiceRuntimeConfig();
     if (!runtimeConfig.doubaoSpeakerId.trim()) {
-      return false;
+      return { state: "skipped", reason: "NO_SPEAKER" };
     }
     currentAbort?.abort();
     const signal = new AbortController();
@@ -78,7 +87,7 @@ export async function speakDeliveryText(rawText: string): Promise<boolean> {
       const orchestrator = new VoiceTtsOrchestrator(runtimeConfig);
       const sentences = splitNaive(text);
       if (!sentences.length) {
-        return false;
+        return { state: "skipped", reason: "EMPTY_TEXT" };
       }
       await orchestrator.synthesizeSentences(
         sentences,
@@ -97,7 +106,7 @@ export async function speakDeliveryText(rawText: string): Promise<boolean> {
         },
         signal.signal
       );
-      return true;
+      return { state: "sent" };
     } finally {
       speaking = false;
       if (currentAbort === signal) {
@@ -105,6 +114,6 @@ export async function speakDeliveryText(rawText: string): Promise<boolean> {
       }
     }
   } catch {
-    return false;
+    return { state: "failed", reason: "TTS_FAILED" };
   }
 }

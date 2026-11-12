@@ -6,6 +6,9 @@
  * - 新：只有 sendNotification 真正执行才报 sent；权限缺失报 failed/PERMISSION_DENIED，
  *   记录保留在台账里，用户能看到"没送达"以及原因。
  * - 领取由 sidecar 写租约，避免多窗口重复通知；进程崩溃后租约过期自动重投。
+ * - PRO-04 安静时段由 sidecar 的 claim 闸门统一处理；这里禁止再写一份本地时间判断。
+ * - PRO-01 语音通道：sidecar 在 claim 时给出 speechPlan，这里只执行并按真实结果回报；
+ *   能力不满足（窗口隐藏/语音关/无音色）记 skipped，不伪装成已播报。
  *
  * 窗口隐藏时同样生效；非 Tauri（纯 Web dev）无通知能力时报 failed，不伪造成功。
  */
@@ -14,7 +17,6 @@ import { isVoidBridgeReachable } from "../bridge/bridgeHealthClient";
 import {
   claimPendingDeliveries,
   fetchDeliverySummary,
-  listScheduledJobs,
   reportDeliveryResults,
   type SchedulerRunView
 } from "./schedulerBridgeClient";
@@ -44,6 +46,8 @@ type DeliveryAttempt = {
   runId: string;
   result: "sent" | "failed";
   errorCode?: string;
+  /** PRO-01：语音通道实际结果；不改变投递终态，只用于台账可观测。 */
+  speech?: { state: "sent" | "skipped" | "failed"; reason?: string };
 };
 
 /**
@@ -124,18 +128,21 @@ export async function pollSchedulerDeliveries(): Promise<number> {
       return 0;
     }
 
-    // 播报开关在任务侧：仅 speakOnDeliver 的任务才 TTS（需窗口可见 + 语音开关开）。
-    const jobs = await listScheduledJobs().catch(() => []);
-    const speakFlags = new Map(jobs.map((job) => [job.id, job.speakOnDeliver === true]));
-
+    // PRO-01：语音计划由 sidecar 在 claim 时给出；这里只执行并如实回报能力结果。
     const attempts: DeliveryAttempt[] = [];
     for (const run of claimed) {
       const attempt = await notifyRun(run);
-      attempts.push(attempt);
-      // 只有真正送达才播报，避免"没通知却念了摘要"。
-      if (attempt.result === "sent" && speakFlags.get(run.jobId) === true && run.summary) {
-        await speakDeliveryText(run.summary).catch(() => false);
+      const speechPlan = run.delivery.speechPlan;
+      if (attempt.result === "sent" && speechPlan?.allowed) {
+        const speech = await speakDeliveryText(run.summary ?? "");
+        attempt.speech = speech.state === "sent"
+          ? { state: "sent" }
+          : { state: speech.state, reason: speech.reason };
+      } else if (speechPlan?.allowed && attempt.result !== "sent") {
+        // 通知没送达时不再播报，避免“没弹通知却在念摘要”。
+        attempt.speech = { state: "skipped", reason: "NOTIFICATION_FAILED" };
       }
+      attempts.push(attempt);
     }
 
     await reportDeliveryResults(attempts).catch(() => undefined);

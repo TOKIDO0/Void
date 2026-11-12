@@ -36,6 +36,10 @@ import { SecurityStatusContent } from "../agent/security/SecurityStatusContent";
 import { TasksContent } from "../agent/scheduler/TasksContent";
 import { BridgeStatusBanner } from "../agent/bridge/BridgeStatusBanner";
 import { ModelUsageSection } from "../agent/usage/ModelUsageSection";
+import { BehaviorSection } from "./BehaviorSection";
+import { QuietHoursSection } from "./QuietHoursSection";
+import { ProactivityLevelSection } from "./ProactivityLevelSection";
+import { HeartbeatSection } from "./HeartbeatSection";
 import { UpdaterSection } from "./UpdaterSection";
 import { isHighPermissionMode, setHighPermissionMode } from "./highPermissionMode";
 import { SETTINGS_COPY as SHARED_SETTINGS_COPY } from "./settingsI18n";
@@ -949,6 +953,18 @@ export function ModelSettingsModal({
               </section>
               <section className="model-settings-modal__field">
                 <ModelUsageSection language={language} />
+              </section>
+              <section className="model-settings-modal__field">
+                <BehaviorSection language={language} />
+              </section>
+              <section className="model-settings-modal__field">
+                <ProactivityLevelSection language={language} />
+              </section>
+              <section className="model-settings-modal__field">
+                <QuietHoursSection language={language} />
+              </section>
+              <section className="model-settings-modal__field">
+                <HeartbeatSection language={language} />
               </section>
               <section className="model-settings-modal__field">
                 <UpdaterSection language={language} />

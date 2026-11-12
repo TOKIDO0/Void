@@ -21,6 +21,7 @@ import {
   buildResearchSourcePromptSuffix,
   isResearchIntent
 } from "./turnRouting/researchIntent";
+import { buildAdviceStructureSuffix, resolveAdviceIntent } from "./turnRouting/adviceIntent";
 import { stripStageDirections } from "./responseTextDisplay";
 import { isVoidBridgeReachable } from "./bridge/bridgeHealthClient";
 import {
@@ -650,6 +651,12 @@ export function buildLayeredSystemPrompt(
   // CORE-07 时间快照：日程/提醒/相对时间全部依赖这个，缺了模型只能猜。
   // 放在边界之后、其余约束之前：既保证"只管这句"优先，又不破坏稳定前缀缓存。
   turn.push(buildTimeSnapshotSuffix());
+
+  // ADV-01/02：决策类请求注入建议结构；闲聊/查资料/情绪倾诉零副作用。
+  const adviceIntent = resolveAdviceIntent(latestUserInput);
+  if (adviceIntent) {
+    turn.push(buildAdviceStructureSuffix(adviceIntent));
+  }
 
   // 阶段 F：检索意图注入来源硬规则（即使工具被门禁关掉也要约束口头事实）。
   if (researchIntentThisTurn) {

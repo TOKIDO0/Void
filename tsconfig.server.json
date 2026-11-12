@@ -5,5 +5,5 @@
     "types": ["node", "vite/client"],
     "noEmit": true
   },
-  "include": ["server/scheduler", "server/calendar", "server/http", "server/bridge"]
+  "include": ["server/scheduler", "server/calendar", "server/http", "server/bridge", "server/behavior", "server/proactivity", "server/heartbeat"]
 }

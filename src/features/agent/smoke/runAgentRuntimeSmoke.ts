@@ -1731,6 +1731,43 @@ export async function runAgentRuntimeSmoke(): Promise<SmokeResult> {
       notes.push("CORE-01 分层注入：人格/语音为稳定前缀，记忆/目标/姿态为项目层，边界/情绪/门禁/工具为轮次层，顺序 stable→project→turn");
     }
 
+    // ADV-01/02 顾问式输出：决策注入结构、闲聊零副作用、风险域强制风险段、急症不套模板
+    const { resolveAdviceIntent, buildAdviceStructureSuffix } = await import("../turnRouting/adviceIntent");
+    const adviceModelConfig: ModelConfig = {
+      provider: "openai-compatible",
+      presetId: "smoke",
+      apiKey: "sk-smoke",
+      baseUrl: "http://127.0.0.1:9",
+      modelName: "smoke-model",
+      modelStrength: "middle",
+      thinkingModeEnabled: false,
+      temperature: 0,
+      maxOutputTokens: 256,
+      streamEnabled: false
+    };
+    const adviceLayered = buildLayeredSystemPrompt(
+      adviceModelConfig, undefined, undefined, undefined, false, "conversation", "要不要换工作"
+    );
+    const casualLayered = buildLayeredSystemPrompt(
+      adviceModelConfig, undefined, undefined, undefined, false, "conversation", "今天天气怎么样"
+    );
+    const adviceChecks = [
+      resolveAdviceIntent("要不要换工作") === "decision",
+      resolveAdviceIntent("最近身体不太舒服，要不要去医院") === "decision_with_risk",
+      resolveAdviceIntent("今天天气怎么样") === null,
+      resolveAdviceIntent("胸痛得厉害怎么办") === null,
+      buildAdviceStructureSuffix("decision").includes("【决策建议】")
+        && !buildAdviceStructureSuffix("decision").includes("【风险必说】"),
+      buildAdviceStructureSuffix("decision_with_risk").includes("【风险必说】"),
+      adviceLayered.turn.includes("【决策建议】") && !adviceLayered.turn.includes("【风险必说】"),
+      !casualLayered.turn.includes("【决策建议】")
+    ];
+    if (adviceChecks.some((ok) => !ok)) {
+      failures.push(`ADV-01/02 顾问式输出注入异常：${JSON.stringify(adviceChecks)}`);
+    } else {
+      notes.push("ADV-01/02 顾问式输出：决策注入现状→判断→选项→推荐→风险；健康/财务/法律强制风险段；闲聊与急症零注入");
+    }
+
     // CORE-02 错误即提示词：按来源码挂载归因/禁止动作/下一步，未知码零副作用
     const remediationModule = await import("../tools/toolErrorRemediation");
     const { buildToolResultRelay } = await import("../loop/toolResultRelay");

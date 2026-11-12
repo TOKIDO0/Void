@@ -47,6 +47,20 @@ export type SchedulerDeliveryView = {
   enqueuedAt: number;
   lastAttemptAt?: number;
   errorCode?: string;
+  /** 最早可投递时间；仅 pending 时有意义（PRO-04 安静时段延后）。 */
+  holdUntil?: number;
+  holdReason?: "QUIET_HOURS" | "QUIET_POLICY_ERROR";
+  /** PRO-01 语音计划（claim 时写入）：只能执行，不能自行判断。 */
+  speechPlan?: {
+    allowed: boolean;
+    reason: "REQUESTED" | "NOT_REQUESTED" | "AGENT_SILENT";
+  };
+  /** PRO-01 语音实际结果：sent/skipped/failed + 原因。 */
+  speechResult?: {
+    state: "sent" | "skipped" | "failed";
+    reason?: string;
+    at: number;
+  };
 };
 
 export type SchedulerRunView = {
@@ -58,6 +72,7 @@ export type SchedulerRunView = {
   status: string;
   summary?: string;
   delivery: SchedulerDeliveryView;
+  origin?: "user" | "calendar" | "agent";
 };
 
 export type SchedulerStatusView = {
@@ -266,9 +281,14 @@ export async function claimPendingDeliveries(signal?: AbortSignal): Promise<Sche
   return postSchedulerApi<SchedulerRunView[]>("/void-scheduler/runs/claim", {}, signal);
 }
 
-/** 按结果上报投递（幂等）：只有真正送达才报 sent。 */
+/** 按结果上报投递（幂等）：只有真正送达才报 sent；语音结果单独回传，不改变终态。 */
 export async function reportDeliveryResults(
-  records: Array<{ runId: string; result: "sent" | "failed"; errorCode?: string }>,
+  records: Array<{
+    runId: string;
+    result: "sent" | "failed";
+    errorCode?: string;
+    speech?: { state: "sent" | "skipped" | "failed"; reason?: string };
+  }>,
   signal?: AbortSignal
 ): Promise<{ recorded: number }> {
   return postSchedulerApi<{ recorded: number }>("/void-scheduler/runs/ack", { records }, signal);

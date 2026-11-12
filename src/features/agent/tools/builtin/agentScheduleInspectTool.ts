@@ -86,7 +86,16 @@ export const agentScheduleInspectTool: ToolDefinition<Record<string, never>, Rec
               enum: ["pending", "delivering", "sent", "failed", "expired", "suppressed"]
             },
             deliveryAttempts: { type: "number" },
-            deliveryErrorCode: { type: "string" }
+            deliveryErrorCode: { type: "string" },
+            deliveryHoldUntil: { type: "number" },
+            deliveryHoldReason: {
+              type: "string",
+              enum: ["QUIET_HOURS", "QUIET_POLICY_ERROR"]
+            },
+            origin: {
+              type: "string",
+              enum: ["user", "calendar", "agent"]
+            }
           }
         }
       },
@@ -120,7 +129,10 @@ export const agentScheduleInspectTool: ToolDefinition<Record<string, never>, Rec
         delivered: run.delivery.state === "sent",
         deliveryState: run.delivery.state,
         deliveryAttempts: run.delivery.attempts,
-        deliveryErrorCode: run.delivery.errorCode
+        deliveryErrorCode: run.delivery.errorCode,
+        deliveryHoldUntil: run.delivery.holdUntil,
+        deliveryHoldReason: run.delivery.holdReason,
+        origin: run.origin ?? "user"
       }));
       return { status, jobs, recentRuns: runs, jobCount: jobs.length } as unknown as Record<string, unknown>;
     } catch (error) {
