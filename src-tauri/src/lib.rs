@@ -6,6 +6,7 @@ use tauri::WindowEvent;
 
 mod takeover;
 mod ocr;
+mod behavior_probe;
 
 // 桥接 sidecar 仅在正式构建（release）由 Rust 拉起（Node 解释器 + sidecar-app 真实文件）；
 // 开发（debug）时 sidecar 由 `npm run dev:all` 用 tsx 热跑，Rust 不介入，
@@ -393,7 +394,9 @@ pub fn run() {
             takeover::takeover_stop,
             takeover::takeover_status,
             takeover::takeover_input,
-            ocr::ocr_image_file
+            ocr::ocr_image_file,
+            behavior_probe::behavior_probe_configure,
+            behavior_probe::behavior_probe_take
         ])
         .setup(move |app| {
             // Stronghold 密钥库：官方文档模式，salt 落 app 本地数据目录。

@@ -1810,6 +1810,46 @@ export function VoidStage() {
     };
   }, []);
 
+  // BEH-01 行为观察：60s 泵按 owner 开关搬运空闲样本；关闭时通知传感器停采。
+  useEffect(() => {
+    let cancelled = false;
+    let stopPump: (() => void) | null = null;
+    void import("../behavior/behaviorProbePump")
+      .then(({ startBehaviorProbePump }) => {
+        if (cancelled) {
+          return;
+        }
+        stopPump = startBehaviorProbePump();
+      })
+      .catch(() => {
+        // 行为观察属可选能力，加载失败不影响主流程。
+      });
+    return () => {
+      cancelled = true;
+      stopPump?.();
+    };
+  }, []);
+
+  // BEH-02 作息画像：每小时拉一次 owner 派生结果，内容变化才写记忆。
+  useEffect(() => {
+    let cancelled = false;
+    let stopSync: (() => void) | null = null;
+    void import("../behavior/behaviorProfileSync")
+      .then(({ startBehaviorProfileSync }) => {
+        if (cancelled) {
+          return;
+        }
+        stopSync = startBehaviorProfileSync();
+      })
+      .catch(() => {
+        // 画像属可选能力，加载失败不影响主流程。
+      });
+    return () => {
+      cancelled = true;
+      stopSync?.();
+    };
+  }, []);
+
   // A 一键语音速记：订阅 Rust 全局热键事件（Ctrl+Alt+R）；非桌面订阅失败即无热键。
   useEffect(() => {
     let unlisten: (() => void) | null = null;
