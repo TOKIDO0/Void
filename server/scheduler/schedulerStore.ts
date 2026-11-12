@@ -6,12 +6,18 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveRuntimeRoot } from "../file/fileRuntimePaths";
+import { proactivityStore } from "../proactivity/proactivityStore";
+import { resolveDeliverySpeechPlan } from "../proactivity/proactivityChannelPolicy";
 import { MAX_JOBS, MAX_RUN_RECORDS, nextJobId, nextRunId } from "./schedulerEngine";
 import {
   createScheduleError,
+  type DeliveryHoldReason,
+  type DeliverySpeechPlan,
+  type DeliverySpeechResult,
   type DeliveryState,
   type RunDelivery,
   type ScheduleJob,
+  type ScheduleOrigin,
   type SchedulerRunRecord,
   type SchedulerState
 } from "./schedulerTypes";
@@ -22,6 +28,51 @@ export const MAX_DELIVERY_BATCH = 10;
 export const DELIVERY_LEASE_MS = 90_000;
 export const DELIVERY_EXPIRE_MS = 60 * 60_000;
 export const MAX_DELIVERY_ATTEMPTS = 5;
+/** 安静策略异常时的暂停窗口：不投递，但保留可见状态并每分钟重试。 */
+export const QUIET_POLICY_RETRY_MS = 60_000;
+
+function readScheduleOrigin(value: unknown): ScheduleOrigin {
+  if (value === "calendar" || value === "agent") {
+    return value;
+  }
+  return "user";
+}
+
+function readHoldReason(value: unknown): DeliveryHoldReason | undefined {
+  return value === "QUIET_HOURS" || value === "QUIET_POLICY_ERROR" ? value : undefined;
+}
+
+function readSpeechPlan(value: unknown): DeliverySpeechPlan | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.allowed !== "boolean") {
+    return undefined;
+  }
+  if (record.reason !== "REQUESTED" && record.reason !== "NOT_REQUESTED" && record.reason !== "AGENT_SILENT") {
+    return undefined;
+  }
+  return { allowed: record.allowed, reason: record.reason };
+}
+
+function readSpeechResult(value: unknown): DeliverySpeechResult | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.state !== "sent" && record.state !== "skipped" && record.state !== "failed") {
+    return undefined;
+  }
+  if (typeof record.at !== "number" || !Number.isFinite(record.at)) {
+    return undefined;
+  }
+  return {
+    state: record.state,
+    reason: typeof record.reason === "string" ? record.reason.slice(0, 40) : undefined,
+    at: record.at
+  };
+}
 
 const DELIVERY_STATES: ReadonlySet<DeliveryState> = new Set([
   "pending",
@@ -67,7 +118,13 @@ function sanitizeDelivery(run: Record<string, unknown>): RunDelivery {
         : (typeof run.startedAt === "number" ? run.startedAt : Date.now()),
       lastAttemptAt: typeof record.lastAttemptAt === "number" ? record.lastAttemptAt : undefined,
       leaseUntil: typeof record.leaseUntil === "number" ? record.leaseUntil : undefined,
-      errorCode: typeof record.errorCode === "string" ? record.errorCode : undefined
+      errorCode: typeof record.errorCode === "string" ? record.errorCode : undefined,
+      holdUntil: typeof record.holdUntil === "number" && Number.isFinite(record.holdUntil)
+        ? record.holdUntil
+        : undefined,
+      holdReason: readHoldReason(record.holdReason),
+      speechPlan: readSpeechPlan(record.speechPlan),
+      speechResult: readSpeechResult(record.speechResult)
     };
   }
   const legacyDelivered = run.delivered === true;
@@ -127,7 +184,8 @@ function sanitizeState(raw: unknown): SchedulerState {
           ? (job.lastStatus as ScheduleJob["lastStatus"])
           : undefined,
         missedCount: typeof job.missedCount === "number" ? job.missedCount : 0,
-        failStreak: typeof job.failStreak === "number" ? job.failStreak : 0
+        failStreak: typeof job.failStreak === "number" ? job.failStreak : 0,
+        origin: readScheduleOrigin(job.origin)
       });
     }
   }
@@ -151,7 +209,9 @@ function sanitizeState(raw: unknown): SchedulerState {
           ? run.status
           : "failed",
         summary: typeof run.summary === "string" ? run.summary : undefined,
-        delivery: sanitizeDelivery(run)
+        delivery: sanitizeDelivery(run),
+        origin: readScheduleOrigin(run.origin),
+        speakOnDeliver: run.speakOnDeliver === true
       });
     }
   }
@@ -257,9 +317,9 @@ class SchedulerStore {
     return true;
   }
 
-  appendRun(run: Omit<SchedulerRunRecord, "id">): SchedulerRunRecord {
+  appendRun(run: Omit<SchedulerRunRecord, "id" | "origin"> & { origin?: ScheduleOrigin }): SchedulerRunRecord {
     const state = this.ensureLoaded();
-    const record: SchedulerRunRecord = { ...run, id: nextRunId() };
+    const record: SchedulerRunRecord = { origin: "user", ...run, id: nextRunId() };
     if (record.delivery.state === "pending") {
       this.enqueueDelivery(record, record.delivery.enqueuedAt);
     }
@@ -298,15 +358,23 @@ class SchedulerStore {
   }
 
   /**
-   * 原子领取待投递记录（PRO-06）。
-   * 先回收过期租约与超时待投递，再把 pending 置为 delivering 并写租约，
-   * 保证同一记录同一时刻只被一个客户端通知。
+   * 原子领取待投递记录（PRO-06 + PRO-04）。
+   * 先回收过期租约；安静时段内只给 pending 写 holdUntil/holdReason，不领取、不递增 attempts。
+   * 解除安静后按 max(enqueuedAt, holdUntil) 起算新鲜度，避免被压一夜后立刻过期。
    */
-  claimPendingDelivery(limit = MAX_DELIVERY_BATCH): SchedulerRunRecord[] {
+  claimPendingDelivery(limit = MAX_DELIVERY_BATCH, nowMs = Date.now()): SchedulerRunRecord[] {
     const state = this.ensureLoaded();
-    const now = Date.now();
+    const now = nowMs;
     const capped = Math.max(1, Math.min(Math.floor(limit) || MAX_DELIVERY_BATCH, MAX_DELIVERY_BATCH));
     let changed = false;
+
+    // 策略异常时 fail-closed：本轮不领取，pending 保留并每分钟重试；绝不假 sent。
+    let quietEvaluation: ReturnType<typeof proactivityStore.evaluate> | null = null;
+    try {
+      quietEvaluation = proactivityStore.evaluate(now);
+    } catch (error) {
+      console.error("[void-scheduler] 安静时段策略异常，本轮暂停投递", error);
+    }
 
     for (const run of state.runs) {
       const delivery = run.delivery;
@@ -322,31 +390,70 @@ class SchedulerStore {
         }
         continue;
       }
-      if (delivery.state === "pending") {
-        if (delivery.attempts >= MAX_DELIVERY_ATTEMPTS) {
-          delivery.state = "failed";
-          delivery.errorCode = delivery.errorCode ?? "DELIVERY_ATTEMPTS_EXCEEDED";
+      if (delivery.state !== "pending") {
+        continue;
+      }
+
+      if (!quietEvaluation) {
+        const retryAt = now + QUIET_POLICY_RETRY_MS;
+        if (delivery.holdUntil !== retryAt || delivery.holdReason !== "QUIET_POLICY_ERROR") {
+          delivery.holdUntil = retryAt;
+          delivery.holdReason = "QUIET_POLICY_ERROR";
           changed = true;
-          continue;
         }
-        if (now - delivery.enqueuedAt > DELIVERY_EXPIRE_MS) {
-          delivery.state = "expired";
+        continue;
+      }
+
+      if (quietEvaluation.quiet) {
+        const holdUntil = quietEvaluation.windowEndsAt ?? now + QUIET_POLICY_RETRY_MS;
+        if (delivery.holdUntil !== holdUntil || delivery.holdReason !== "QUIET_HOURS") {
+          delivery.holdUntil = holdUntil;
+          delivery.holdReason = "QUIET_HOURS";
           changed = true;
         }
+        // 安静时段内不判过期、不递增 attempts：这不是“投递失败”，只是“还没到时间”。
+        continue;
+      }
+
+      if (delivery.holdUntil !== undefined && delivery.holdUntil > now) {
+        // 用户提前关闭安静时段：下一轮立即解除，不等到原窗口结束。
+        delivery.holdUntil = now;
+        changed = true;
+      }
+      const readyAt = Math.max(delivery.enqueuedAt, delivery.holdUntil ?? 0);
+      if (delivery.attempts >= MAX_DELIVERY_ATTEMPTS) {
+        delivery.state = "failed";
+        delivery.errorCode = delivery.errorCode ?? "DELIVERY_ATTEMPTS_EXCEEDED";
+        changed = true;
+        continue;
+      }
+      if (now - readyAt > DELIVERY_EXPIRE_MS) {
+        delivery.state = "expired";
+        changed = true;
       }
     }
 
     // 最旧优先：提醒的价值随时间衰减，也避免新记录把旧记录顶死。
-    const candidates = state.runs
-      .filter((run) => run.delivery.state === "pending" && run.status !== "running")
-      .sort((a, b) => a.delivery.enqueuedAt - b.delivery.enqueuedAt)
-      .slice(0, capped);
+    // 安静或策略异常时直接不产生候选，避免刚回收的租约在同一轮被误领取。
+    const candidates = quietEvaluation && !quietEvaluation.quiet
+      ? state.runs
+        .filter((run) => run.delivery.state === "pending"
+          && run.status !== "running"
+          && !(run.delivery.holdUntil !== undefined && run.delivery.holdUntil > now))
+        .sort((a, b) => a.delivery.enqueuedAt - b.delivery.enqueuedAt)
+        .slice(0, capped)
+      : [];
 
     for (const run of candidates) {
       run.delivery.state = "delivering";
       run.delivery.attempts += 1;
       run.delivery.lastAttemptAt = now;
       run.delivery.leaseUntil = now + DELIVERY_LEASE_MS;
+      // PRO-01：通道计划在领取时算一次；前端只执行，不自己判断“该不该播”。
+      run.delivery.speechPlan = resolveDeliverySpeechPlan({
+        origin: run.origin,
+        speakOnDeliver: run.speakOnDeliver === true
+      });
       changed = true;
     }
 
@@ -361,7 +468,13 @@ class SchedulerStore {
    * 只有 delivering 记录接受结果；重复上报不改变终态。
    */
   recordDeliveryResults(
-    results: Array<{ runId: string; result: "sent" | "failed"; errorCode?: string }>
+    results: Array<{
+      runId: string;
+      result: "sent" | "failed";
+      errorCode?: string;
+      /** PRO-01：语音通道实际结果（仅可观测，不改变投递终态）。 */
+      speech?: { state: "sent" | "skipped" | "failed"; reason?: string };
+    }>
   ): number {
     const state = this.ensureLoaded();
     let changed = 0;
@@ -373,6 +486,15 @@ class SchedulerStore {
       run.delivery.state = item.result === "sent" ? "sent" : "failed";
       run.delivery.leaseUntil = undefined;
       run.delivery.errorCode = item.errorCode;
+      run.delivery.holdUntil = undefined;
+      run.delivery.holdReason = undefined;
+      if (item.speech) {
+        run.delivery.speechResult = {
+          state: item.speech.state,
+          reason: item.speech.reason?.slice(0, 40),
+          at: Date.now()
+        };
+      }
       changed += 1;
     }
     if (changed > 0) {

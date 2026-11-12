@@ -147,7 +147,9 @@ export function startScheduler(): { dueNow: string[]; missed: string[] } {
       finishedAt: now,
       status: "missed",
       summary: "过期未执行（应用未运行），已停用留查。",
-      delivery: createRunDelivery()
+      delivery: createRunDelivery(),
+      origin: job?.origin ?? "user",
+      speakOnDeliver: job?.speakOnDeliver === true
     });
   }
   armTimer();
@@ -190,7 +192,9 @@ export function requestManualRun(id: string): SchedulerRunRecord {
     jobName: job.name,
     startedAt: now,
     status: "running",
-    delivery: createRunDelivery()
+    delivery: createRunDelivery(),
+    origin: job.origin ?? "user",
+    speakOnDeliver: job.speakOnDeliver
   });
   manualOnce.add(id);
   manualRecords.set(id, record.id);
@@ -370,7 +374,9 @@ async function runJobById(id: string): Promise<void> {
       jobName: job.name,
       startedAt: now,
       status: "running",
-      delivery: createRunDelivery()
+      delivery: createRunDelivery(),
+      origin: job.origin ?? "user",
+      speakOnDeliver: job.speakOnDeliver
     });
   }
   if (!key) {
@@ -484,7 +490,14 @@ function finishRun(job: ScheduleJob, record: SchedulerRunRecord, status: Schedul
       schedulerStore.updateJob(fresh);
     }
   }
-  schedulerStore.updateRun({ ...record, status, finishedAt: now, summary: finalSummary, delivery: createRunDelivery() });
+  schedulerStore.updateRun({
+    ...record,
+    status,
+    finishedAt: now,
+    summary: finalSummary,
+    delivery: createRunDelivery(),
+    speakOnDeliver: job.speakOnDeliver
+  });
   // P1 可审计：每次落账记一条（终态可查，不含 prompt/正文，只记结论）。
   appendToolAudit({
     at: now,

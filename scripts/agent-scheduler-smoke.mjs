@@ -37,6 +37,12 @@ async function main() {
     const { createRunDelivery } = await import(
       pathToFileURL(path.join(projectRoot, "server/scheduler/schedulerTypes.ts")).href
     );
+    // PRO-04：本 smoke 验证 PRO-06 状态机，必须显式关闭安静时段，
+    // 否则夜间运行会把 claim 全部 hold，导致状态机断言随执行时间漂移。
+    const { proactivityStore } = await import(
+      pathToFileURL(path.join(projectRoot, "server/proactivity/proactivityStore.ts")).href
+    );
+    proactivityStore.setQuietHours({ enabled: false, startMinutes: 23 * 60, endMinutes: 8 * 60 });
     const now = Date.now();
 
     // at 归一化 + 非法拒绝
@@ -244,6 +250,50 @@ async function main() {
         "失败必须如实落 failed + 原因码，不能冒充已送达");
       const summary0 = await getJson("/void-scheduler/delivery/summary");
       assert(summary0.data.undelivered >= 1, "未送达计数应包含 failed");
+
+      // PRO-01 语音通道：claim 时给出计划；代理主动永不播报；结果单独回传。
+      const userSpeakRun = schedulerStore.appendRun({
+        jobId: "job_user_speak", jobName: "user-speak", startedAt: Date.now(), status: "succeeded", summary: "用户提醒",
+        origin: "user", speakOnDeliver: true, delivery: createRunDelivery()
+      });
+      const agentSpeakRun = schedulerStore.appendRun({
+        jobId: "heartbeat", jobName: "静默巡检", startedAt: Date.now(), status: "succeeded", summary: "巡检",
+        origin: "agent", speakOnDeliver: true, delivery: createRunDelivery()
+      });
+      const legacyRun = schedulerStore.appendRun({
+        jobId: "job_legacy", jobName: "legacy", startedAt: Date.now(), status: "succeeded", summary: "旧记录",
+        delivery: createRunDelivery()
+      });
+      const claimSpeech = await postJson("/void-scheduler/runs/claim", {});
+      const userPlan = claimSpeech.data.find((run) => run.id === userSpeakRun.id);
+      const agentPlan = claimSpeech.data.find((run) => run.id === agentSpeakRun.id);
+      const legacyPlan = claimSpeech.data.find((run) => run.id === legacyRun.id);
+      assert(userPlan?.delivery.speechPlan?.allowed === true && userPlan.delivery.speechPlan.reason === "REQUESTED",
+        "用户提醒 + speakOnDeliver=true 应请求语音");
+      assert(agentPlan?.delivery.speechPlan?.allowed === false && agentPlan.delivery.speechPlan.reason === "AGENT_SILENT",
+        "代理主动必须永不播报");
+      assert(legacyPlan?.delivery.speechPlan?.allowed === false && legacyPlan.delivery.speechPlan.reason === "NOT_REQUESTED",
+        "未声明播报意图的老记录不得播报");
+      await postJson("/void-scheduler/runs/ack", {
+        records: [
+          { runId: userSpeakRun.id, result: "sent", speech: { state: "sent" } },
+          { runId: agentSpeakRun.id, result: "sent", speech: { state: "skipped", reason: "AGENT_SILENT" } },
+          { runId: legacyRun.id, result: "sent", speech: { state: "failed", reason: "TTS_FAILED" } }
+        ]
+      });
+      const runsAfterSpeech = (await getJson("/void-scheduler/runs?limit=50")).data;
+      const userView = runsAfterSpeech.find((run) => run.id === userSpeakRun.id);
+      const agentView = runsAfterSpeech.find((run) => run.id === agentSpeakRun.id);
+      const legacyView = runsAfterSpeech.find((run) => run.id === legacyRun.id);
+      assert(userView.delivery.state === "sent" && userView.delivery.speechResult?.state === "sent",
+        "语音实际结果应落库");
+      assert(agentView.delivery.speechResult?.reason === "AGENT_SILENT", "代理主动语音应如实记录 AGENT_SILENT");
+      assert(legacyView.delivery.speechResult?.state === "failed" && legacyView.delivery.speechResult?.reason === "TTS_FAILED",
+        "语音失败必须可观测");
+      assert(legacyView.delivery.state === "sent", "语音状态不影响通知投递终态");
+      schedulerStore.resetMemory();
+      const persistedSpeech = schedulerStore.listRuns(100).find((run) => run.id === legacyRun.id);
+      assert(persistedSpeech.delivery.speechResult?.state === "failed", "语音结果应随 jobs.json 落盘");
 
       // 预授权判定 + anchor 锚点
       const { shouldPreApprove } = runner;
@@ -500,6 +550,31 @@ async function main() {
         "超过待投递上界应落 failed/QUEUE_FULL");
       await drainDeliveries();
 
+      // PRO-04：安静时段 hold 不领取、不递增 attempts、不因 60min 过期；关闭后立即解除。
+      const quietClock = new Date();
+      quietClock.setHours(23, 30, 0, 0);
+      const quietNowMs = quietClock.getTime();
+      proactivityStore.setQuietHours({ enabled: true, startMinutes: 23 * 60, endMinutes: 8 * 60 });
+      const quietRun = schedulerStore.appendRun({
+        jobId: "job_quiet", jobName: "quiet", startedAt: quietNowMs - 2 * 60 * 60_000,
+        status: "succeeded", summary: "quiet",
+        delivery: { state: "pending", attempts: 0, enqueuedAt: quietNowMs - 2 * 60 * 60_000 }
+      });
+      const quietClaim = schedulerStore.claimPendingDelivery(10, quietNowMs);
+      assert(!quietClaim.some((run) => run.id === quietRun.id), "安静时段不应领取 pending");
+      const quietView = schedulerStore.listRuns(100).find((run) => run.id === quietRun.id);
+      assert(quietView.delivery.state === "pending" && quietView.delivery.holdReason === "QUIET_HOURS",
+        "安静时段应落 pending + QUIET_HOURS");
+      assert(quietView.delivery.holdUntil > quietNowMs, "holdUntil 应指向安静时段结束");
+      assert(quietView.delivery.attempts === 0, "安静时段不应递增 attempts");
+      const fakeAck = schedulerStore.recordDeliveryResults([{ runId: quietRun.id, result: "sent" }]);
+      assert(fakeAck === 0 && schedulerStore.listRuns(100).find((run) => run.id === quietRun.id).delivery.state === "pending",
+        "安静时段 ack 不能把 pending 假报为 sent");
+      proactivityStore.setQuietHours({ enabled: false, startMinutes: 23 * 60, endMinutes: 8 * 60 });
+      const released = schedulerStore.claimPendingDelivery(10, quietNowMs + 60_000);
+      assert(released.some((run) => run.id === quietRun.id), "关闭安静时段后应立即解除 hold 并领取");
+      schedulerStore.recordDeliveryResults([{ runId: quietRun.id, result: "sent" }]);
+
       // A9 旧数据迁移：delivered 布尔迁移为 sent/pending
       writeFileSync(
         path.join(runtimeRoot, "scheduler", "jobs.json"),
@@ -525,6 +600,7 @@ async function main() {
     console.log("[agent-scheduler-smoke] PASSED");
     console.log(" - PRO-06投递：claim领取→如实上报sent/failed→重复上报幂等→终态不被覆盖");
     console.log(" - PRO-06状态机：租约过期重领递增/尝试超限failed/入队超时expired/队列上界QUEUE_FULL/旧delivered迁移");
+    console.log(" - PRO-01语音：claim 写 speechPlan；代理主动 AGENT_SILENT；用户提醒按 speakOnDeliver；结果落库不改终态");
     console.log(" - 失败升级：every连败3次缀标记，at失败缀停用");
     console.log(" - 自然时间：17例归一（上下午/半/上下周/号/每天cron/间隔）+4例拒绝+when归一/冲突/二选一/垃圾拒绝");
     console.log(" - 条件通知：首行NO_NOTIFY免打扰落suppressed，不参与领取");

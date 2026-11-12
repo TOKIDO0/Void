@@ -18,7 +18,7 @@ import {
   setSchedulerModelKey
 } from "./schedulerRunner";
 import { MAX_DELIVERY_BATCH, schedulerStore } from "./schedulerStore";
-import { getScheduleErrorInfo, type ScheduleCreateInput } from "./schedulerTypes";
+import { getScheduleErrorInfo, type ScheduleCreateInput, type ScheduleJob } from "./schedulerTypes";
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   if (response.destroyed || response.writableEnded) {
@@ -64,23 +64,10 @@ async function withSchedulerHandler<T>(
   }
 }
 
-function summarizeJob(job: {
-  id: string;
-  name: string;
-  kind: string;
-  enabled: boolean;
-  nextRunAtMs?: number;
-  lastRunAtMs?: number;
-  lastStatus?: string;
-  missedCount: number;
-  failStreak: number;
-  atMs?: number;
-  everyMs?: number;
-  expr?: string;
-  tz?: string;
-  speakOnDeliver: boolean;
-}): Record<string, unknown> {
-  return { ...job };
+function summarizeJob(job: ScheduleJob): Record<string, unknown> {
+  // origin 是内部投递来源标记，不扩散到模型工具契约。
+  const { origin: _origin, ...view } = job;
+  return view;
 }
 
 export async function handleSchedulerHttpRequest(
@@ -146,7 +133,7 @@ export async function handleSchedulerHttpRequest(
       job.nextRunAtMs = computeNextRunAtMs(job, job.createdAt, now);
       schedulerStore.updateJob(job);
       notifySchedulerChanged();
-      return job;
+      return summarizeJob(job);
     });
     return true;
   }
@@ -233,7 +220,12 @@ export async function handleSchedulerHttpRequest(
     await withSchedulerHandler(response, async () => {
       const body = asRecord(await readJsonBody(request));
       const rawRecords = Array.isArray(body.records) ? body.records.slice(0, MAX_DELIVERY_BATCH) : [];
-      const results: Array<{ runId: string; result: "sent" | "failed"; errorCode?: string }> = [];
+      const results: Array<{
+        runId: string;
+        result: "sent" | "failed";
+        errorCode?: string;
+        speech?: { state: "sent" | "skipped" | "failed"; reason?: string };
+      }> = [];
       for (const item of rawRecords) {
         const record = asRecord(item);
         const runId = typeof record.runId === "string" ? record.runId.trim() : "";
@@ -241,10 +233,20 @@ export async function handleSchedulerHttpRequest(
         if (!runId || !result) {
           continue;
         }
+        const speechRecord = asRecord(record.speech);
+        const speechState = speechRecord.state === "sent" || speechRecord.state === "skipped" || speechRecord.state === "failed"
+          ? speechRecord.state
+          : null;
         results.push({
           runId,
           result,
-          errorCode: typeof record.errorCode === "string" ? record.errorCode.slice(0, 40) : undefined
+          errorCode: typeof record.errorCode === "string" ? record.errorCode.slice(0, 40) : undefined,
+          speech: speechState
+            ? {
+              state: speechState,
+              reason: typeof speechRecord.reason === "string" ? speechRecord.reason.slice(0, 40) : undefined
+            }
+            : undefined
         });
       }
       return { recorded: schedulerStore.recordDeliveryResults(results) };

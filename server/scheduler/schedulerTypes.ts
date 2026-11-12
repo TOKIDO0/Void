@@ -6,6 +6,9 @@
 
 export type ScheduleKind = "at" | "every" | "cron";
 
+/** 投递来源：用户显式提醒 / 日程派生提醒 / 未来代理主动发起。 */
+export type ScheduleOrigin = "user" | "calendar" | "agent";
+
 export type ScheduleJob = {
   id: string;
   name: string;
@@ -39,6 +42,8 @@ export type ScheduleJob = {
   missedCount: number;
   /** 连续失败次数（退避/停用依据）。 */
   failStreak: number;
+  /** 投递来源；旧数据缺省按 user。 */
+  origin?: ScheduleOrigin;
 };
 
 export type SchedulerRunStatus =
@@ -56,6 +61,22 @@ export type SchedulerRunStatus =
  */
 export type DeliveryState = "pending" | "delivering" | "sent" | "failed" | "expired" | "suppressed";
 
+/** 投递被主动延后的原因；quiet hours 是“稍后投”，不是“永不投”。 */
+export type DeliveryHoldReason = "QUIET_HOURS" | "QUIET_POLICY_ERROR";
+
+/** PRO-01 语音通道计划：claim 时由 channel policy 写入；前端只执行，不自行判断。 */
+export type DeliverySpeechPlan = {
+  allowed: boolean;
+  reason: "REQUESTED" | "NOT_REQUESTED" | "AGENT_SILENT";
+};
+
+/** 语音实际结果：前端 ack 回传，仅用于可观测，不参与投递状态机。 */
+export type DeliverySpeechResult = {
+  state: "sent" | "skipped" | "failed";
+  reason?: string;
+  at: number;
+};
+
 export type RunDelivery = {
   state: DeliveryState;
   /** 领取次数；用于失败上限判定。 */
@@ -67,6 +88,14 @@ export type RunDelivery = {
   leaseUntil?: number;
   /** 失败原因码：PERMISSION_DENIED / BRIDGE_UNREACHABLE / QUEUE_FULL / UNKNOWN。 */
   errorCode?: string;
+  /** 最早可投递时间；仅 pending 时有意义。安静时段/策略异常时写入。 */
+  holdUntil?: number;
+  /** 延后原因；仅 pending 时有意义。 */
+  holdReason?: DeliveryHoldReason;
+  /** 语音通道计划；claim 时写入，终态保留供排查。 */
+  speechPlan?: DeliverySpeechPlan;
+  /** 语音实际结果；由前端 ack 写入，不改变投递终态。 */
+  speechResult?: DeliverySpeechResult;
 };
 
 /** 新建一条待投递记录（runner 建 run 时使用）。 */
@@ -89,6 +118,10 @@ export type SchedulerRunRecord = {
   summary?: string;
   /** 投递状态真源（PRO-06）。 */
   delivery: RunDelivery;
+  /** 投递来源；at job 成功后自删，所以必须随 run 留存。 */
+  origin?: ScheduleOrigin;
+  /** 创建时的播报意图；job 成功后自删，投递时必须还能判 PRO-01 语音计划。 */
+  speakOnDeliver?: boolean;
 };
 
 export type SchedulerState = {

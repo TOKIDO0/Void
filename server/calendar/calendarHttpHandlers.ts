@@ -146,7 +146,8 @@ function rebindReminder(event: CalendarEvent, previousJobId?: string): string | 
     enabled: true,
     missedCount: 0,
     failStreak: 0,
-    nextRunAtMs: remindAt
+    nextRunAtMs: remindAt,
+    origin: "calendar"
   });
   notifySchedulerChanged();
   return job.id;
